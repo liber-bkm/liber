@@ -24,6 +24,21 @@ type Config struct {
 	// when set (single-file can't always find the browser on its own).
 	SingleFileBrowserPath string `json:"singlefile_browser_path,omitempty"`
 
+	// ArchiveBackend selects the archiver; empty/"auto" tries single-file,
+	// then monolith, then native. See dev-docs.md#archive-backends.
+	ArchiveBackend string `json:"archive_backend,omitempty"`
+
+	// MonolithCmd is the monolith executable (https://github.com/Y2Z/monolith).
+	MonolithCmd string `json:"monolith_cmd,omitempty"`
+
+	// MonolithBrowserPath is a chromium-family binary used when
+	// MonolithUseBrowser is set.
+	MonolithBrowserPath string `json:"monolith_browser_path,omitempty"`
+
+	// MonolithUseBrowser pipes a headless chromium DOM dump into monolith
+	// instead of letting monolith fetch the page itself (adds JS rendering).
+	MonolithUseBrowser bool `json:"monolith_use_browser,omitempty"`
+
 	// BrowserCmd overrides the -s "open" command (default: xdg-open/open/start).
 	BrowserCmd string `json:"browser_cmd,omitempty"`
 
