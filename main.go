@@ -274,6 +274,20 @@ func runConfigCmd(args []string) error {
 	if cfg.SingleFileBrowserPath != "" {
 		fmt.Println("singlefile_browser_path ", cfg.SingleFileBrowserPath)
 	}
+	backend := cfg.ArchiveBackend
+	if backend == "" {
+		backend = "auto"
+	}
+	fmt.Println("archive_backend  ", backend)
+	if cfg.MonolithCmd != "" {
+		fmt.Println("monolith_cmd     ", cfg.MonolithCmd)
+	}
+	if cfg.MonolithBrowserPath != "" {
+		fmt.Println("monolith_browser_path ", cfg.MonolithBrowserPath)
+	}
+	if cfg.MonolithUseBrowser {
+		fmt.Println("monolith_use_browser true")
+	}
 	if cfg.BrowserCmd != "" {
 		fmt.Println("browser_cmd   ", cfg.BrowserCmd)
 	}
@@ -291,7 +305,9 @@ Usage:
   liber <url>                    save a bookmark
   liber <url> -i                 save interactively (prompts for description, tags, folder)
   liber <url> -md                also write a markdown copy
-  liber <url> -a                 also write a full-page archive (requires the 'single-file' CLI)
+  liber <url> -a                 also write a full-page archive; backend is chosen by
+                                   config archive_backend: auto (default) tries single-file,
+                                   then monolith, then the built-in static snapshot
   liber <url> -md -a             both markdown and archive
   liber <url> -t tag-a tag-b     attach tags at creation time
   liber <url> -f subfold         save into a subfolder of the base directory

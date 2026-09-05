@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"html"
 	"io"
@@ -13,6 +14,150 @@ import (
 	"strings"
 	"time"
 )
+
+// runArchive archives url to outPath with the configured backend; see dev-docs.md#archive-backends.
+func runArchive(cfg Config, url, outPath string) error {
+	switch strings.ToLower(strings.TrimSpace(cfg.ArchiveBackend)) {
+	case "single-file", "singlefile":
+		fmt.Println("Archiving with single-file ...")
+		return runSingleFile(cfg, url, outPath)
+	case "monolith":
+		fmt.Println("Archiving with monolith ...")
+		return runMonolith(cfg, url, outPath)
+	case "native":
+		fmt.Println("Archiving with native snapshot ...")
+		return runNativeArchive(url, outPath)
+	case "", "auto":
+		// priority chain: single-file -> monolith -> native
+		if findCmd(cfg.SingleFileCmd, "single-file") != "" {
+			fmt.Println("Archiving with single-file ...")
+			if err := runSingleFile(cfg, url, outPath); err == nil {
+				return nil
+			} else {
+				fmt.Printf("warning: single-file archive failed: %v -- trying monolith\n", err)
+			}
+		}
+		if findCmd(cfg.MonolithCmd, "monolith") != "" {
+			fmt.Println("Archiving with monolith ...")
+			if err := runMonolith(cfg, url, outPath); err == nil {
+				return nil
+			} else {
+				fmt.Printf("warning: monolith archive failed: %v -- trying native snapshot\n", err)
+			}
+		}
+		fmt.Println("Archiving with native snapshot ...")
+		return runNativeArchive(url, outPath)
+	default:
+		return fmt.Errorf("unknown archive_backend %q -- expected auto, single-file, monolith, or native", cfg.ArchiveBackend)
+	}
+}
+
+// runMonolith archives with monolith (https://github.com/Y2Z/monolith),
+// optionally rendering the page through headless chromium first.
+func runMonolith(cfg Config, url, outPath string) error {
+	cmdName := cfg.MonolithCmd
+	if cmdName == "" {
+		cmdName = "monolith"
+	}
+	if _, err := exec.LookPath(cmdName); err != nil {
+		return fmt.Errorf("%q not found in PATH -- install monolith (cargo/brew/pacman/your package manager)", cmdName)
+	}
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return err
+	}
+	if cfg.MonolithUseBrowser {
+		return runMonolithPiped(cfg, url, outPath, cmdName)
+	}
+	cmd := exec.Command(cmdName, url, "-o", outPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s: %s", err, msg)
+		}
+		return err
+	}
+	return nil
+}
+
+// runMonolithPiped pipes a headless chromium DOM dump into monolith's stdin,
+// reproducing: chromium --headless ... --dump-dom URL | monolith - -I -b URL -o out.
+func runMonolithPiped(cfg Config, url, outPath, monolithCmd string) error {
+	browser := findMonolithBrowser(cfg)
+	if browser == "" {
+		return fmt.Errorf("monolith_use_browser is on but no chromium found -- set monolith_browser_path")
+	}
+	chromium := exec.Command(browser,
+		"--headless", "--window-size=1920,1080",
+		"--run-all-compositor-stages-before-draw",
+		"--virtual-time-budget=9000", "--incognito",
+		"--dump-dom", url)
+	monolith := exec.Command(monolithCmd, "-", "-I", "-b", url, "-o", outPath)
+
+	pipe, err := chromium.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	monolith.Stdin = pipe
+	var chromiumErr, monolithErr bytes.Buffer
+	chromium.Stderr = &chromiumErr
+	monolith.Stderr = &monolithErr
+
+	if err := monolith.Start(); err != nil {
+		return err
+	}
+	if err := chromium.Start(); err != nil {
+		return fmt.Errorf("could not start browser %q: %w", browser, err)
+	}
+	var cerr, merr error
+	cerr = chromium.Wait()
+	merr = monolith.Wait()
+	if cerr != nil {
+		msg := strings.TrimSpace(chromiumErr.String())
+		if msg != "" {
+			return fmt.Errorf("chromium: %v: %s", cerr, msg)
+		}
+		return fmt.Errorf("chromium: %v", cerr)
+	}
+	if merr != nil {
+		msg := strings.TrimSpace(monolithErr.String())
+		if msg != "" {
+			return fmt.Errorf("monolith: %v: %s", merr, msg)
+		}
+		return fmt.Errorf("monolith: %v", merr)
+	}
+	return nil
+}
+
+// findMonolithBrowser returns the configured chromium path or the first of the common names on PATH.
+func findMonolithBrowser(cfg Config) string {
+	if p := cfg.MonolithBrowserPath; p != "" {
+		if _, err := exec.LookPath(p); err == nil {
+			return p
+		}
+		return ""
+	}
+	for _, name := range []string{"chromium", "chromium-browser", "google-chrome"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
+// findCmd returns the resolved command name if it exists, "" otherwise (used by the auto chain).
+func findCmd(configured, fallback string) string {
+	if configured != "" {
+		if _, err := exec.LookPath(configured); err == nil {
+			return configured
+		}
+		return ""
+	}
+	if _, err := exec.LookPath(fallback); err == nil {
+		return fallback
+	}
+	return ""
+}
 
 // runSingleFile shells out to single-file (https://github.com/gildas-lormeau/single-file-cli).
 func runSingleFile(cfg Config, url, outPath string) error {
