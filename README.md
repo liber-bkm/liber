@@ -5,7 +5,7 @@
 <img width="800" height="450" alt="liber-webui-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/08e04fdd-8ada-4872-92a4-4c2309bca375" />
 
 > [!Tip]
-> This readme also serves as liber's documentation. If you simply want to check basic usage, [see here](#usage-overview).
+> If this readme feels too long visit [liber-bkm.github.io](https://liber-bkm.github.io/start/quickstart/) for structred guide, detailed usage examples. The site covers everything including what readme has missed.
 
 - [Introduction](#introduction)
 - [Features](#features)
@@ -62,9 +62,10 @@ Liber is a cross-platform, simple, private and local CLI bookmark manager that s
 
 Liber itself has no dependencies, but some features require:
 
-- [fzf](https://github.com/junegunn/fzf) — fuzzy finder, for live search
-- [single-file-cli](https://github.com/gildas-lormeau/single-file-cli) — for full web page archive
-- `git` — for history and syncing
+- [fzf](https://github.com/junegunn/fzf) fuzzy finder, for live search
+- [single-file-cli](https://github.com/gildas-lormeau/single-file-cli) for full web page archive
+	- or [monolith](https://github.com/y2z/monolith)
+- `git` for history and syncing
 
 ### Build dependencies
 
@@ -162,7 +163,9 @@ Make sure to install the optional dependencies if you want the optional features
 - Open a terminal and you can start using liber. If you plan to use liber on the terminal extensively on Windows instead of the web UI (`liber --serve`), I'd recommend using Windows Terminal or [wezterm](https://wezterm.org/index.html).
 - In terminal run `liber config` to find the config directory and set it up as you see fit. See [Configuration](#configuration)
 - In windows make sure to set `singlefile_browser_path` to something like `firefox.exe` or `C:\Program Files...` accordingly.
+	- Or in case of monolith use `monolith_browser_path`
 - Although it should work by default but you may have to set `singlefile_cmd` to `single-file.exe` if it doesn't work by default.
+	- Or in case of monolith use `monolith_cmd`
 
 ## MacOS
 
@@ -180,7 +183,8 @@ If you don't want to go through every usage detail, here is the TLDR:
 liber <url>                    save a bookmark
 liber <url> -i                 save interactively (prompts for description, tags, folder)
 liber <url> -md                also write a markdown copy
-liber <url> -a                 also write a full-page archive (requires 'single-file')
+liber <url> -a                 also write a full-page archive (backend set via
+                                config archive_backend: single-file / monolith / native)
 liber <url> -md -a             both markdown and archive
 liber <url> -t tag-a tag-b     attach tags at creation time
 liber <url> -f subfold         save into a subfolder of the base directory
@@ -267,15 +271,15 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
 
   This creates a markdown copy and a webpage archive for that URL. Liber keeps archives and markdown copies in their respective folders under the base bookmarks folder. The archive, markdown, and bookmark are indexed and point to each other. For example, a bookmark of `google.com` would have `indexnumber-google.com.html` in the `html` folder, while the archive and markdown would live in the `archive` and `markdown` folders respectively with the same index. The index is dynamic and points to the bookmarks correctly; even if one file is deleted, the index rearranges them accordingly.
 
-- **Create a bookmark with specific tags or in a specific subdirectory**
+  Archiving picks a backend by configuration: by default `auto` tries `single-file` first (heaviest, most faithful), then `monolith` (fast, no browser needed), then the built-in `native` snapshot (plain Go, no dependencies, no JavaScript). See `archive_backend` in [Configuration](#configuration).
 
+- **Create a bookmark with specific tags or in a specific subdirectory**
   ```sh
   liber <url> -t tag-a tag-b   # use space to separate tags
   liber <url> -f folder-name   # subfolder the bookmark goes into
   ```
 
 - **Search**
-
   ```sh
   liber -s
   ```
@@ -361,10 +365,10 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
 - **Edit Url**
   ```sh
   liber -e <id> -u <new-url>       # non-interactive (works with id ranges)
-    liber -e <id>                    # interactive edit also prompts for the URL
-```
+  liber -e <id>                    # interactive edit also prompts for the URL
+  ```
 
-- **Attachments**
+ **Attachments**
 
   ```sh
   liber <url> -at example-file   # attach example-file to the related bookmark
@@ -375,15 +379,11 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
   Liber lets you attach files to bookmarks with the `-at` flag and remove them with the `-dt` flag. Useful for associating multiple archives related to a bookmark, or other related files.
 
 - **Show config and base directories:**
-
   ```sh
   liber config
   ```
-
   This shows where your config is and where bookmarks are stored.
-
 - **Import:**
-
   ```sh
   liber --import <path>
   ```
@@ -391,7 +391,6 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
   Liber can import bookmarks from a browser's exported bookmarks file where `<path>` is the location of that file. See details in the [Importing Bookmarks](#importing-bookmarks) section below.
 
 - **Tags and folder management:**
-
   ```sh
   liber --tags                     # list all tags and the bookmarks in them (count)
   liber --folders                  # list all folders
@@ -550,7 +549,11 @@ The configuration is simple and lets you define your bookmarks directory and the
 {
   "base_dir": "/home/you/Bookmarks",
   "singlefile_cmd": "single-file"
-  // optionally add "singlefile_browser_path": "firefox"
+  // "singlefile_browser_path": "firefox"
+  // "monolith_cmd": "monolith"
+  // "archive_backes": "single-file" or "monolith" or "native"
+  // "monolith_use_browser": false,
+  // "monolith_browser_path": "firefox"
 }
 ```
 
@@ -560,13 +563,22 @@ Fields:
 - `html_dir` / `markdown_dir` / `archive_dir` / `attachment_dir`: override any of the four subdirectories individually; each defaults to `<base_dir>/html`, `<base_dir>/markdown`, `<base_dir>/archive`, `<base_dir>/attachments`.
 - `singlefile_cmd`: the executable used for `-a` archiving (default `single-file`).
 - `singlefile_browser_path`: browser executable handed to `single-file` as `--browser-executable-path` on every archive run (leave unset to let `single-file` find the browser itself). Useful when `single-file` can't locate e.g. Brave: `"singlefile_browser_path": "/usr/bin/brave"`.
+- `archive_backend`: which archiver `-a` uses  `"single-file"`, `"monolith"`, `"native"`, or `"auto"` (the default). `auto` tries them in that order, skipping whichever binary isn't installed and falling back on failure; an explicit backend is strict and errors instead of falling back. `native` is built in and always available, so archiving never dead-ends.
+- `monolith_cmd`: the [monolith](https://github.com/Y2Z/monolith) executable for the monolith backend (default `monolith`). Monolith needs no browser and is a good fit for headless machines; it can't render JavaScript-driven pages on its own.
+- `monolith_use_browser` + `monolith_browser_path`: when `monolith_use_browser` is `true`, liber renders the page with a headless chromium-family browser (`monolith_browser_path`, else `chromium` / `chromium-browser` / `google-chrome` from `PATH`) and pipes the DOM into monolith:
+
+  ```sh
+  chromium --headless --dump-dom <url> | monolith - -I -b <url> -o <out>
+  ```
+
+  which archives even JavaScript-rendered pages without a full single-file setup.
 - `browser_cmd`: override the command used by `liber -s`'s "open"/"archive" actions (defaults to `xdg-open` / `open` / the Windows shell handler, by OS).
 - `editor_cmd`: override the command used by `liber -s`'s "markdown" action (defaults to `$VISUAL`, then `$EDITOR`, then the OS's default file association, in that order).
 
 Run `liber config` to see the resolved paths.
 
 >[!Warning]
->If liber is not archiving bookmarks, make sure all dependencies are installed and `"singlefile_browser_path"` option is set in `config.json`
+>If liber is not archiving bookmarks, make sure all dependencies are installed and `"singlefile_browser_path"` or `monolith` options are set properly in `config.json` 
 
 ## Layout Example
 
@@ -603,6 +615,53 @@ Nothing changes if you never touch `--profile` — the original flat layout (`ba
 **2. Renumber to close id gaps.** If you had ids 1–4 and deleted 3, `liber -l` would otherwise show 1, 2, 4 forever. `liber -r` renumbers the remainder to 1, 2, 3, in their existing order — it's a gap-closing compaction, not an alphabetical or any other kind of sort. Since ids are embedded in filenames (`0004-...` → `0003-...`), this physically renames each affected bookmark's HTML/markdown/archive/attachment files to match. That rename is done in two passes: every affected file is moved to a temporary staging name first, and only once all of them are staged does anything land on its final numbered name — so a bookmark moving into a lower id slot can never collide with, or get confused with, another bookmark's files, no matter how many ids shift in the same run.
 
 Safe to run any time. Step 1 never touches a bookmark whose HTML file is still there and never deletes anything outright, and step 2 only ever renames files, never their content.
+
+## Archive backends
+
+`liber -a` can archive a page through three backends, selected by
+`"archive_backend"` in `config.json`:
+
+| Backend | What it does | Needs |
+|---|---|---|
+| `single-file` | Renders the page in a headless browser and bundles everything | `single-file-cli` + a browser |
+| `monolith` | Fetches the page and inlines assets as data URIs; no browser | `monolith` binary |
+| `native` | Built-in static snapshot: fetches the page, inlines images/styles/snippets as data URIs, **scripts are stripped** | nothing |
+
+With `"archive_backend": "auto"` (the default), liber tries them in that
+order — skipping any whose binary is missing and falling through on
+failure — and the built-in `native` backend always exists, so archiving
+never dead-ends. Setting an explicit backend makes it strict: an error,
+no silent fallback.
+
+`monolith` vs `native`: monolith is more complete (fonts, caching hints,
+edge-case handling) while `native` is dependency-free and fully static —
+no JavaScript is kept at all (`<script>` elements are removed, `<noscript>`
+fallbacks are unwrapped), so it's ideal for housekeeping content like
+guides/docs on headless servers.
+
+Monolith can also render JavaScript pages via a headless chromium pipe:
+
+```json
+{
+  "archive_backend": "monolith",
+  "monolith_use_browser": true,
+  "monolith_browser_path": "/usr/bin/chromium"
+}
+```
+
+This runs the equivalent of:
+
+```sh
+chromium --headless --window-size=1920,1080 \
+         --run-all-compositor-stages-before-draw --virtual-time-budget=9000 \
+         --incognito --dump-dom <url> | monolith - -I -b <url> -o <out>
+```
+
+If `monolith_use_browser` is true and `monolith_browser_path` is unset,
+`chromium`, `chromium-browser`, and `google-chrome` are tried from `PATH`.
+
+Config keys for this: `archive_backend` (default `auto`),
+`monolith_cmd`, `monolith_use_browser`, `monolith_browser_path`.
 
 # Design notes
 
