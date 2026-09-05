@@ -20,7 +20,7 @@
           vendorHash = null;
 
           ldflags = [ "-X main.Version=0.6.4" ];
-          buildInputs = [ pkgs.fzf pkgs.single-file-cli ];
+          buildInputs = [ pkgs.fzf pkgs.single-file-cli pkgs.monolith];
 
 
           meta = with pkgs.lib; {
@@ -32,7 +32,7 @@
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = [ pkgs.go pkgs.gopls pkgs.fzf ];
+          buildInputs = [ pkgs.go pkgs.gopls pkgs.fzf pkgs.monolith pkgs.single-file-cli];
         };
 
         apps.default = flake-utils.lib.mkApp { drv = self.packages.${system}.default; };
