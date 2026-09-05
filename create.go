@@ -125,8 +125,8 @@ func addBookmarkToStore(cfg Config, store *Store, url, title, description string
 	if addArchive {
 		archRel := filepath.Join(folder, base+".html")
 		archAbs := filepath.Join(cfg.archiveDir(), archRel)
-		fmt.Printf("Archiving %s with single-file ...\n", url)
-		if err := runSingleFile(cfg, url, archAbs); err != nil {
+		fmt.Printf("Archiving %s ...\n", url)
+		if err := runArchive(cfg, url, archAbs); err != nil {
 			fmt.Printf("warning: archive failed for %s: %v\n", url, err)
 		} else {
 			b.ArchiveFile = archRel

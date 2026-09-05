@@ -92,8 +92,7 @@ func addArchiveCopy(cfg Config, b *Bookmark) {
 		return
 	}
 	rel := filepath.Join(b.Folder, sharedBase(b)+".html")
-	fmt.Println("Archiving page with single-file ...")
-	if err := runSingleFile(cfg, b.URL, filepath.Join(cfg.archiveDir(), rel)); err != nil {
+	if err := runArchive(cfg, b.URL, filepath.Join(cfg.archiveDir(), rel)); err != nil {
 		fmt.Printf("warning: archive failed: %v\n", err)
 		return
 	}
