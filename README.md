@@ -145,6 +145,15 @@ make && sudo make install
 
 Make sure to install the optional dependencies if you want the optional features.
 
+## Generic Linux install
+- Download the binary from latest releases or directly from [here](https://github.com/liber-bkm/releases/latest/download/liber)
+- Place the binary in your PATH:
+- It is recommended to build from source instead of using prebuild binaries 
+```/usr/local/bin # or  ~/.local/bin```
+
+
+
+
 ## Windows
 
 - Download the `liber-setup.exe` from the [latest releases](https://github.com/liber-bkm/liber/releases/latest) or use the [direct download link](https://github.com/liber-bkm/liber/releases/latest/download/liber-setup.exe)
