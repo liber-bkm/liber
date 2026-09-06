@@ -13,7 +13,6 @@
 	- [Dependencies](#dependencies)
 	- [Arch Linux](#arch-linux)
 	- [NixOS](#nixos)
-	- [Generic Linux install](#generic-linux-install)
 	- [Build from Source](#build-from-source)
 	- [Windows](#windows)
 	- [MacOS](#macos)
@@ -119,16 +118,6 @@ This repo provides a flake to install it on your NixOS system.
 > [!Note]
 > The Nix and Arch builds don't ship with optional dependencies; you'll have to install/declare them on your own.
 
-## Generic Linux install
-
-- Download the binary from [latest releases](https://github.com/liber-bkm/liber/releases/latest) or directly from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber)
-- Place the binary in your `PATH`:
-
-  ```sh
-  /usr/local/bin
-  # or
-  ~/.local/bin
-  ```
 
 ## Build from Source
 
