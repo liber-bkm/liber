@@ -121,6 +121,7 @@ type webBookmarkView struct {
 	Tags                     []string
 	HasMarkdown, HasArchive  bool
 	AttachCount              int
+	AttachOne                bool
 }
 
 func toWebViews(list []*Bookmark) []webBookmarkView {
@@ -131,7 +132,7 @@ func toWebViews(list []*Bookmark) []webBookmarkView {
 			Folder: displayFolder(b.Folder), FolderRaw: b.Folder,
 			Desc: b.Description, Tags: b.Tags,
 			HasMarkdown: b.MarkdownFile != "", HasArchive: b.ArchiveFile != "",
-			AttachCount: len(b.Attachments),
+			AttachCount: len(b.Attachments), AttachOne: len(b.Attachments) == 1,
 		})
 	}
 	return out
@@ -790,7 +791,7 @@ var searchBodyTmpl = template.Must(template.New("searchBody").Parse(`
 <ul class="results">
 {{range .Results}}
 <li>
-  <div class="title"><a class="link" href="{{.URL}}" target="_blank" rel="noopener">{{.Title}}</a>{{if .HasMarkdown}} <a class="badge" href="/markdown/{{.ID}}">md</a>{{end}}{{if .HasArchive}} <a class="badge" href="/archive/{{.ID}}">arc</a>{{end}}{{if .AttachCount}} <a class="badge" href="/edit/{{.ID}}" title="attachments">att{{if gt .AttachCount 1}}{{.AttachCount}}{{end}}</a>{{end}}</div>
+  <div class="title"><a class="link" href="{{.URL}}" target="_blank" rel="noopener">{{.Title}}</a>{{if .HasMarkdown}} <a class="badge" href="/markdown/{{.ID}}">md</a>{{end}}{{if .HasArchive}} <a class="badge" href="/archive/{{.ID}}">arc</a>{{end}}{{if .AttachCount}} {{if .AttachOne}}<a class="badge" href="/attachment/{{.ID}}/1" title="attachment">att</a>{{else}}<a class="badge" href="/edit/{{.ID}}" title="attachments">att{{.AttachCount}}</a>{{end}}{{end}}</div>
   <div class="meta">{{.URL}} &middot; {{if .FolderRaw}}<a class="chip folder" href="/?q={{.FolderRaw | urlquery}}&amp;scope=f" title="filter by folder {{.Folder}}">{{.Folder}}</a>{{else}}{{.Folder}}{{end}}{{if .Tags}}{{range .Tags}} <a class="tag chip" href="/?q={{. | urlquery}}&amp;scope=t" title="filter by tag {{.}}">#{{.}}</a>{{end}}{{end}} &middot; id {{.ID}}</div>
   {{if .Desc}}<div class="desc">{{.Desc}}</div>{{end}}
   <div class="rowlinks">
