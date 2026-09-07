@@ -53,6 +53,8 @@ func runServe(args []string) error {
 	mux.HandleFunc("/archive/", handleArchive)
 	mux.HandleFunc("/markdown/", handleMarkdown)
 	mux.HandleFunc("/attachment/", handleAttachment)
+	mux.HandleFunc("/settings", handleSettings)
+	mux.HandleFunc("/settings/auto/", handleSettingsAuto)
 
 	fmt.Printf("liber web UI: http://%s (Ctrl+C to stop)\n", addr)
 	return http.ListenAndServe(addr, mux)
@@ -663,6 +665,18 @@ a.chip.folder { color: var(--fg-soft); }
 .pager .disabled { color: var(--muted); }
 .pager a { color: var(--link); text-decoration: none; }
 .themetoggle { position: fixed; top: .8rem; right: .8rem; z-index: 10; width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 999px; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); cursor: pointer; font-size: 1rem; line-height: 1; }
+.settingslink { position: fixed; top: .8rem; right: 3.3rem; z-index: 10; width: 2.1rem; height: 2.1rem; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); text-decoration: none; font-size: 1rem; line-height: 1; }
+.settingslink:hover { text-decoration: none; }
+.setform { display: grid; grid-template-columns: 210px 1fr; gap: .45rem .8rem; align-items: center; margin: .5rem 0 0; max-width: 780px; }
+.setform label { font-size: .85rem; color: var(--fg-soft); }
+.setform input[type=text] { padding: .35rem .55rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; font-family: inherit; }
+.setform input:placeholder-shown { }
+.setdetect { font-size: .8rem; color: var(--muted); }
+.ruleform { border: 1px solid var(--border); border-radius: 4px; padding: .6rem .8rem; margin: .5rem 0; background: var(--surface); }
+.ruleform .fields { display: flex; flex-wrap: wrap; gap: .5rem; margin: .3rem 0; }
+.ruleform input[type=text] { padding: .3rem .5rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
+.ruleform label { font-size: .8rem; color: var(--muted); display: flex; flex-direction: column; gap: .15rem; }
+.stry { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
 `
 
 const themeInitScript = `(function(){
@@ -691,6 +705,7 @@ paint();
 var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{{.Title}}</title><script>` + themeInitScript + `</script><style>` + pageCSS + `</style></head>
 <body>
+<a class="settingslink" href="/settings" title="Settings" aria-label="Settings">&#9881;</a>
 <button id="themetoggle" class="themetoggle" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme"></button>
 <div class="wrap">
 <h1><a href="/">liber</a></h1>
