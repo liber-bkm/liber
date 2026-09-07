@@ -184,6 +184,8 @@ func run(args []string) error {
 		return runPreview(id)
 	case "config":
 		return runConfigCmd(args[1:])
+	case "pick":
+		return runPick(args[1:])
 	}
 
 	if strings.HasPrefix(args[0], "-") {
