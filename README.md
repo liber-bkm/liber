@@ -146,7 +146,7 @@ make && sudo make install
 Make sure to install the optional dependencies if you want the optional features.
 
 ## Generic Linux install
-- Download the binary from latest releases or directly from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber)
+- Download the binary from latest releases or directly from [latest release](https://github.com/liber-bkm/liber/releases/latest/) based on your architecture 
 - Place the binary in your PATH:
 - It is recommended to build from source instead of using prebuild binaries 
 ```/usr/local/bin # or  ~/.local/bin```
@@ -167,6 +167,7 @@ Make sure to install the optional dependencies if you want the optional features
 
 ## MacOS
 
+- It is recommended to compile liber but you can download binary from [latest release](https://github.com/liber-bkm/liber/releases/latest).
 - Install `fzf` and `single-file-cli` (either from their respective GitHub repos or via Homebrew)
 - Clone the repository or download the source tarball from the latest release
 - Build using `go` and place the binary in your `PATH`
