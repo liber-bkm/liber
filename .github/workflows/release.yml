@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet and test
+        run: |
+          go vet ./...
+          go build ./...
+          go test -v ./...
+
+      - name: Cross-compile
+        run: |
+          set -e
+          mkdir -p dist
+          build() {
+            GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build \
+              -ldflags "-X main.Version=${GITHUB_REF_NAME}" \
+              -o "dist/$3" .
+          }
+          build linux amd64 liber
+          build linux arm64 liber-linux-arm64
+          build darwin amd64 liber-darwin-amd64
+          build darwin arm64 liber-darwin-arm64
+
+      - name: Checksums
+        run: |
+          cd dist && sha256sum * > SHA256SUMS.txt
+
+      - name: PKGBUILD
+        run: |
+          mkdir -p dist
+          sed "s/@VERSION@/${GITHUB_REF_NAME#v}/" packaging/PKGBUILD > dist/PKGBUILD
+          # sanity: makepkg --lint is Arch-only; at least refuse unsubstituted versions
+          ! grep -q '@VERSION@' dist/PKGBUILD
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            dist/liber \
+            dist/liber-linux-arm64 \
+            dist/liber-darwin-amd64 \
+            dist/liber-darwin-arm64 \
+            dist/SHA256SUMS.txt \
+            dist/PKGBUILD \
+            --clobber

@@ -1,0 +1,20 @@
+# Maintainer: liber <https://github.com/liber-bkm/liber>
+pkgname=liber
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="A small, dependency-free CLI bookmark manager (html + markdown + archive)"
+arch=('x86_64')
+url="https://github.com/liber-bkm/liber"
+license=('MIT')
+optdepends=(
+    'fzf: fuzzy picker for liber -s'
+    'single-file-cli: full-page archives (liber -a, archive_backend=single-file)'
+    'monolith: HTML archival alternative (archive_backend=monolith)'
+)
+source=("${pkgname}-${pkgver}::https://github.com/liber-bkm/liber/releases/download/v${pkgver}/liber"
+        "SHA256SUMS.txt")
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+    install -Dm755 "${srcdir}/${pkgname}-${pkgver}" "${pkgdir}/usr/bin/liber"
+}
