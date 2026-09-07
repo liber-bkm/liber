@@ -9,7 +9,6 @@ import (
 
 var stdinReader = bufio.NewReader(os.Stdin)
 
-// exitOnEOF stops the program cleanly when stdin closes mid-prompt.
 func exitOnEOF(err error) {
 	if err != nil {
 		fmt.Println("\n(no more input -- exiting)")
@@ -24,7 +23,6 @@ func promptLine(label string) string {
 	return strings.TrimSpace(line)
 }
 
-// promptDefault shows def as the pre-filled value; pressing Enter keeps it.
 func promptDefault(label, def string) string {
 	if def != "" {
 		fmt.Printf("%s [%s]: ", label, def)

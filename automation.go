@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-// ruleMatches is a case-insensitive substring check; "host:"/"title:" prefixes
-// switch the target from the URL (default) to its host or the bookmark's title.
-// See dev-docs.md#automation.
 func ruleMatches(r *AutoRule, url, title string) bool {
 	match := r.Match
 	target := strings.ToLower(url)
@@ -21,7 +18,6 @@ func ruleMatches(r *AutoRule, url, title string) bool {
 	return match != "" && strings.Contains(target, match)
 }
 
-// hostOf returns the lowercased host part of url, or "" if it can't be parsed.
 func hostOf(url string) string {
 	rest := url
 	if i := strings.Index(rest, "://"); i != -1 {
@@ -30,7 +26,6 @@ func hostOf(url string) string {
 	if i := strings.IndexAny(rest, "/?#"); i != -1 {
 		rest = rest[:i]
 	}
-	// strip any port -- host-only matching should ignore it
 	if i := strings.LastIndex(rest, ":"); i != -1 {
 		rest = rest[:i]
 	}
@@ -63,7 +58,6 @@ func ruleIDsOf(applied []AppliedAutoRule) []int {
 	return ids
 }
 
-// resolveAutoRulesForNew computes the effective folder/tags for a brand new bookmark; see dev-docs.md#automation.
 func resolveAutoRulesForNew(store *Store, url, title, folder string, tags []string) (string, []string, []AppliedAutoRule) {
 	var applied []AppliedAutoRule
 	for _, r := range store.AutoRules {
@@ -90,7 +84,6 @@ func resolveAutoRulesForNew(store *Store, url, title, folder string, tags []stri
 	return folder, tags, applied
 }
 
-// applyRulesToExisting applies not-yet-seen rules to an existing bookmark; see dev-docs.md#automation.
 func applyRulesToExisting(cfg Config, b *Bookmark, rules []*AutoRule) bool {
 	seen := map[int]bool{}
 	for _, a := range b.AppliedRules {
@@ -128,7 +121,6 @@ func applyRulesToExisting(cfg Config, b *Bookmark, rules []*AutoRule) bool {
 	return changed
 }
 
-// reapplyRule re-syncs a rule's effect after it was edited; see dev-docs.md#automation.
 func reapplyRule(cfg Config, b *Bookmark, r *AutoRule) bool {
 	prev, hadPrev := findAppliedRule(b.AppliedRules, r.ID)
 

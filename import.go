@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// netscapeTagRe scans the Netscape Bookmark File Format; see dev-docs.md#import-format.
 var netscapeTagRe = regexp.MustCompile(`(?is)` +
 	`<DT>\s*<H3(?P<h3attrs>[^>]*)>(?P<foldername>.*?)</H3>` +
 	`|(?P<dlopen><DL>\s*<p>)` +
@@ -30,7 +29,6 @@ type importedEntry struct {
 	desc    string
 }
 
-// parseNetscapeBookmarks returns every link with its folder from <H3>/<DL> nesting.
 func parseNetscapeBookmarks(content string) []importedEntry {
 	matches := netscapeTagRe.FindAllStringSubmatchIndex(content, -1)
 	names := netscapeTagRe.SubexpNames()
@@ -97,7 +95,6 @@ func parseNetscapeBookmarks(content string) []importedEntry {
 	return entries
 }
 
-// importOptions are the flags for `liber --import <path> [-md] [-a]`.
 type importOptions struct {
 	Markdown bool
 	Archive  bool

@@ -2,9 +2,6 @@ package main
 
 import "fmt"
 
-// runCompletion prints a completion script for the given shell.
-// Dynamic values (tags, folders, ids) are fetched by calling liber itself
-// at completion time, so the scripts never go stale.
 func runCompletion(args []string) error {
 	if len(args) != 1 {
 		return fmt.Errorf("usage: liber completion bash|zsh|fish")
