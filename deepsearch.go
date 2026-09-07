@@ -11,10 +11,8 @@ import (
 
 var scriptStyleRe = regexp.MustCompile(`(?is)<(script|style)[^>]*>.*?</(script|style)>`)
 
-// maxArchiveScanBytes caps how much of one archive file deep search reads.
 const maxArchiveScanBytes = 5 * 1024 * 1024
 
-// extractArchiveText is a best-effort HTML-to-text conversion; see dev-docs.md#deep-search.
 func extractArchiveText(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -31,7 +29,6 @@ func extractArchiveText(path string) (string, error) {
 	return html.UnescapeString(s), nil
 }
 
-// filterDeep narrows list to metadata-or-archive-content matches; see dev-docs.md#deep-search.
 func filterDeep(cfg Config, list []*Bookmark, query string, fields SearchFields) []*Bookmark {
 	q := strings.ToLower(strings.TrimSpace(query))
 	var out []*Bookmark

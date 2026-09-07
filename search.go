@@ -47,7 +47,6 @@ func runSearch(fields SearchFields, deep bool) error {
 	return runSearchPrompt(cfg, store, fields)
 }
 
-// runSearchLegacy skips the fzf check (used by `liber -sl` and its field-restricted variants).
 func runSearchLegacy(fields SearchFields, deep bool) error {
 	cfg, store, err := loadCfgAndStore()
 	if err != nil {
@@ -67,7 +66,6 @@ func runSearchLegacy(fields SearchFields, deep bool) error {
 	return runSearchPrompt(cfg, store, fields)
 }
 
-// promptDeepQuery asks once for a query and returns the filtered list; see dev-docs.md#deep-search.
 func promptDeepQuery(cfg Config, store *Store, fields SearchFields) ([]*Bookmark, bool) {
 	q := promptLine(fmt.Sprintf("Deep search %s + archive content (empty = all)", fields.Label()))
 	if strings.TrimSpace(q) == "" {
@@ -83,7 +81,6 @@ func promptDeepQuery(cfg Config, store *Store, fields SearchFields) ([]*Bookmark
 	return list, true
 }
 
-// runSearchFzf loops the fzf picker (fresh bookmark list each time) into the action menu.
 func runSearchFzf(cfg Config, store *Store, fields SearchFields) error {
 	for {
 		all := store.All()
@@ -108,7 +105,6 @@ func runSearchFzf(cfg Config, store *Store, fields SearchFields) error {
 	}
 }
 
-// runSearchFzfList is runSearchFzf over a fixed list (deep search's one-time snapshot).
 func runSearchFzfList(cfg Config, store *Store, fields SearchFields, list []*Bookmark) error {
 	for {
 		if len(list) == 0 {
@@ -132,7 +128,6 @@ func runSearchFzfList(cfg Config, store *Store, fields SearchFields, list []*Boo
 	}
 }
 
-// runSearchPrompt is the dependency-free fallback: query, list, act, repeat.
 func runSearchPrompt(cfg Config, store *Store, fields SearchFields) error {
 	label := fmt.Sprintf("Search %s (empty = all, 'q' to quit)", fields.Label())
 	for {
@@ -173,7 +168,6 @@ func runSearchPrompt(cfg Config, store *Store, fields SearchFields) error {
 	}
 }
 
-// runPlainListLoop is runSearchPrompt's inner loop over a fixed list (deep search).
 func runPlainListLoop(cfg Config, store *Store, list []*Bookmark) error {
 	printResults(list)
 	for {
@@ -292,7 +286,6 @@ func printResults(list []*Bookmark) {
 	fmt.Println()
 }
 
-// badgeSuffix renders " [md]", " [arc,att2]", " [att]", or "" -- see dev-docs.md#attachments.
 func badgeSuffix(b *Bookmark) string {
 	var parts []string
 	if b.MarkdownFile != "" {

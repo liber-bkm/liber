@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// validateProfileName rejects anything unsafe as a path segment; see dev-docs.md#profiles.
 func validateProfileName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {

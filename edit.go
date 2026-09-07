@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// syncBookmarkFiles moves files if the folder changed, then rewrites content to match b.
 func syncBookmarkFiles(cfg Config, b *Bookmark, folderChanged bool) {
 	if b.HTMLFile != "" {
 		rel := b.HTMLFile
@@ -64,13 +63,11 @@ func deleteBookmarkFiles(cfg Config, b *Bookmark) {
 	}
 }
 
-// sharedBase returns the id-slug basename shared across a bookmark's files; see dev-docs.md#data-model.
 func sharedBase(b *Bookmark) string {
 	base := filepath.Base(b.HTMLFile)
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-// addMarkdownCopy adds a markdown copy if missing; no-op if one already exists.
 func addMarkdownCopy(cfg Config, b *Bookmark) {
 	if b.MarkdownFile != "" {
 		fmt.Println("Already has a markdown copy -- skipping.")
@@ -85,7 +82,6 @@ func addMarkdownCopy(cfg Config, b *Bookmark) {
 	fmt.Println("Added markdown copy.")
 }
 
-// addArchiveCopy adds an archive if missing; no-op if one already exists.
 func addArchiveCopy(cfg Config, b *Bookmark) {
 	if b.ArchiveFile != "" {
 		fmt.Println("Already has an archive -- skipping.")
@@ -100,7 +96,6 @@ func addArchiveCopy(cfg Config, b *Bookmark) {
 	fmt.Println("Added archive.")
 }
 
-// editBookmarkInteractive prompts for every field and offers to add missing markdown/archive.
 func editBookmarkInteractive(cfg Config, b *Bookmark) {
 	newURL := normalizeURL(promptDefault("URL", b.URL))
 	newTitle := promptDefault("Title", b.Title)
@@ -133,7 +128,6 @@ func editBookmarkInteractive(cfg Config, b *Bookmark) {
 	fmt.Println("Updated.")
 }
 
-// editFlags are the flags for `liber -e <id> [-t ...] [-f folder] [-md] [-a] [-at file] [-dt match]`.
 type editFlags struct {
 	tagsSet     bool
 	tags        []string

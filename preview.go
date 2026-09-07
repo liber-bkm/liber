@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// runPreview is fzf's --preview callback (`liber __preview <id>`); see dev-docs.md#fzf-integration.
 func runPreview(id int) error {
 	cfg, store, err := loadCfgAndStore()
 	if err != nil {

@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// Tab-delimited field indices fed to fzf; see dev-docs.md#fzf-integration.
 const (
 	fldID          = 1
 	fldTitle       = 2
@@ -33,7 +32,6 @@ func selfPath() string {
 	return p
 }
 
-// withNthFor computes --with-nth; see dev-docs.md#fzf-integration.
 func withNthFor(fields SearchFields) string {
 	var idxs []string
 	if !fields.Any() {
@@ -59,7 +57,6 @@ func withNthFor(fields SearchFields) string {
 	return strings.Join(idxs, ",")
 }
 
-// sanitizeField collapses whitespace/newlines and truncates to maxLen.
 func sanitizeField(s string, maxLen int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) > maxLen {
@@ -68,7 +65,6 @@ func sanitizeField(s string, maxLen int) string {
 	return s
 }
 
-// pickWithFzf renders bookmarks to fzf and returns the picked id; see dev-docs.md#fzf-integration.
 func pickWithFzf(list []*Bookmark, fields SearchFields) (id int, ok bool, err error) {
 	var buf bytes.Buffer
 	for _, b := range list {
@@ -137,7 +133,7 @@ func pickWithFzf(list []*Bookmark, fields SearchFields) (id int, ok bool, err er
 	if runErr != nil {
 		if exitErr, isExit := runErr.(*exec.ExitError); isExit {
 			switch exitErr.ExitCode() {
-			case 1, 130: // no match / interrupted -- not a failure
+			case 1, 130: // user cancelled, not an error
 				return 0, false, nil
 			default:
 				msg := strings.TrimSpace(stderr.String())
@@ -154,7 +150,6 @@ func pickWithFzf(list []*Bookmark, fields SearchFields) (id int, ok bool, err er
 	if line == "" {
 		return 0, false, nil
 	}
-	// fzf always returns the full raw line regardless of --with-nth.
 	parts := strings.SplitN(line, "\t", 2)
 	parsedID, convErr := strconv.Atoi(strings.TrimSpace(parts[0]))
 	if convErr != nil {
