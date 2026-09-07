@@ -30,7 +30,7 @@
 
 # Introduction
 
-Liber is a cross-platform, simple, private and local CLI bookmark manager that saves bookmarks as browsable plain-text HTML files, optionally archives webpages and writes a markdown copy for bookmark-specific notes, with configurable directories. It also has a simple yet efficient web UI to work in the browser. It uses a simple JSON index (to avoid depending on a database) to manage bookmarks behind the scenes.
+Liber is a cross-platform, simple, private and local bookmark manager that saves bookmarks as browsable plain-text HTML files, optionally archives webpages and writes a markdown copy for bookmark-specific notes, with configurable directories. It can work in CLI or as webUI that is simple yet efficient to work in the browser. It uses a simple JSON index (to avoid depending on a database) to manage bookmarks behind the scenes.
 
 <h2 style="text-align: center;">Available For</h2>
 <div style="display: flex; gap: 20px;"> <div style="flex: 1;" align= center >Linux</div> <div style="flex: 1;" align= center >MacOS</div> <div style="flex: 1;" align= center>Windows</div> </div>
@@ -41,7 +41,7 @@ Liber is a cross-platform, simple, private and local CLI bookmark manager that s
 - Tags and directories, see [Design notes](#design-notes)
 - Markdown copy of bookmarks for personal notes and additional description
   - You can simply store them as HTML and later create a markdown copy or archive when editing a bookmark
-- Web UI to browse, add, and edit bookmarks
+- Web UI in case you don't want to work with cli
 - Duplicate detection (tags, folder, and bookmarks)
 - Full archive of webpages (requires `single-file-cli`)
 - Attach files or related content to bookmarks
@@ -486,7 +486,7 @@ This is deliberately minimal: one commit, optionally one push, nothing that mana
 
 ### Automation
 
-Auto-classify bookmarks whose URL contains a given string. Also works to specify based on host/site or title. Consider the examples below:
+Auto-classify bookmarks whose URL contains a given string. Also works to specify based on host/site or title. You can either user webUI or cli for automations, for cli consider the examples below:
 
 ```sh
 liber --auto add --match doxy --folder hot
@@ -520,7 +520,7 @@ Everything from `doxy.com` should always land in a `hot` folder.
 
 ### Web UI
 
-`liber --serve` starts a local web UI at `http://127.0.0.1:8080` for searching, adding, editing, and deleting bookmarks.
+`liber --serve` starts a local web UI at `http://127.0.0.1:8080`. It allows full configuration of liguration and bookmark management (search, edit, add, archive, ...)
 
 > [!Tip]
 > Add a bookmarklet to your browser's toolbar with this as the URL (adjust the port if you used `--addr`) to quickly bookmark whatever page you're currently on:
@@ -536,6 +536,8 @@ Once a search's result count passes 500, simple `?page=N` pagination appears aut
 The gear button (top right) opens `/settings`, a settings page for your collection. It shows which external tools liber detected on your machine (`single-file`, `monolith`, chromium for the browser pipe, your open/editor commands), shows the effective directories, and lets you override any of them, including `archive_backend` and `monolith_use_browser`. Changes are written straight to `config.json` and take effect immediately. The same page manages automation rules: add, edit (optionally with reapply), delete, and re-run all rules against existing bookmarks, the same things `liber --auto` does on the command line.
 
 # Configuration
+
+You can either use webUI for configuring liber or use config file / cli. 
 
 On first run, liber writes a default config to:
 
