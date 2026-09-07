@@ -15,10 +15,8 @@ import (
 	"time"
 )
 
-// writeMu serializes every request that mutates the store; see dev-docs.md#web-ui.
 var writeMu sync.Mutex
 
-// webPageSize: see dev-docs.md#web-ui-pagination.
 const webPageSize = 500
 
 func parseServeFlags(args []string) (addr string, err error) {
@@ -79,7 +77,6 @@ func scopeFromParams(vals []string) SearchFields {
 	return f
 }
 
-// paginate slices list into webPageSize-sized pages; see dev-docs.md#web-ui-pagination.
 func paginate(list []*Bookmark, page int) (pageItems []*Bookmark, totalPages, curPage int) {
 	total := len(list)
 	if total <= webPageSize {
@@ -100,7 +97,6 @@ func paginate(list []*Bookmark, page int) (pageItems []*Bookmark, totalPages, cu
 	return list[start:end], totalPages, page
 }
 
-// pageURL rebuilds "/" with the same q/scope/deep as r, but a different page.
 func pageURL(r *http.Request, page int) string {
 	v := neturl.Values{}
 	if q := r.URL.Query().Get("q"); q != "" {
@@ -213,7 +209,6 @@ type addFormState struct {
 	PrefillMarkdown, PrefillArchive                            bool
 }
 
-// renderSearchPageWithAddState and renderDeleteConfirm show page 1 of the full list; see dev-docs.md#web-ui-pagination.
 func renderSearchPageWithAddState(w http.ResponseWriter, store *Store, add addFormState) {
 	results := store.All()
 	pageItems, totalPages, curPage := paginate(results, 1)
@@ -235,7 +230,6 @@ func renderDeleteConfirm(w http.ResponseWriter, store *Store, b *Bookmark) {
 	})
 }
 
-// parseWebForm handles urlencoded and multipart bodies (the latter for file uploads).
 func parseWebForm(r *http.Request) error {
 	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 		return r.ParseMultipartForm(256 << 20)
@@ -243,7 +237,6 @@ func parseWebForm(r *http.Request) error {
 	return r.ParseForm()
 }
 
-// attachUploads stores any files submitted under the "attachments" file input.
 func attachUploads(cfg Config, b *Bookmark, r *http.Request) {
 	if r.MultipartForm == nil {
 		return
@@ -448,7 +441,7 @@ func handleEditSave(w http.ResponseWriter, r *http.Request, id int) {
 		addArchiveCopy(cfg, b)
 	}
 
-	// Detach checked attachments (highest index first so splicing stays valid), then add uploads.
+	// highest index first, so splice indices stay valid
 	var delIdx []int
 	for _, v := range r.Form["delatt"] {
 		if n, err := strconv.Atoi(v); err == nil {
@@ -516,7 +509,6 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/?msg="+neturl.QueryEscape(fmt.Sprintf("Deleted [%d] %s", b.ID, b.Title)), http.StatusSeeOther)
 }
 
-// handleAttachment serves /attachment/<id>/<n> -- read-only, like handleArchive.
 func handleAttachment(w http.ResponseWriter, r *http.Request) {
 	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/attachment/"), "/", 2)
 	if len(parts) != 2 {
@@ -608,8 +600,6 @@ func renderSearchPage(w http.ResponseWriter, data searchPageData) {
 	}{"liber", template.HTML(buf.String())})
 }
 
-// Gruvbox light is the default; html[data-theme=dark] (set by the theme
-// scripts in layoutTmpl) overrides every variable.
 const pageCSS = `
 :root, html[data-theme=light] {
   --bg: #fbf1c7; --fg: #3c3836; --fg-soft: #504945; --muted: #7c6f64;
@@ -675,8 +665,6 @@ a.chip.folder { color: var(--fg-soft); }
 .themetoggle { position: fixed; top: .8rem; right: .8rem; z-index: 10; width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 999px; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); cursor: pointer; font-size: 1rem; line-height: 1; }
 `
 
-// Sets the theme before first paint (avoids a light flash in dark mode):
-// stored choice in localStorage wins, else the OS preference.
 const themeInitScript = `(function(){
 var t = null;
 try { t = localStorage.getItem('liber-theme'); } catch (e) {}
@@ -686,7 +674,6 @@ if (t !== 'light' && t !== 'dark') {
 document.documentElement.setAttribute('data-theme', t);
 })();`
 
-// Wires the toggle button: flip the attribute, persist, repaint the glyph.
 const themeToggleScript = `(function(){
 var b = document.getElementById('themetoggle');
 if (!b) return;

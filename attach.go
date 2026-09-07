@@ -9,10 +9,6 @@ import (
 	"strings"
 )
 
-// See dev-docs.md#attachments for the design (flat dir, id-prefixed names,
-// recorded per-bookmark like html/markdown/archive paths are).
-
-// attachFile copies src into the collection and records it on b.
 func attachFile(cfg Config, b *Bookmark, src string) error {
 	src = expandTilde(strings.TrimSpace(src))
 	info, err := os.Stat(src)
@@ -30,7 +26,6 @@ func attachFile(cfg Config, b *Bookmark, src string) error {
 	return attachReader(cfg, b, filepath.Base(src), f)
 }
 
-// attachReader stores one attachment under name; shared by CLI file paths and web uploads.
 func attachReader(cfg Config, b *Bookmark, name string, r io.Reader) error {
 	name = filepath.Base(name)
 	if name == "" || name == "." || name == "/" {
@@ -58,8 +53,6 @@ func attachReader(cfg Config, b *Bookmark, name string, r io.Reader) error {
 	return nil
 }
 
-// uniqueAttachmentRel picks %04d-<slug>.<ext>, appending -2, -3, ... on collision;
-// both the index and the filesystem are checked so re-adding the same file twice works.
 func uniqueAttachmentRel(cfg Config, b *Bookmark, name string) string {
 	ext := filepath.Ext(name)
 	stem := slugify(strings.TrimSuffix(filepath.Base(name), ext))
@@ -83,7 +76,6 @@ func attachmentNameTaken(cfg Config, b *Bookmark, rel string) bool {
 	return fileExists(filepath.Join(cfg.attachmentsDir(), rel))
 }
 
-// findAttachment resolves a 1-based number or an exact (case-insensitive) name.
 func findAttachment(b *Bookmark, match string) (int, error) {
 	if len(b.Attachments) == 0 {
 		return -1, fmt.Errorf("this bookmark has no attachments")
@@ -110,7 +102,6 @@ func findAttachment(b *Bookmark, match string) (int, error) {
 	}
 }
 
-// detachAttachment removes attachment i from b and deletes its saved copy.
 func detachAttachment(cfg Config, b *Bookmark, i int) {
 	at := b.Attachments[i]
 	if at.File != "" {
@@ -119,7 +110,6 @@ func detachAttachment(cfg Config, b *Bookmark, i int) {
 	b.Attachments = append(b.Attachments[:i], b.Attachments[i+1:]...)
 }
 
-// attachOrWarn is the CLI loop body for adding one path; errors print and don't abort.
 func attachOrWarn(cfg Config, b *Bookmark, path string) {
 	if err := attachFile(cfg, b, path); err != nil {
 		fmt.Println("Could not attach:", err)
@@ -128,7 +118,6 @@ func attachOrWarn(cfg Config, b *Bookmark, path string) {
 	fmt.Printf("Attached %s\n", b.Attachments[len(b.Attachments)-1].Name)
 }
 
-// attachmentsMenu: open/add/remove attachments; used by edit and the search action menu.
 func attachmentsMenu(cfg Config, b *Bookmark) {
 	for {
 		fmt.Println("  attachments:")
