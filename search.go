@@ -202,6 +202,9 @@ func actionMenu(cfg Config, store *Store, b *Bookmark) actionResult {
 	for {
 		fmt.Printf("\n[%d] %s\n    %s\n", b.ID, b.Title, b.URL)
 		opts := "(o)pen"
+		if b.HTMLFile != "" {
+			opts += "  (c)ard"
+		}
 		if b.MarkdownFile != "" {
 			opts += "  (m)arkdown"
 		}
@@ -221,6 +224,15 @@ func actionMenu(cfg Config, store *Store, b *Bookmark) actionResult {
 				if err := store.Save(); err != nil {
 					fmt.Println("Could not save index:", err)
 				}
+			}
+		case "c":
+			if b.HTMLFile == "" {
+				fmt.Println("No saved card for this bookmark.")
+				continue
+			}
+			path := filepath.Join(cfg.htmlDir(), b.HTMLFile)
+			if err := openURL(cfg, path); err != nil {
+				fmt.Println("Could not open card:", err)
 			}
 		case "m":
 			if b.MarkdownFile == "" {
