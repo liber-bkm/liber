@@ -377,7 +377,8 @@ Usage:
   liber config                   show the active config file and its path
   liber -v                       print the version
   liber --serve                  local web UI at http://127.0.0.1:8080 -- search (with the
-                                  same scoping/deep options as -s), plus add, edit, and delete
+                                   same scoping/deep options as -s), plus add, edit, delete,
+                                   and a settings/gear page (tools, dirs, backends, rules)
   liber --serve --addr <host:port>
                                    use a different address (non-loopback prints a warning:
                                    it exposes read/add/edit/delete access, no login)
