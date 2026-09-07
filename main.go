@@ -55,6 +55,16 @@ func run(args []string) error {
 		}
 		ids, err := parseIDSpec(spec)
 		if err != nil {
+			if isQuerySpec(spec) {
+				var toks []string
+				for _, t := range args[1:] {
+					if strings.HasPrefix(t, "-") {
+						break
+					}
+					toks = append(toks, t)
+				}
+				return runOpenQuery(strings.Join(toks, " "))
+			}
 			return fmt.Errorf("%w (use `liber -l` to see valid ids)", err)
 		}
 		return runOpen(ids)
