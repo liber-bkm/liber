@@ -468,10 +468,15 @@ func runAutoLearn(args []string) error {
 	}
 	var suggestions []learnSuggestion
 	for h, folders := range counts {
+		names := make([]string, 0, len(folders))
+		for f := range folders {
+			names = append(names, f)
+		}
+		sort.Strings(names)
 		best, bestN := "", 0
-		for f, n := range folders {
-			if n > bestN {
-				best, bestN = f, n
+		for _, f := range names {
+			if folders[f] > bestN {
+				best, bestN = f, folders[f]
 			}
 		}
 		if bestN >= min {
