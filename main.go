@@ -113,8 +113,10 @@ func run(args []string) error {
 			return runAutoDelete(args[2:])
 		case "apply":
 			return runAutoApply(args[2:])
+		case "learn":
+			return runAutoLearn(args[2:])
 		default:
-			return fmt.Errorf("unknown --auto subcommand %q (expected add, list, edit, delete, or apply)", args[1])
+			return fmt.Errorf("unknown --auto subcommand %q (expected add, list, edit, delete, apply, or learn)", args[1])
 		}
 	case "--history":
 		return runHistory()
