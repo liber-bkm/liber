@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -412,5 +413,96 @@ func runAutoApply(args []string) error {
 		return fmt.Errorf("saving index: %w", err)
 	}
 	fmt.Printf("Applied automations to %d bookmark(s).\n", changed)
+	return nil
+}
+
+type learnSuggestion struct {
+	host   string
+	folder string
+	count  int
+}
+
+func runAutoLearn(args []string) error {
+	min := 3
+	create := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--min":
+			if i+1 >= len(args) {
+				return fmt.Errorf("usage: liber --auto learn [--min N] [--create]")
+			}
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n < 2 {
+				return fmt.Errorf("--min requires a number of 2 or more")
+			}
+			min = n
+			i++
+		case "--create":
+			create = true
+		default:
+			return fmt.Errorf("unknown flag %q (usage: liber --auto learn [--min N] [--create])", args[i])
+		}
+	}
+
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		return err
+	}
+
+	covered := map[string]bool{}
+	for _, r := range store.AutoRules {
+		if rest, ok := strings.CutPrefix(strings.ToLower(r.Match), "host:"); ok {
+			covered[rest] = true
+		}
+	}
+	counts := map[string]map[string]int{}
+	for _, b := range store.Bookmarks {
+		h := hostOf(b.URL)
+		if h == "" || b.Folder == "" || covered[h] {
+			continue
+		}
+		if counts[h] == nil {
+			counts[h] = map[string]int{}
+		}
+		counts[h][b.Folder]++
+	}
+	var suggestions []learnSuggestion
+	for h, folders := range counts {
+		best, bestN := "", 0
+		for f, n := range folders {
+			if n > bestN {
+				best, bestN = f, n
+			}
+		}
+		if bestN >= min {
+			suggestions = append(suggestions, learnSuggestion{host: h, folder: best, count: bestN})
+		}
+	}
+	sort.Slice(suggestions, func(i, j int) bool { return suggestions[i].count > suggestions[j].count })
+	if len(suggestions) == 0 {
+		fmt.Println("No rule suggestions: no host appears in one folder often enough.")
+		return nil
+	}
+
+	made := 0
+	for _, s := range suggestions {
+		fmt.Printf("%d bookmark(s) with host %s are in folder %q: liber --auto add --match host:%s --folder %s\n",
+			s.count, s.host, s.folder, s.host, s.folder)
+		if !create && !confirm(fmt.Sprintf("Create this rule?"), false) {
+			continue
+		}
+		rule, changed, err := createRule(cfg, store, "host:"+s.host, s.folder, nil)
+		if err != nil {
+			fmt.Printf("warning: could not create rule for host %s: %v\n", s.host, err)
+			continue
+		}
+		made++
+		fmt.Printf("Added automation %s (applied to %d existing bookmark(s)).\n", describeRule(rule), changed)
+	}
+	if made > 0 {
+		if err := store.Save(); err != nil {
+			return fmt.Errorf("saving index: %w", err)
+		}
+	}
 	return nil
 }
