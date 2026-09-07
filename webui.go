@@ -640,6 +640,7 @@ summary { cursor: pointer; font-weight: 600; }
 .flash.error { background: var(--err-bg); border-color: var(--err-border); }
 .confirmbox { background: var(--err-bg); border: 1px solid var(--err-border); padding: .5rem .75rem; border-radius: 4px; margin: .5rem 0; display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .count { color: var(--muted); font-size: .85rem; }
+.livefilter { width: 100%; padding: .4rem .6rem; margin: .25rem 0 .5rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
 ul.results { list-style: none; padding: 0; }
 ul.results li { padding: .6rem 0; border-bottom: 1px solid var(--border); }
 .title a.link { font-weight: 600; color: var(--link); text-decoration: none; }
@@ -787,6 +788,20 @@ var searchBodyTmpl = template.Must(template.New("searchBody").Parse(`
 </details>
 
 <p class="count">{{.ResultCount}} bookmark(s){{if .Deep}} &middot; searched metadata + archive content{{end}}{{if gt .TotalPages 1}} &middot; page {{.Page}} of {{.TotalPages}}{{end}}</p>
+
+<input type="text" id="livefilter" class="livefilter" placeholder="Filter these results...">
+<script>(function(){
+var box = document.getElementById('livefilter');
+var list = document.querySelector('ul.results');
+if (!box || !list) return;
+box.addEventListener('input', function(){
+  var q = box.value.toLowerCase();
+  Array.prototype.forEach.call(list.children, function(li){
+    var hit = li.textContent.toLowerCase().indexOf(q) !== -1;
+    li.style.display = hit ? '' : 'none';
+  });
+});
+})();</script>
 
 <ul class="results">
 {{range .Results}}
