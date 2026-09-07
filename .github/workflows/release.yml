@@ -18,6 +18,13 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Verify tag format
+        # PKGBUILD asset URLs use the bare version; a v-prefixed tag would break them.
+        run: |
+          case "$GITHUB_REF_NAME" in
+            v*) echo "tag must not have a v prefix (e.g. 0.7.1), got: $GITHUB_REF_NAME"; exit 1 ;;
+          esac
+
       - name: Vet and test
         run: |
           go vet ./...
