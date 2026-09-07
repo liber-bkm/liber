@@ -108,6 +108,8 @@ func run(args []string) error {
 		}
 	case "--history":
 		return runHistory()
+	case "--check":
+		return runCheck(args[1:])
 	case "--sync":
 		push, err := parseSyncFlags(args[1:])
 		if err != nil {
