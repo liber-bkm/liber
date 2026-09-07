@@ -5,13 +5,11 @@ import (
 	"strings"
 )
 
-// trackingParams are stripped for duplicate comparison; see dev-docs.md#duplicate-detection.
 var trackingParams = []string{
 	"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
 	"fbclid", "gclid", "mc_cid", "mc_eid", "igshid", "ref",
 }
 
-// normalizeForDedupe builds a comparison key; see dev-docs.md#duplicate-detection.
 func normalizeForDedupe(raw string) string {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" {
