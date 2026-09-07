@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// findRepoRoot walks upward from startDir for a .jj or .git dir; see dev-docs.md#sync.
 func findRepoRoot(startDir string) (root string, isJJ bool, isGit bool) {
 	dir := startDir
 	for i := 0; i < 40; i++ {
@@ -39,7 +38,6 @@ func parseSyncFlags(args []string) (push bool, err error) {
 	return push, nil
 }
 
-// runSync commits (and optionally pushes); see dev-docs.md#sync. Never inits a repo itself.
 func runSync(push bool) error {
 	cfg, _, err := LoadConfig()
 	if err != nil {
@@ -69,7 +67,6 @@ func runSync(push bool) error {
 		return nil
 	}
 
-	// isGit (the only other possibility once root != "")
 	if !isGit {
 		return fmt.Errorf("internal error: repo at %s is neither jj nor git", root)
 	}
@@ -104,7 +101,6 @@ func runInDir(dir, name string, args ...string) error {
 	return nil
 }
 
-// runGitCommit treats "nothing to commit" as a quiet no-op, not an error.
 func runGitCommit(dir, msg string) (committed bool, err error) {
 	cmd := exec.Command("git", "commit", "-m", msg)
 	cmd.Dir = dir

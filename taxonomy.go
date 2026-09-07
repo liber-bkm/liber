@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// indexOfFold returns the index of the first case-insensitive match, or -1.
 func indexOfFold(list []string, target string) int {
 	for i, s := range list {
 		if strings.EqualFold(s, target) {
@@ -17,7 +16,6 @@ func indexOfFold(list []string, target string) int {
 	return -1
 }
 
-// printCounts renders a sorted label:count listing, shared by --tags/--folders.
 func printCounts(counts map[string]int, emptyMsg string) {
 	if len(counts) == 0 {
 		fmt.Println(emptyMsg)
@@ -42,8 +40,6 @@ func printCounts(counts map[string]int, emptyMsg string) {
 	}
 }
 
-// --- Tags ---------------------------------------------------------------
-
 func runTagsList() error {
 	_, store, err := loadCfgAndStore()
 	if err != nil {
@@ -59,7 +55,6 @@ func runTagsList() error {
 	return nil
 }
 
-// runTagsRename renames (or merges into, if newTag exists) a tag everywhere.
 func runTagsRename(old, newTag string) error {
 	old = strings.TrimSpace(old)
 	newTag = strings.TrimSpace(newTag)
@@ -84,7 +79,7 @@ func runTagsRename(old, newTag string) error {
 		b.Tags = append(append([]string{}, b.Tags[:idx]...), b.Tags[idx+1:]...)
 		b.Tags = dedupe(append(b.Tags, newTag))
 		b.UpdatedAt = time.Now()
-		syncBookmarkFiles(cfg, b, false) // rewrite html/md to reflect the new tag
+		syncBookmarkFiles(cfg, b, false)
 		changed++
 	}
 	if changed == 0 {
@@ -129,8 +124,6 @@ func runTagsDelete(tag string) error {
 	return nil
 }
 
-// --- Folders --------------------------------------------------------------
-
 func runFoldersList() error {
 	_, store, err := loadCfgAndStore()
 	if err != nil {
@@ -144,12 +137,10 @@ func runFoldersList() error {
 	return nil
 }
 
-// folderMatchesOrIsChild reports whether folder is target or a subfolder of it.
 func folderMatchesOrIsChild(folder, target string) bool {
 	return folder == target || strings.HasPrefix(folder, target+"/")
 }
 
-// renameFolderPrefix rewrites folder's target-prefix, keeping any subfolder suffix.
 func renameFolderPrefix(folder, oldPrefix, newPrefix string) string {
 	if folder == oldPrefix {
 		return newPrefix
@@ -157,7 +148,6 @@ func renameFolderPrefix(folder, oldPrefix, newPrefix string) string {
 	return newPrefix + folder[len(oldPrefix):]
 }
 
-// runFoldersRename renames (or merges into, if newFolder exists) a folder everywhere.
 func runFoldersRename(old, newFolder string) error {
 	old = sanitizeFolder(old)
 	newFolder = sanitizeFolder(newFolder)
@@ -194,7 +184,6 @@ func runFoldersRename(old, newFolder string) error {
 	return nil
 }
 
-// runFoldersDelete moves a folder's bookmarks back to root; never deletes bookmarks.
 func runFoldersDelete(folder string) error {
 	return runFoldersRename(folder, "")
 }

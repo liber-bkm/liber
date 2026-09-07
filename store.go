@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// Bookmark is a single saved link and its metadata; see dev-docs.md#data-model.
 type Bookmark struct {
 	ID          int       `json:"id"`
 	URL         string    `json:"url"`
@@ -25,30 +24,24 @@ type Bookmark struct {
 	MarkdownFile string `json:"markdown_file,omitempty"`
 	ArchiveFile  string `json:"archive_file,omitempty"`
 
-	// LastOpenedAt/OpenCount: see dev-docs.md#history.
 	LastOpenedAt *time.Time `json:"last_opened_at,omitempty"`
 	OpenCount    int        `json:"open_count,omitempty"`
 
-	// AppliedRules: see dev-docs.md#automation.
 	AppliedRules []AppliedAutoRule `json:"applied_rules,omitempty"`
 
-	// Attachments: see dev-docs.md#attachments.
 	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
-// Attachment is a user-supplied file copied into the collection; see dev-docs.md#attachments.
 type Attachment struct {
-	Name string `json:"name"` // original filename, for display and matching
-	File string `json:"file"` // path relative to the attachments dir
+	Name string `json:"name"`
+	File string `json:"file"`
 }
 
-// AppliedAutoRule records that a rule touched this bookmark; see dev-docs.md#automation.
 type AppliedAutoRule struct {
 	RuleID int    `json:"rule_id"`
 	Folder string `json:"folder,omitempty"`
 }
 
-// AutoRule auto-classifies new/existing bookmarks by URL substring; see dev-docs.md#automation.
 type AutoRule struct {
 	ID        int       `json:"id"`
 	Match     string    `json:"match"`
@@ -57,7 +50,6 @@ type AutoRule struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Store is the full bookmark index, persisted as a single JSON file.
 type Store struct {
 	NextID    int         `json:"next_id"`
 	Bookmarks []*Bookmark `json:"bookmarks"`
@@ -92,7 +84,6 @@ func LoadStore(path string) (*Store, error) {
 	return s, nil
 }
 
-// Save writes the index atomically (write to temp file, then rename).
 func (s *Store) Save() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
@@ -108,7 +99,6 @@ func (s *Store) Save() error {
 	return os.Rename(tmp, s.path)
 }
 
-// Add assigns the next ID to b and appends it to the store.
 func (s *Store) Add(b *Bookmark) {
 	b.ID = s.NextID
 	s.NextID++
@@ -134,7 +124,6 @@ func (s *Store) Delete(id int) bool {
 	return false
 }
 
-// AddAutoRule assigns the next id to r and appends it to the store.
 func (s *Store) AddAutoRule(r *AutoRule) {
 	r.ID = s.NextAutoRuleID
 	s.NextAutoRuleID++
@@ -160,7 +149,6 @@ func (s *Store) DeleteAutoRule(id int) bool {
 	return false
 }
 
-// SearchFields restricts which fields a search considers; see dev-docs.md#search-scoping.
 type SearchFields struct {
 	Title       bool
 	URL         bool
@@ -169,12 +157,10 @@ type SearchFields struct {
 	Description bool
 }
 
-// Any reports whether at least one field is explicitly selected.
 func (f SearchFields) Any() bool {
 	return f.Title || f.URL || f.Tags || f.Folder || f.Description
 }
 
-// Label describes the active scope for prompts/headers.
 func (f SearchFields) Label() string {
 	if !f.Any() {
 		return "title \u00b7 url \u00b7 tags \u00b7 folder \u00b7 description"
@@ -198,7 +184,6 @@ func (f SearchFields) Label() string {
 	return strings.Join(parts, " \u00b7 ")
 }
 
-// Search does a case-insensitive substring match, scoped to fields (or everything, if none selected).
 func (s *Store) Search(cfg Config, query string, fields SearchFields, deep bool) []*Bookmark {
 	query = strings.ToLower(strings.TrimSpace(query))
 	var results []*Bookmark
@@ -224,7 +209,6 @@ func (s *Store) All() []*Bookmark {
 	return out
 }
 
-// loadCfgAndStore loads config then the index it points at.
 func loadCfgAndStore() (Config, *Store, error) {
 	cfg, _, err := LoadConfig()
 	if err != nil {

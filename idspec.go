@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// consumeIDSpec joins consecutive non-flag args into one id-spec string; see dev-docs.md#batch-operations.
 func consumeIDSpec(args []string) (spec string, rest []string) {
 	var sb strings.Builder
 	i := 0
@@ -18,7 +17,6 @@ func consumeIDSpec(args []string) (spec string, rest []string) {
 	return sb.String(), args[i:]
 }
 
-// parseIDSpec parses ids/ranges like "5", "1-5", "2,5,3"; see dev-docs.md#batch-operations.
 func parseIDSpec(spec string) ([]int, error) {
 	seen := map[int]bool{}
 	var ids []int
@@ -63,7 +61,6 @@ func parseIDSpec(spec string) ([]int, error) {
 	return ids, nil
 }
 
-// joinInts formats ids as a comma-separated list for messages.
 func joinInts(ids []int) string {
 	parts := make([]string, len(ids))
 	for i, id := range ids {

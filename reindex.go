@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// runReindex reconciles index.json against the filesystem; see dev-docs.md#reindex.
 func runReindex() error {
 	cfg, store, err := loadCfgAndStore()
 	if err != nil {
@@ -28,7 +27,6 @@ func runReindex() error {
 		}
 
 		if htmlAbs != "" && fileExists(htmlAbs) {
-			// still live -- just drop stale md/archive/attachment references, nothing to relocate
 			if b.MarkdownFile != "" && !fileExists(filepath.Join(cfg.markdownDir(), b.MarkdownFile)) {
 				b.MarkdownFile = ""
 			}
@@ -46,7 +44,6 @@ func runReindex() error {
 			continue
 		}
 
-		// html deleted outside liber -- drop the entry, quarantine any surviving md/archive/attachments
 		removed++
 		if b.MarkdownFile != "" {
 			src := filepath.Join(cfg.markdownDir(), b.MarkdownFile)
@@ -120,7 +117,6 @@ func entrySuffix(n int) string {
 	return "ies"
 }
 
-// bookmarkFileField lets compactIDs loop over html/markdown/archive instead of repeating logic 3x.
 type bookmarkFileField struct {
 	label string
 	dir   func(Config) string
@@ -134,7 +130,6 @@ var bookmarkFileFields = []bookmarkFileField{
 	{"archive", Config.archiveDir, func(b *Bookmark) string { return b.ArchiveFile }, func(b *Bookmark, s string) { b.ArchiveFile = s }},
 }
 
-// compactIDs closes id gaps via a two-phase stage-then-commit rename; see dev-docs.md#reindex.
 func compactIDs(cfg Config, kept []*Bookmark) ([]string, error) {
 	sort.Slice(kept, func(i, j int) bool { return kept[i].ID < kept[j].ID })
 
