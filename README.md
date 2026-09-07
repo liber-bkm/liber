@@ -190,6 +190,8 @@ liber <url> -f subfold         save into a subfolder of the base directory
 liber <url> -at report.pdf     attach a local file (repeatable; see "Attachments")
 liber -o 3                     open bookmark id 3 
 liber -o 1,3-8                 open bookmark at ids 1 and 3 to 8
+liber -o <query>               find by search text (one match opens, several offer a pick)
+liber pick <query>             print the URL to stdout, for pipes and scripts
 liber -s                       search/browse bookmarks, open or edit them (fzf if available)
 liber -sn / -su / -st / -sd / -sf
                                 same, but scoped to one field: title / url / tags / description / folder
@@ -222,10 +224,14 @@ liber --tags delete <tag>      remove a tag from every bookmark that has it
 liber --folders rename <a> <b> rename a folder (and its subfolders) everywhere
 liber --folders delete <f>     move a folder's bookmarks back to the root
 liber --history                list bookmarks by most recently opened (see "History")
+liber --check [ids]            check link health, then prompt per item (see "Link health")
+liber --check --workers N      same, with N parallel requests (default 12)
 liber --auto add --match <s> --folder <f> --tag <t1 t2>
                                 auto-classify new bookmarks by URL (see "Automation")
 liber --auto / --auto edit / --auto delete / --auto apply
                                 list/edit/delete/re-run automations (see "Automation")
+liber --auto learn [--min N] [--create]
+                                suggest host rules from folder clusters
 liber --profile                list profiles, with the active one marked (see "Profiles")
 liber --profile <name>         switch to <name>, creating it if it's new
 liber --profile default        switch back to the non-profile layout
@@ -310,6 +316,8 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
   ```
 
   Either way, picking a bookmark drops you into the open / edit / delete menu.
+  The menu can open the live page `(o)`, the saved card `(c)`, the markdown
+  copy `(m)`, or the archive `(a)`.
 
   Liber can also perform deep search to look for text inside archived pages:
 
@@ -407,6 +415,25 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
   liber --history   # list bookmarks by most recently opened
   ```
 
+- **Link health:**
+
+  ```sh
+  liber --check               # scan all bookmarks, then prompt per flagged item
+  liber --check 1-100,200     # same, limited to an id range (idspec syntax)
+  liber --check --workers 20  # more parallel requests (default 12)
+  ```
+
+  Results fall into three buckets: `moved` (permanent redirect, proposes a URL update), `dead` (404/410 from the site itself, proposes deletion), and `uncertain` (timeouts, DNS/TLS errors, 403/429/503, blocks, anything ambiguous: shown for review, never auto deleted). Every destructive action asks first and defaults to no, except URL updates which default to yes. Scans use a browser-like user agent with a 15s timeout per request.
+
+- **Open by name and pick:**
+
+  ```sh
+  liber -o "some query"   # one match opens directly, several offer a picker
+  liber pick "some query" # print the URL to stdout (for pipes and scripts)
+  ```
+
+  Both use the full-scope search. `pick` keeps stdout clean (prompts go to stderr) and exits non-zero when nothing matches.
+
 - **Automation / Rules**, see the dedicated section [below](#automation):
 
   ```sh
@@ -416,7 +443,10 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
   liber --auto edit    # edit rules
   liber --auto delete  # delete rules
   liber --auto apply   # apply rules
+  liber --auto learn   # suggest host rules from folder clusters
   ```
+
+  `learn` groups bookmarks by host and suggests a `host:` rule wherever 3 or more share one folder (tune with `--min N`). It only suggests by default and asks per rule; `--create` creates all without asking. Hosts already covered by a rule are skipped.
 
 - **Sync:**
 
@@ -532,7 +562,9 @@ Everything from `doxy.com` should always land in a `hot` folder.
 
 It reflects whichever profile is active, and even picks up a profile switch made via the CLI in another terminal on its next request — no restart needed.
 
-Once a search's result count passes 500, simple `?page=N` pagination appears automatically (no controls at all below that). A scoped or deep search's page-forward/back links carry the same query along, so paging through a filtered search keeps it filtered.
+Once a search's result count passes 500, simple `?page=N` pagination appears automatically (no controls at all below that). A scoped or deep search's page-forward/back links carry the same query along, so paging through a filtered search keeps it filtered. A filter box above the results narrows the shown rows instantly in the browser (client side only, works within any search).
+
+Single attachments link straight to the file from the results list; bookmarks with several link to the edit page where each file opens individually.
 
 The gear button (top right) opens `/settings`, a settings page for your collection. It shows which external tools liber detected on your machine (`single-file`, `monolith`, chromium for the browser pipe, your open/editor commands), shows the effective directories, and lets you override any of them, including `archive_backend` and `monolith_use_browser`. Changes are written straight to `config.json` and take effect immediately. The same page manages automation rules: add, edit (optionally with reapply), delete, and re-run all rules against existing bookmarks, the same things `liber --auto` does on the command line.
 
