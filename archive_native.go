@@ -15,9 +15,6 @@ import (
 	"time"
 )
 
-// Built-in static archiver: fetch a page and inline its assets as data URIs.
-// No JavaScript at all -- <script> elements are stripped rather than run.
-// See dev-docs.md#archive-backends.
 const (
 	nativeMaxPageBytes   = 20 << 20
 	nativeMaxAssetBytes  = 10 << 20
@@ -36,7 +33,6 @@ var (
 	nativeNoscriptRe = regexp.MustCompile(`(?is)<noscript\b[^>]*>(.*?)</noscript>`)
 )
 
-// runNativeArchive fetches url and writes a self-contained static snapshot.
 func runNativeArchive(url, outPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), nativeOverallTimeout)
 	defer cancel()
@@ -51,7 +47,6 @@ func runNativeArchive(url, outPath string) error {
 	fetched := nativeFetchAll(ctx, assets)
 	html = nativeInlineAll(html, pageURL, fetched)
 
-	// static snapshot: no JavaScript; unwrap <noscript> fallbacks
 	html = nativeScriptRe.ReplaceAllString(html, "")
 	html = nativeNoscriptRe.ReplaceAllString(html, "$1")
 
@@ -70,7 +65,6 @@ type nativeResult struct {
 	ok   bool
 }
 
-// resolveTo reports the absolute URL of raw relative to pageURL, or "" if unusable.
 func resolveAssetURL(raw string, pageURL *neturl.URL) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || strings.HasPrefix(raw, "data:") || strings.HasPrefix(raw, "javascript:") || strings.HasPrefix(raw, "#") {
@@ -87,7 +81,6 @@ func resolveAssetURL(raw string, pageURL *neturl.URL) string {
 	return abs.String()
 }
 
-// nativeCollectAssets finds external asset URLs referenced by the html.
 func nativeCollectAssets(html string, pageURL *neturl.URL) []string {
 	seen := map[string]bool{}
 	var urls []string
@@ -117,8 +110,6 @@ func nativeCollectAssets(html string, pageURL *neturl.URL) []string {
 	return urls
 }
 
-// nativeFetchAll downloads assets with bounded parallelism and an overall byte budget.
-// Assets that fail, exceed the budget, or never start are simply absent from the result.
 func nativeFetchAll(ctx context.Context, urls []string) map[string]nativeResult {
 	results := map[string]nativeResult{}
 	var mu sync.Mutex
@@ -161,7 +152,6 @@ func nativeFetchAll(ctx context.Context, urls []string) map[string]nativeResult 
 	return results
 }
 
-// nativeFetchAsset downloads one asset; MIME prefers the server's Content-Type.
 func nativeFetchAsset(ctx context.Context, u string) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
@@ -187,7 +177,6 @@ func nativeFetchAsset(ctx context.Context, u string) ([]byte, string, error) {
 	return data, mime, nil
 }
 
-// nativeFetch downloads a URL (returning the post-redirect URL), size-capped.
 func nativeFetch(ctx context.Context, u string, limit int64) ([]byte, *neturl.URL, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
@@ -210,7 +199,6 @@ func nativeFetch(ctx context.Context, u string, limit int64) ([]byte, *neturl.UR
 	return body, resp.Request.URL, nil
 }
 
-// nativeInlineAll rewrites asset references in html to data URIs where fetched.
 func nativeInlineAll(html string, pageURL *neturl.URL, results map[string]nativeResult) string {
 	inline := func(raw string) string {
 		if s := resolveAssetURL(raw, pageURL); s != "" {
@@ -221,7 +209,6 @@ func nativeInlineAll(html string, pageURL *neturl.URL, results map[string]native
 		return raw
 	}
 
-	// attr references like src="..." / poster="..." (match is exactly the attribute)
 	html = nativeAttrRe.ReplaceAllStringFunc(html, func(whole string) string {
 		parts := nativeAttrRe.FindStringSubmatch(whole)
 		if len(parts) != 4 {
@@ -230,7 +217,6 @@ func nativeInlineAll(html string, pageURL *neturl.URL, results map[string]native
 		return parts[1] + "=" + parts[2] + inline(parts[3]) + parts[2]
 	})
 
-	// <link ... href="..."> -- match is the whole tag; rewritten in place
 	html = nativeLinkRe.ReplaceAllStringFunc(html, func(tag string) string {
 		parts := nativeLinkRe.FindStringSubmatch(tag)
 		if len(parts) != 3 {
@@ -240,7 +226,6 @@ func nativeInlineAll(html string, pageURL *neturl.URL, results map[string]native
 		return strings.Replace(tag, old, parts[1]+inline(parts[2])+parts[1], 1)
 	})
 
-	// srcset="a 1x, b 2x"
 	html = nativeSrcsetRe.ReplaceAllStringFunc(html, func(whole string) string {
 		parts := nativeSrcsetRe.FindStringSubmatch(whole)
 		if len(parts) != 3 {
@@ -258,7 +243,6 @@ func nativeInlineAll(html string, pageURL *neturl.URL, results map[string]native
 		return "srcset=" + parts[1] + strings.Join(out, ", ") + parts[1]
 	})
 
-	// url(...) in inline <style> blocks and style attributes
 	html = nativeCSSURLRe.ReplaceAllStringFunc(html, func(whole string) string {
 		parts := nativeCSSURLRe.FindStringSubmatch(whole)
 		if len(parts) != 2 {

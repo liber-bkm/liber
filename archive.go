@@ -15,7 +15,6 @@ import (
 	"time"
 )
 
-// runArchive archives url to outPath with the configured backend; see dev-docs.md#archive-backends.
 func runArchive(cfg Config, url, outPath string) error {
 	switch strings.ToLower(strings.TrimSpace(cfg.ArchiveBackend)) {
 	case "single-file", "singlefile":
@@ -28,7 +27,6 @@ func runArchive(cfg Config, url, outPath string) error {
 		fmt.Println("Archiving with native snapshot ...")
 		return runNativeArchive(url, outPath)
 	case "", "auto":
-		// priority chain: single-file -> monolith -> native
 		if findCmd(cfg.SingleFileCmd, "single-file") != "" {
 			fmt.Println("Archiving with single-file ...")
 			if err := runSingleFile(cfg, url, outPath); err == nil {
@@ -52,8 +50,6 @@ func runArchive(cfg Config, url, outPath string) error {
 	}
 }
 
-// runMonolith archives with monolith (https://github.com/Y2Z/monolith),
-// optionally rendering the page through headless chromium first.
 func runMonolith(cfg Config, url, outPath string) error {
 	cmdName := cfg.MonolithCmd
 	if cmdName == "" {
@@ -80,8 +76,6 @@ func runMonolith(cfg Config, url, outPath string) error {
 	return nil
 }
 
-// runMonolithPiped pipes a headless chromium DOM dump into monolith's stdin,
-// reproducing: chromium --headless ... --dump-dom URL | monolith - -I -b URL -o out.
 func runMonolithPiped(cfg Config, url, outPath, monolithCmd string) error {
 	browser := findMonolithBrowser(cfg)
 	if browser == "" {
@@ -129,7 +123,6 @@ func runMonolithPiped(cfg Config, url, outPath, monolithCmd string) error {
 	return nil
 }
 
-// findMonolithBrowser returns the configured chromium path or the first of the common names on PATH.
 func findMonolithBrowser(cfg Config) string {
 	if p := cfg.MonolithBrowserPath; p != "" {
 		if _, err := exec.LookPath(p); err == nil {
@@ -145,7 +138,6 @@ func findMonolithBrowser(cfg Config) string {
 	return ""
 }
 
-// findCmd returns the resolved command name if it exists, "" otherwise (used by the auto chain).
 func findCmd(configured, fallback string) string {
 	if configured != "" {
 		if _, err := exec.LookPath(configured); err == nil {
@@ -159,7 +151,6 @@ func findCmd(configured, fallback string) string {
 	return ""
 }
 
-// runSingleFile shells out to single-file (https://github.com/gildas-lormeau/single-file-cli).
 func runSingleFile(cfg Config, url, outPath string) error {
 	cmdName := cfg.SingleFileCmd
 	if cmdName == "" {
@@ -190,7 +181,6 @@ func runSingleFile(cfg Config, url, outPath string) error {
 
 var titleRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
-// fetchTitle returns "" on any failure -- callers fall back to the URL itself.
 func fetchTitle(rawURL string) string {
 	client := http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest("GET", rawURL, nil)
@@ -220,7 +210,6 @@ func fetchTitle(rawURL string) string {
 	return t
 }
 
-// openURL fires-and-forgets a URL/path to the OS's default handler.
 func openURL(cfg Config, url string) error {
 	if cfg.BrowserCmd != "" {
 		return exec.Command(cfg.BrowserCmd, url).Start()
@@ -235,7 +224,6 @@ func openURL(cfg Config, url string) error {
 	}
 }
 
-// openInEditor picks editor_cmd/$VISUAL/$EDITOR/OS-default and runs it synchronously.
 func openInEditor(cfg Config, path string) error {
 	editor := cfg.EditorCmd
 	if editor == "" {

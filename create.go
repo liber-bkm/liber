@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// CreateOptions holds the flags parsed from `liber <url> [flags]`.
 type CreateOptions struct {
 	Interactive bool
 	Markdown    bool
@@ -41,7 +40,6 @@ func runCreate(rawURL string, opt CreateOptions) error {
 		title = url
 	}
 
-	// Rules resolve against the fetched title too, so "title:" matches work here.
 	folder, tags, appliedRuleIDs := resolveAutoRulesForNew(store, url, title, folder, tags)
 
 	description := ""
@@ -92,7 +90,6 @@ func runCreate(rawURL string, opt CreateOptions) error {
 	return nil
 }
 
-// addBookmarkToStore writes html/markdown/archive; shared by create and import.
 func addBookmarkToStore(cfg Config, store *Store, url, title, description string, tags []string, folder string, addMarkdown, addArchive bool) (*Bookmark, error) {
 	b := &Bookmark{
 		URL:         url,
@@ -103,7 +100,7 @@ func addBookmarkToStore(cfg Config, store *Store, url, title, description string
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
-	store.Add(b) // assigns b.ID
+	store.Add(b)
 
 	base := fmt.Sprintf("%04d-%s", b.ID, slugOrFallback(title, b.ID))
 
@@ -133,7 +130,6 @@ func addBookmarkToStore(cfg Config, store *Store, url, title, description string
 		}
 	}
 
-	// If markdown was written before the archive path was known, note it now.
 	if addMarkdown && addArchive && b.ArchiveFile != "" {
 		_ = writeMarkdownBookmark(filepath.Join(cfg.markdownDir(), b.MarkdownFile), b)
 	}

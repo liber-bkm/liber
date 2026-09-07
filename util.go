@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// expandTilde expands a leading ~ or ~/ to the user's home directory.
 func expandTilde(p string) string {
 	if p == "" {
 		return p
@@ -31,7 +30,6 @@ func expandTilde(p string) string {
 
 var slugInvalid = regexp.MustCompile(`[^a-z0-9]+`)
 
-// slugify converts s into a lowercase, hyphen-separated slug ("" if nothing usable remains).
 func slugify(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = slugInvalid.ReplaceAllString(s, "-")
@@ -43,7 +41,6 @@ func slugify(s string) string {
 	return s
 }
 
-// sanitizeFolder strips ".." traversal, leading slashes, and empty segments.
 func sanitizeFolder(f string) string {
 	f = strings.TrimSpace(f)
 	f = strings.ReplaceAll(f, "\\", "/")
@@ -59,7 +56,6 @@ func sanitizeFolder(f string) string {
 	return strings.Join(clean, "/")
 }
 
-// dedupe removes empty/duplicate (case-insensitive) entries, preserving order.
 func dedupe(items []string) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -78,7 +74,6 @@ func dedupe(items []string) []string {
 	return out
 }
 
-// normalizeURL adds an https:// scheme if none was given.
 func normalizeURL(u string) string {
 	u = strings.TrimSpace(u)
 	if !strings.Contains(u, "://") {
@@ -87,7 +82,6 @@ func normalizeURL(u string) string {
 	return u
 }
 
-// moveFile is a no-op if src doesn't exist or src == dst.
 func moveFile(src, dst string) error {
 	if src == dst {
 		return nil
@@ -101,7 +95,6 @@ func moveFile(src, dst string) error {
 	return os.Rename(src, dst)
 }
 
-// displayFolder returns f, or "/" if it's the root (empty string).
 func displayFolder(f string) string {
 	if f == "" {
 		return "/"
@@ -109,7 +102,6 @@ func displayFolder(f string) string {
 	return f
 }
 
-// removeInt returns list with the first occurrence of val removed.
 func removeInt(list []int, val int) []int {
 	for i, v := range list {
 		if v == val {
@@ -119,7 +111,6 @@ func removeInt(list []int, val int) []int {
 	return list
 }
 
-// fileExists reports whether path exists and is readable via os.Stat.
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
