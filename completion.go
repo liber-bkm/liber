@@ -43,7 +43,7 @@ _liber() {
 		-e|-d|-o|--open)
 			COMPREPLY=( $(compgen -W "$(_liber_ids)" -- "$cur") ); return 0 ;;
 		--auto)
-			COMPREPLY=( $(compgen -W "add list edit delete apply --match --folder --tag --reapply" -- "$cur") ); return 0 ;;
+			COMPREPLY=( $(compgen -W "add list edit delete apply learn --match --folder --tag --reapply --min --create" -- "$cur") ); return 0 ;;
 		--profile)
 			COMPREPLY=( $(compgen -W "default delete" -- "$cur") ); return 0 ;;
 		--tags|--folders)
@@ -65,6 +65,7 @@ _liber() {
 		COMPREPLY=( $(compgen -W "\
 -s -sl -sn -su -st -sd -sf -l -e -d -o --open -r \
 --import --tags --folders --history --auto --profile --sync --serve --export-site \
+--check pick \
 completion config -v -h" -- "$cur") )
 	fi
 	return 0
@@ -90,7 +91,7 @@ _liber() {
 	case "$words[2]" in
 		-e|-d|-o|--open)
 			compadd -- ${(f)"$(liber -l 2>/dev/null | awk -F'[][]' '/^\[/ {print $2}')"}; return ;;
-		--auto)    compadd add list edit delete apply; return ;;
+		--auto)    compadd add list edit delete apply learn; return ;;
 		--profile) compadd default delete; return ;;
 		--tags)    compadd rename delete; return ;;
 		--folders) compadd rename delete; return ;;
@@ -109,6 +110,8 @@ _liber() {
 			'--tags[list/manage tags]' \
 			'--folders[list/manage folders]' \
 			'--history[most recently opened]' \
+			'--check[check link health]' \
+			'pick[print a matching URL]' \
 			'--auto[manage automation rules]' \
 			'--profile[manage profiles]' \
 			'--sync[commit the collection (jj/git)]' \
@@ -157,6 +160,8 @@ complete -c liber -n "test (count (commandline -opc)) -eq 1" -l import -r -d "im
 complete -c liber -n "test (count (commandline -opc)) -eq 1" -l tags -d "list/manage tags"
 complete -c liber -n "test (count (commandline -opc)) -eq 1" -l folders -d "list/manage folders"
 complete -c liber -n "test (count (commandline -opc)) -eq 1" -l history -d "most recently opened"
+complete -c liber -n "test (count (commandline -opc)) -eq 1" -l check -d "check link health"
+complete -c liber -n "test (count (commandline -opc)) -eq 1" -a "pick" -d "print a matching URL"
 complete -c liber -n "test (count (commandline -opc)) -eq 1" -l auto -d "automation rules"
 complete -c liber -n "test (count (commandline -opc)) -eq 1" -l profile -d "manage profiles"
 complete -c liber -n "test (count (commandline -opc)) -eq 1" -l sync -d "commit the collection"
@@ -172,11 +177,14 @@ complete -c liber -n "__fish_seen_argument -s t -l tag" -a "(__liber_tags)" -d "
 complete -c liber -n "__fish_seen_argument -s f -l folder" -a "(__liber_folders)" -d "folder"
 complete -c liber -n "__fish_seen_argument rename delete -l tags" -a "(__liber_tags)" -d "tag"
 complete -c liber -n "__fish_seen_argument rename delete -l folders" -a "(__liber_folders)" -d "folder"
-complete -c liber -n "__fish_seen_argument -l auto" -a "add list edit delete apply" -d "rule operation"
+complete -c liber -n "__fish_seen_argument -l auto" -a "add list edit delete apply learn" -d "rule operation"
 complete -c liber -n "__fish_seen_argument -l auto" -l match -d "match substring (url: host: title:)"
 complete -c liber -n "__fish_seen_argument -l auto" -l folder -a "(__liber_folders)" -d "folder"
 complete -c liber -n "__fish_seen_argument -l auto" -l tag -a "(__liber_tags)" -d "tag"
 complete -c liber -n "__fish_seen_argument -l auto" -l reapply -d "re-sync after edit"
+complete -c liber -n "__fish_seen_argument -l auto" -l min -d "learn threshold"
+complete -c liber -n "__fish_seen_argument -l auto" -l create -d "create learned rules"
+complete -c liber -n "__fish_seen_argument -l check" -l workers -d "parallel requests"
 complete -c liber -n "__fish_seen_argument -l profile" -a "default delete" -d "profile"
 complete -c liber -n "__fish_seen_argument -l serve" -l addr -d "bind address"
 complete -c liber -n "__fish_seen_argument completion" -a "bash zsh fish" -d "shell"

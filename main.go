@@ -352,9 +352,12 @@ Usage:
   liber -d <id> -y               delete without confirmation
   liber -d <ids>                 <id> can also be a range/list, same as -e (one combined
                                    confirmation listing everything that will be deleted)
-  liber -o <id>                  open a bookmark in the browser without the search menu
-                                   (accepts ranges like -e/-d; counts as an open for
-                                   --history, same as the search menu's (o) action)
+   liber -o <id>                  open a bookmark in the browser without the search menu
+                                    (accepts ranges like -e/-d; counts as an open for
+                                    --history, same as the search menu's (o) action)
+   liber -o <query>               same, but looks the bookmark up by search text
+                                    (one match opens directly, several offer a pick)
+   liber pick <query>             print a matching bookmark's URL to stdout, for pipes
   liber -r                       reindex: drop entries whose files were deleted
                                   outside liber (quarantining any surviving
                                   markdown/archive copy into <base_dir>/unindexed/),
@@ -369,7 +372,10 @@ Usage:
   liber --folders rename <a> <b> rename a folder (and its subfolders) everywhere;
                                   physically moves each bookmark's files
   liber --folders delete <f>     move a folder's bookmarks back to the root
-  liber --history                list bookmarks by most recently opened (via -s's (o) action)
+   liber --history                list bookmarks by most recently opened (via -s's (o) action)
+   liber --check [ids]            check link health: report dead/moved/uncertain,
+                                    then prompt per item (update, delete, or skip)
+   liber --check --workers N      same, with N parallel requests (default 12)
   liber --auto add --match <str> --folder <f> --tag <t1 t2>
                                    auto-classify new bookmarks whose url contains <str> (folder
                                    and/or tags; also applied once, immediately, to matching
@@ -381,7 +387,11 @@ Usage:
                                   change a rule; --reapply re-syncs bookmarks it already
                                   classified (skipping any since manually moved/retagged)
   liber --auto delete <id>       remove a rule (bookmarks it already classified are untouched)
-  liber --auto apply [<id>]      re-run one rule, or all of them, against existing bookmarks
+   liber --auto apply [<id>]      re-run one rule, or all of them, against existing bookmarks
+   liber --auto learn             suggest host rules from folder clusters
+                                    (default: hosts with 3+ bookmarks in one folder)
+   liber --auto learn --min N --create
+                                    tune the threshold, or create all without asking
   liber --sync                   commit the collection, if <base_dir> is inside a jj or git repo
   liber --sync -p                same, then push
   liber --profile                list profiles (base_dir subfolders that isolate a whole
