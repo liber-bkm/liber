@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// runExportSite writes a static, browsable index of the collection; see dev-docs.md#static-export.
 func runExportSite(args []string) error {
 	outDir := ""
 	for _, a := range args {

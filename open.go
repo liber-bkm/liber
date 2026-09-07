@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// runOpen opens bookmarks in the browser without going through the search menu.
 func runOpen(ids []int) error {
 	cfg, store, err := loadCfgAndStore()
 	if err != nil {

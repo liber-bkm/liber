@@ -1,4 +1,3 @@
-// Command liber is a small, dependency-free CLI bookmark manager; run `liber -h` for usage.
 package main
 
 import (
@@ -8,7 +7,6 @@ import (
 	"strings"
 )
 
-// Version is overridden via -ldflags "-X main.Version=x.y.z" (see Makefile/flake.nix).
 var Version = "dev"
 
 func main() {
@@ -161,7 +159,7 @@ func run(args []string) error {
 		default:
 			return fmt.Errorf("unknown --folders subcommand %q (expected rename or delete)", args[1])
 		}
-	case "__preview": // internal fzf --preview callback; not in -h on purpose
+	case "__preview": // internal fzf callback; intentionally not in -h
 		if len(args) < 2 {
 			return nil
 		}
@@ -185,7 +183,6 @@ func run(args []string) error {
 	return runCreate(args[0], opt)
 }
 
-// parseSearchFlag parses -s/-sl and field-restriction combos; see dev-docs.md#search-scoping.
 func parseSearchFlag(flag string) (fields SearchFields, legacy bool, ok bool) {
 	switch flag {
 	case "--search":
