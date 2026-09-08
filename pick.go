@@ -17,7 +17,7 @@ func runPick(args []string) error {
 	if err != nil {
 		return err
 	}
-	results := store.Search(cfg, q, SearchFields{}, false, SortRelevance)
+	results := searchTargets(store, cfg, q)
 	if len(results) == 0 {
 		return fmt.Errorf("no bookmarks matching %q", q)
 	}
@@ -25,19 +25,15 @@ func runPick(args []string) error {
 		fmt.Println(results[0].URL)
 		return nil
 	}
-	shown := results
-	if len(shown) > 30 {
-		fmt.Fprintf(os.Stderr, "%d matches -- showing first 30:\n", len(results))
-		shown = results[:30]
-	}
+	shown := capShown(results, 30, os.Stderr)
 	if fzfAvailable() {
-		id, ok, ferr := pickWithFzf(shown, SearchFields{})
+		picked, ok, ferr := pickFzfTarget(store, shown)
 		if ferr == nil {
 			if !ok {
 				return fmt.Errorf("no bookmark picked")
 			}
-			if b := store.Find(id); b != nil {
-				fmt.Println(b.URL)
+			if picked != nil {
+				fmt.Println(picked.URL)
 				return nil
 			}
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -66,7 +67,7 @@ func runOpenQuery(q string) error {
 	if err != nil {
 		return err
 	}
-	results := store.Search(cfg, q, SearchFields{}, false, SortRelevance)
+	results := searchTargets(store, cfg, q)
 	if len(results) == 0 {
 		return fmt.Errorf("no bookmarks matching %q", q)
 	}
@@ -75,8 +76,8 @@ func runOpenQuery(q string) error {
 	case len(results) == 1:
 		b = results[0]
 	case fzfAvailable():
-		shown := capResults(results)
-		id, ok, ferr := pickWithFzf(shown, SearchFields{})
+		shown := capShown(results, 30, os.Stdout)
+		picked, ok, ferr := pickFzfTarget(store, shown)
 		if ferr != nil {
 			fmt.Printf("(fzf picker failed: %v -- falling back to plain prompt)\n", ferr)
 			b, ok = promptOpenPick(shown)
@@ -86,10 +87,10 @@ func runOpenQuery(q string) error {
 		} else if !ok {
 			return nil
 		} else {
-			b = store.Find(id)
+			b = picked
 		}
 	default:
-		picked, ok := promptOpenPick(capResults(results))
+		picked, ok := promptOpenPick(capShown(results, 30, os.Stdout))
 		if !ok {
 			return nil
 		}
@@ -105,14 +106,6 @@ func runOpenQuery(q string) error {
 		return nil
 	}
 	return fmt.Errorf("could not open [%d] %s", b.ID, b.Title)
-}
-
-func capResults(results []*Bookmark) []*Bookmark {
-	if len(results) > 30 {
-		fmt.Printf("%d matches -- showing first 30:\n", len(results))
-		return results[:30]
-	}
-	return results
 }
 
 func promptOpenPick(shown []*Bookmark) (*Bookmark, bool) {
