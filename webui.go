@@ -51,6 +51,7 @@ func runServe(args []string) error {
 	mux.HandleFunc("/edit/", handleEdit)
 	mux.HandleFunc("/delete", handleDelete)
 	mux.HandleFunc("/archive/", handleArchive)
+	mux.HandleFunc("/card/", handleCard)
 	mux.HandleFunc("/markdown/", handleMarkdown)
 	mux.HandleFunc("/attachment/", handleAttachment)
 	mux.HandleFunc("/settings", handleSettings)
@@ -577,6 +578,25 @@ func handleArchive(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(cfg.archiveDir(), b.ArchiveFile))
 }
 
+func handleCard(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/card/"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	b := store.Find(id)
+	if b == nil || b.HTMLFile == "" {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, filepath.Join(cfg.htmlDir(), b.HTMLFile))
+}
+
 func handleMarkdown(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/markdown/"))
 	if err != nil {
@@ -848,6 +868,7 @@ box.addEventListener('input', function(){
   {{if .Desc}}<div class="desc">{{.Desc}}</div>{{end}}
   <div class="rowlinks">
     <a href="/edit/{{.ID}}">edit</a>
+    <a href="/card/{{.ID}}" target="_blank" rel="noopener">card</a>
     <form method="post" action="/delete" class="inlineform">
       <input type="hidden" name="id" value="{{.ID}}">
       <button type="submit" class="linklike">delete</button>
