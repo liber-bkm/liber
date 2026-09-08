@@ -6,6 +6,9 @@ four methods: git (versioned), Syncthing, Nextcloud, and Google Drive /
 Dropbox. It also covers syncing without git at all, including syncing with
 an Android device that is used regularly.
 
+> [!Note]
+> An Android version of liber is currently on the long-term roadmap. Although liber works on Android perfectly using Termux, a native Android port will only be planned if there is enough interest. Alternatively, liber can be self-hosted and a reverse proxy used for `liber --serve` ports, which eliminates the troubles of syncing since a single device manages liber and hosts it for others to consume. Just make sure to run that through a tunnel, since liber serves the WebUI with full read and write permissions for bookmarks.
+
 ## How liber storage maps to sync
 
 - `<base_dir>/` holds `html/`, `markdown/`, `archive/`, `attachments/`,
