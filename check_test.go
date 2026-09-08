@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func checkFixture() *httptest.Server {
@@ -73,14 +74,17 @@ func TestResolveRef(t *testing.T) {
 }
 
 func TestParseCheckArgs(t *testing.T) {
-	spec, workers, _, err := parseCheckArgs([]string{"1-3", "--workers", "4"})
-	if err != nil || spec != "1-3" || workers != 4 {
-		t.Errorf("parseCheckArgs = %q %d %v", spec, workers, err)
+	spec, workers, stale, _, err := parseCheckArgs([]string{"1-3", "--workers", "4", "--stale", "720h"})
+	if err != nil || spec != "1-3" || workers != 4 || stale != 720*time.Hour {
+		t.Errorf("parseCheckArgs = %q %d %v %v", spec, workers, stale, err)
 	}
-	if _, _, _, err := parseCheckArgs([]string{"--workers", "0"}); err == nil {
+	if _, _, _, _, err := parseCheckArgs([]string{"--workers", "0"}); err == nil {
 		t.Error("workers 0 should fail")
 	}
-	if _, _, _, err := parseCheckArgs([]string{"--bogus"}); err == nil {
+	if _, _, _, _, err := parseCheckArgs([]string{"--stale", "nope"}); err == nil {
+		t.Error("bad stale should fail")
+	}
+	if _, _, _, _, err := parseCheckArgs([]string{"--bogus"}); err == nil {
 		t.Error("unknown flag should fail")
 	}
 }
