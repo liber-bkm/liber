@@ -29,7 +29,7 @@ func extractArchiveText(path string) (string, error) {
 	return html.UnescapeString(s), nil
 }
 
-func filterDeep(cfg Config, list []*Bookmark, query string, fields SearchFields) []*Bookmark {
+func filterDeep(cfg Config, list []*Bookmark, query string, fields SearchFields, sortMode SortMode) []*Bookmark {
 	q := strings.ToLower(strings.TrimSpace(query))
 	var out []*Bookmark
 	for _, b := range list {
@@ -44,5 +44,5 @@ func filterDeep(cfg Config, list []*Bookmark, query string, fields SearchFields)
 			}
 		}
 	}
-	return out
+	return orderResults(out, q, fields, sortMode)
 }

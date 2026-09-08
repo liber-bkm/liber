@@ -160,6 +160,32 @@ type SearchFields struct {
 	Description bool
 }
 
+type SortMode string
+
+const (
+	SortRelevance SortMode = ""
+	SortNewest    SortMode = "newest"
+	SortOldest    SortMode = "oldest"
+	SortVisited   SortMode = "visited"
+	SortTitle     SortMode = "title"
+)
+
+func ParseSortMode(s string) (SortMode, error) {
+	switch SortMode(strings.ToLower(strings.TrimSpace(s))) {
+	case SortRelevance:
+		return SortRelevance, nil
+	case SortNewest:
+		return SortNewest, nil
+	case SortOldest:
+		return SortOldest, nil
+	case SortVisited:
+		return SortVisited, nil
+	case SortTitle:
+		return SortTitle, nil
+	}
+	return SortRelevance, fmt.Errorf("unknown sort %q (expected newest, oldest, visited, or title)", s)
+}
+
 func (f SearchFields) Any() bool {
 	return f.Title || f.URL || f.Tags || f.Folder || f.Description
 }
@@ -187,7 +213,7 @@ func (f SearchFields) Label() string {
 	return strings.Join(parts, " \u00b7 ")
 }
 
-func (s *Store) Search(cfg Config, query string, fields SearchFields, deep bool) []*Bookmark {
+func (s *Store) Search(cfg Config, query string, fields SearchFields, deep bool, sortMode SortMode) []*Bookmark {
 	query = strings.ToLower(strings.TrimSpace(query))
 	var results []*Bookmark
 	for _, b := range s.Bookmarks {
@@ -202,8 +228,75 @@ func (s *Store) Search(cfg Config, query string, fields SearchFields, deep bool)
 			}
 		}
 	}
-	sort.Slice(results, func(i, j int) bool { return results[i].ID < results[j].ID })
-	return results
+	return orderResults(results, query, fields, sortMode)
+}
+
+func rankScore(b *Bookmark, q string, fields SearchFields) int {
+	all := !fields.Any()
+	if (all || fields.Title) && strings.HasPrefix(strings.ToLower(b.Title), q) {
+		return 0
+	}
+	if (all || fields.Title) && strings.Contains(strings.ToLower(b.Title), q) {
+		return 1
+	}
+	return 2
+}
+
+func orderResults(list []*Bookmark, query string, fields SearchFields, sortMode SortMode) []*Bookmark {
+	switch sortMode {
+	case SortNewest:
+		sort.SliceStable(list, func(i, j int) bool {
+			if list[i].CreatedAt.Equal(list[j].CreatedAt) {
+				return list[i].ID < list[j].ID
+			}
+			return list[i].CreatedAt.After(list[j].CreatedAt)
+		})
+	case SortOldest:
+		sort.SliceStable(list, func(i, j int) bool {
+			if list[i].CreatedAt.Equal(list[j].CreatedAt) {
+				return list[i].ID < list[j].ID
+			}
+			return list[i].CreatedAt.Before(list[j].CreatedAt)
+		})
+	case SortVisited:
+		sort.SliceStable(list, func(i, j int) bool {
+			ai, aj := list[i].LastOpenedAt, list[j].LastOpenedAt
+			if ai == nil && aj == nil {
+				return list[i].ID < list[j].ID
+			}
+			if ai == nil {
+				return false
+			}
+			if aj == nil {
+				return true
+			}
+			if ai.Equal(*aj) {
+				return list[i].ID < list[j].ID
+			}
+			return ai.After(*aj)
+		})
+	case SortTitle:
+		sort.SliceStable(list, func(i, j int) bool {
+			ti, tj := strings.ToLower(list[i].Title), strings.ToLower(list[j].Title)
+			if ti == tj {
+				return list[i].ID < list[j].ID
+			}
+			return ti < tj
+		})
+	default:
+		if query != "" {
+			sort.SliceStable(list, func(i, j int) bool {
+				si, sj := rankScore(list[i], query, fields), rankScore(list[j], query, fields)
+				if si == sj {
+					return list[i].ID < list[j].ID
+				}
+				return si < sj
+			})
+			break
+		}
+		sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
+	}
+	return list
 }
 
 func (s *Store) All() []*Bookmark {

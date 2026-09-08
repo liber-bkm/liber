@@ -17,7 +17,7 @@ func runPick(args []string) error {
 	if err != nil {
 		return err
 	}
-	results := store.Search(cfg, q, SearchFields{}, false)
+	results := store.Search(cfg, q, SearchFields{}, false, SortRelevance)
 	if len(results) == 0 {
 		return fmt.Errorf("no bookmarks matching %q", q)
 	}

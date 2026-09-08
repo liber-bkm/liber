@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func runSearch(fields SearchFields, deep bool) error {
+func runSearch(fields SearchFields, deep bool, sortMode SortMode) error {
 	cfg, store, err := loadCfgAndStore()
 	if err != nil {
 		return err
@@ -19,7 +19,7 @@ func runSearch(fields SearchFields, deep bool) error {
 	}
 
 	if deep {
-		list, ok := promptDeepQuery(cfg, store, fields)
+		list, ok := promptDeepQuery(cfg, store, fields, sortMode)
 		if !ok {
 			return nil
 		}
@@ -44,10 +44,10 @@ func runSearch(fields SearchFields, deep bool) error {
 	} else {
 		fmt.Println("(tip: install fzf for a fuzzy picker here -- falling back to plain search)")
 	}
-	return runSearchPrompt(cfg, store, fields)
+	return runSearchPrompt(cfg, store, fields, sortMode)
 }
 
-func runSearchLegacy(fields SearchFields, deep bool) error {
+func runSearchLegacy(fields SearchFields, deep bool, sortMode SortMode) error {
 	cfg, store, err := loadCfgAndStore()
 	if err != nil {
 		return err
@@ -57,23 +57,23 @@ func runSearchLegacy(fields SearchFields, deep bool) error {
 		return nil
 	}
 	if deep {
-		list, ok := promptDeepQuery(cfg, store, fields)
+		list, ok := promptDeepQuery(cfg, store, fields, sortMode)
 		if !ok {
 			return nil
 		}
 		return runPlainListLoop(cfg, store, list)
 	}
-	return runSearchPrompt(cfg, store, fields)
+	return runSearchPrompt(cfg, store, fields, sortMode)
 }
 
-func promptDeepQuery(cfg Config, store *Store, fields SearchFields) ([]*Bookmark, bool) {
+func promptDeepQuery(cfg Config, store *Store, fields SearchFields, sortMode SortMode) ([]*Bookmark, bool) {
 	q := promptLine(fmt.Sprintf("Deep search %s + archive content (empty = all)", fields.Label()))
 	if strings.TrimSpace(q) == "" {
 		fmt.Println("No query given -- showing everything.")
 		return store.All(), true
 	}
 	fmt.Println("Searching archives, this may take a moment...")
-	list := filterDeep(cfg, store.All(), q, fields)
+	list := filterDeep(cfg, store.All(), q, fields, sortMode)
 	if len(list) == 0 {
 		fmt.Println("No matches.")
 		return nil, false
@@ -128,14 +128,14 @@ func runSearchFzfList(cfg Config, store *Store, fields SearchFields, list []*Boo
 	}
 }
 
-func runSearchPrompt(cfg Config, store *Store, fields SearchFields) error {
+func runSearchPrompt(cfg Config, store *Store, fields SearchFields, sortMode SortMode) error {
 	label := fmt.Sprintf("Search %s (empty = all, 'q' to quit)", fields.Label())
 	for {
 		q := promptLine(label)
 		if q == "q" {
 			return nil
 		}
-		results := store.Search(cfg, q, fields, false)
+		results := store.Search(cfg, q, fields, false, sortMode)
 		if len(results) == 0 {
 			fmt.Println("No matches.")
 			continue
