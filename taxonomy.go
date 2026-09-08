@@ -40,36 +40,42 @@ func printCounts(counts map[string]int, emptyMsg string) {
 	}
 }
 
-func runTagsList() error {
-	_, store, err := loadCfgAndStore()
-	if err != nil {
-		return err
-	}
+func tagCounts(store *Store) map[string]int {
 	counts := map[string]int{}
 	for _, b := range store.Bookmarks {
 		for _, t := range b.Tags {
 			counts[t]++
 		}
 	}
-	printCounts(counts, "No tags yet.")
-	return nil
+	return counts
 }
 
-func runTagsRename(old, newTag string) error {
-	old = strings.TrimSpace(old)
-	newTag = strings.TrimSpace(newTag)
-	if old == "" || newTag == "" {
-		return fmt.Errorf("usage: liber --tags rename <old> <new>")
+func folderCounts(store *Store) map[string]int {
+	counts := map[string]int{}
+	for _, b := range store.Bookmarks {
+		counts[displayFolder(b.Folder)]++
 	}
-	if strings.EqualFold(old, newTag) {
-		return fmt.Errorf("%q and %q are the same tag", old, newTag)
-	}
+	return counts
+}
 
-	cfg, store, err := loadCfgAndStore()
+func runTagsList() error {
+	_, store, err := loadCfgAndStore()
 	if err != nil {
 		return err
 	}
+	printCounts(tagCounts(store), "No tags yet.")
+	return nil
+}
 
+func renameTag(cfg Config, store *Store, old, newTag string) (int, error) {
+	old = strings.TrimSpace(old)
+	newTag = strings.TrimSpace(newTag)
+	if old == "" || newTag == "" {
+		return 0, fmt.Errorf("usage: liber --tags rename <old> <new>")
+	}
+	if strings.EqualFold(old, newTag) {
+		return 0, fmt.Errorf("%q and %q are the same tag", old, newTag)
+	}
 	changed := 0
 	for _, b := range store.Bookmarks {
 		idx := indexOfFold(b.Tags, old)
@@ -82,6 +88,18 @@ func runTagsRename(old, newTag string) error {
 		syncBookmarkFiles(cfg, b, false)
 		changed++
 	}
+	return changed, nil
+}
+
+func runTagsRename(old, newTag string) error {
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		return err
+	}
+	changed, err := renameTag(cfg, store, old, newTag)
+	if err != nil {
+		return err
+	}
 	if changed == 0 {
 		fmt.Printf("No bookmarks have the tag %q.\n", old)
 		return nil
@@ -93,14 +111,10 @@ func runTagsRename(old, newTag string) error {
 	return nil
 }
 
-func runTagsDelete(tag string) error {
+func deleteTag(cfg Config, store *Store, tag string) (int, error) {
 	tag = strings.TrimSpace(tag)
 	if tag == "" {
-		return fmt.Errorf("usage: liber --tags delete <tag>")
-	}
-	cfg, store, err := loadCfgAndStore()
-	if err != nil {
-		return err
+		return 0, fmt.Errorf("usage: liber --tags delete <tag>")
 	}
 	changed := 0
 	for _, b := range store.Bookmarks {
@@ -112,6 +126,18 @@ func runTagsDelete(tag string) error {
 		b.UpdatedAt = time.Now()
 		syncBookmarkFiles(cfg, b, false)
 		changed++
+	}
+	return changed, nil
+}
+
+func runTagsDelete(tag string) error {
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		return err
+	}
+	changed, err := deleteTag(cfg, store, tag)
+	if err != nil {
+		return err
 	}
 	if changed == 0 {
 		fmt.Printf("No bookmarks have the tag %q.\n", tag)
@@ -129,11 +155,7 @@ func runFoldersList() error {
 	if err != nil {
 		return err
 	}
-	counts := map[string]int{}
-	for _, b := range store.Bookmarks {
-		counts[displayFolder(b.Folder)]++
-	}
-	printCounts(counts, "No folders yet -- everything's at the root.")
+	printCounts(folderCounts(store), "No folders yet -- everything's at the root.")
 	return nil
 }
 
@@ -148,21 +170,15 @@ func renameFolderPrefix(folder, oldPrefix, newPrefix string) string {
 	return newPrefix + folder[len(oldPrefix):]
 }
 
-func runFoldersRename(old, newFolder string) error {
+func renameFolder(cfg Config, store *Store, old, newFolder string) (int, error) {
 	old = sanitizeFolder(old)
 	newFolder = sanitizeFolder(newFolder)
 	if old == "" {
-		return fmt.Errorf("old folder can't be root -- did you mean a specific subfolder?")
+		return 0, fmt.Errorf("old folder can't be root -- did you mean a specific subfolder?")
 	}
 	if old == newFolder {
-		return fmt.Errorf("%q and %q are the same folder", displayFolder(old), displayFolder(newFolder))
+		return 0, fmt.Errorf("%q and %q are the same folder", displayFolder(old), displayFolder(newFolder))
 	}
-
-	cfg, store, err := loadCfgAndStore()
-	if err != nil {
-		return err
-	}
-
 	changed := 0
 	for _, b := range store.Bookmarks {
 		if !folderMatchesOrIsChild(b.Folder, old) {
@@ -172,6 +188,18 @@ func runFoldersRename(old, newFolder string) error {
 		b.UpdatedAt = time.Now()
 		syncBookmarkFiles(cfg, b, true)
 		changed++
+	}
+	return changed, nil
+}
+
+func runFoldersRename(old, newFolder string) error {
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		return err
+	}
+	changed, err := renameFolder(cfg, store, old, newFolder)
+	if err != nil {
+		return err
 	}
 	if changed == 0 {
 		fmt.Printf("No bookmarks are in folder %q.\n", old)
