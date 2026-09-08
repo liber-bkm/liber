@@ -422,6 +422,45 @@ type learnSuggestion struct {
 	count  int
 }
 
+func suggestRules(store *Store, min int) []learnSuggestion {
+	covered := map[string]bool{}
+	for _, r := range store.AutoRules {
+		if rest, ok := strings.CutPrefix(strings.ToLower(r.Match), "host:"); ok {
+			covered[rest] = true
+		}
+	}
+	counts := map[string]map[string]int{}
+	for _, b := range store.Bookmarks {
+		h := hostOf(b.URL)
+		if h == "" || b.Folder == "" || covered[h] {
+			continue
+		}
+		if counts[h] == nil {
+			counts[h] = map[string]int{}
+		}
+		counts[h][b.Folder]++
+	}
+	var out []learnSuggestion
+	for h, folders := range counts {
+		names := make([]string, 0, len(folders))
+		for f := range folders {
+			names = append(names, f)
+		}
+		sort.Strings(names)
+		best, bestN := "", 0
+		for _, f := range names {
+			if folders[f] > bestN {
+				best, bestN = f, folders[f]
+			}
+		}
+		if bestN >= min {
+			out = append(out, learnSuggestion{host: h, folder: best, count: bestN})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].count > out[j].count })
+	return out
+}
+
 func runAutoLearn(args []string) error {
 	min := 3
 	create := false
@@ -449,41 +488,7 @@ func runAutoLearn(args []string) error {
 		return err
 	}
 
-	covered := map[string]bool{}
-	for _, r := range store.AutoRules {
-		if rest, ok := strings.CutPrefix(strings.ToLower(r.Match), "host:"); ok {
-			covered[rest] = true
-		}
-	}
-	counts := map[string]map[string]int{}
-	for _, b := range store.Bookmarks {
-		h := hostOf(b.URL)
-		if h == "" || b.Folder == "" || covered[h] {
-			continue
-		}
-		if counts[h] == nil {
-			counts[h] = map[string]int{}
-		}
-		counts[h][b.Folder]++
-	}
-	var suggestions []learnSuggestion
-	for h, folders := range counts {
-		names := make([]string, 0, len(folders))
-		for f := range folders {
-			names = append(names, f)
-		}
-		sort.Strings(names)
-		best, bestN := "", 0
-		for _, f := range names {
-			if folders[f] > bestN {
-				best, bestN = f, folders[f]
-			}
-		}
-		if bestN >= min {
-			suggestions = append(suggestions, learnSuggestion{host: h, folder: best, count: bestN})
-		}
-	}
-	sort.Slice(suggestions, func(i, j int) bool { return suggestions[i].count > suggestions[j].count })
+	suggestions := suggestRules(store, min)
 	if len(suggestions) == 0 {
 		fmt.Println("No rule suggestions: no host appears in one folder often enough.")
 		return nil
