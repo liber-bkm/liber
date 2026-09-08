@@ -280,6 +280,9 @@ func parseCreateFlags(args []string) (CreateOptions, error) {
 }
 
 func runConfigCmd(args []string) error {
+	if len(args) > 0 && args[0] == "set" {
+		return runConfigSet(args[1:])
+	}
 	cfg, path, err := LoadConfig()
 	if err != nil {
 		return err
