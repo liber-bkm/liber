@@ -110,6 +110,9 @@ func pageURL(r *http.Request, page int) string {
 	if r.URL.Query().Get("deep") == "1" {
 		v.Set("deep", "1")
 	}
+	if s := r.URL.Query().Get("sort"); s != "" {
+		v.Set("sort", s)
+	}
 	v.Set("page", strconv.Itoa(page))
 	return "/?" + v.Encode()
 }
@@ -141,6 +144,7 @@ func toWebViews(list []*Bookmark) []webBookmarkView {
 type searchPageData struct {
 	Query                                                                string
 	ScopeTitle, ScopeURL, ScopeTags, ScopeDescription, ScopeFolder, Deep bool
+	Sort                                                                 string
 	Flash                                                                string
 	ShowAdd, PendingConfirm                                              bool
 	DupWarning                                                           string
@@ -169,22 +173,26 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 	deep := r.URL.Query().Get("deep") == "1"
 	fields := scopeFromParams(r.URL.Query()["scope"])
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	sortMode, err := ParseSortMode(r.URL.Query().Get("sort"))
+	if err != nil {
+		sortMode = SortRelevance
+	}
 
 	var results []*Bookmark
 	switch {
 	case deep && strings.TrimSpace(q) != "":
-		results = filterDeep(cfg, store.All(), q, fields)
+		results = filterDeep(cfg, store.All(), q, fields, sortMode)
 	case deep:
-		results = store.All()
+		results = orderResults(store.All(), "", fields, sortMode)
 	default:
-		results = store.Search(cfg, q, fields, false)
+		results = store.Search(cfg, q, fields, false, sortMode)
 	}
 
 	pageItems, totalPages, curPage := paginate(results, page)
 	prefillURL := r.URL.Query().Get("prefill")
 
 	data := searchPageData{
-		Query: q, Deep: deep,
+		Query: q, Deep: deep, Sort: string(sortMode),
 		ScopeTitle: fields.Title, ScopeURL: fields.URL, ScopeTags: fields.Tags,
 		ScopeDescription: fields.Description, ScopeFolder: fields.Folder,
 		Flash:       r.URL.Query().Get("msg"),
@@ -629,6 +637,7 @@ h1 a { color: inherit; text-decoration: none; }
 h2 { font-size: 1.1rem; }
 .searchform { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-bottom: .75rem; }
 .searchform input[type=text] { flex: 1; min-width: 200px; padding: .4rem .6rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
+.searchform select { padding: .4rem .6rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
 .searchform label { font-size: .85rem; color: var(--fg-soft); white-space: nowrap; }
 button { padding: .4rem .8rem; border: 1px solid var(--border-strong); background: var(--surface2); color: var(--fg); border-radius: 4px; cursor: pointer; }
 details { margin: 1rem 0; border: 1px solid var(--border); border-radius: 4px; padding: .5rem .75rem; background: var(--surface); }
@@ -757,6 +766,13 @@ var searchBodyTmpl = template.Must(template.New("searchBody").Parse(`
   <label><input type="checkbox" name="scope" value="d" {{if .ScopeDescription}}checked{{end}}> description</label>
   <label><input type="checkbox" name="scope" value="f" {{if .ScopeFolder}}checked{{end}}> folder</label>
   <label><input type="checkbox" name="deep" value="1" {{if .Deep}}checked{{end}}> deep (archive content)</label>
+  <label>sort <select name="sort">
+    <option value="" {{if eq .Sort ""}}selected{{end}}>relevance</option>
+    <option value="newest" {{if eq .Sort "newest"}}selected{{end}}>newest</option>
+    <option value="oldest" {{if eq .Sort "oldest"}}selected{{end}}>oldest</option>
+    <option value="visited" {{if eq .Sort "visited"}}selected{{end}}>visited</option>
+    <option value="title" {{if eq .Sort "title"}}selected{{end}}>title</option>
+  </select></label>
   <button type="submit">Search</button>
 </form>
 

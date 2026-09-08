@@ -24,16 +24,29 @@ func run(args []string) error {
 
 	if opt, legacy, ok := parseSearchFlag(args[0]); ok {
 		deep := false
-		if len(args) > 1 {
-			if args[1] != "--deep" {
-				return fmt.Errorf("unknown flag %q (only --deep is supported after a search flag)", args[1])
+		sortMode := SortRelevance
+		for i := 1; i < len(args); i++ {
+			switch args[i] {
+			case "--deep":
+				deep = true
+			case "--sort":
+				if i+1 >= len(args) {
+					return fmt.Errorf("--sort requires a mode: newest, oldest, visited, or title")
+				}
+				mode, err := ParseSortMode(args[i+1])
+				if err != nil {
+					return err
+				}
+				sortMode = mode
+				i++
+			default:
+				return fmt.Errorf("unknown flag %q (only --deep and --sort are supported after a search flag)", args[i])
 			}
-			deep = true
 		}
 		if legacy {
-			return runSearchLegacy(opt, deep)
+			return runSearchLegacy(opt, deep, sortMode)
 		}
-		return runSearch(opt, deep)
+		return runSearch(opt, deep, sortMode)
 	}
 
 	switch args[0] {
