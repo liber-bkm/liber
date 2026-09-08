@@ -36,7 +36,10 @@ _liber() {
 		-f|--folder)   COMPREPLY=( $(compgen -W "$(_liber_folders)" -- "$cur") ); return 0 ;;
 		--import)      compopt -o default 2>/dev/null; return 0 ;;
 		--export-site) compopt -o default 2>/dev/null; return 0 ;;
+		--sort)        COMPREPLY=( $(compgen -W "newest oldest visited title" -- "$cur") ); return 0 ;;
+		--stale)       return 0 ;;
 		completion)    COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ); return 0 ;;
+		set)           COMPREPLY=( $(compgen -W "base_dir html_dir markdown_dir archive_dir attachment_dir singlefile_cmd singlefile_browser_path archive_backend monolith_cmd monolith_browser_path monolith_use_browser browser_cmd editor_cmd" -- "$cur") ); return 0 ;;
 	esac
 
 	case "${COMP_WORDS[1]}" in
@@ -78,14 +81,16 @@ const zshCompletion = `#compdef liber
 #   liber completion zsh > ~/.zsh/completions/_liber && compinit
 
 _liber() {
-	# complete the argument of the previous word, when it demands one
-	case "$words[CURRENT-1]" in
-		-t|--tag)       compadd -- ${(f)"$(liber --tags 2>/dev/null | awk '{print $1}')"}; return ;;
-		-f|--folder)    compadd -- ${(f)"$(liber --folders 2>/dev/null | awk '{print $1}')"}; return ;;
-		--import)       _files; return ;;
-		--export-site)  _files -/; return ;;
-		completion)     compadd bash zsh fish; return ;;
-	esac
+ 	# complete the argument of the previous word, when it demands one
+ 	case "$words[CURRENT-1]" in
+ 		-t|--tag)       compadd -- ${(f)"$(liber --tags 2>/dev/null | awk '{print $1}')"}; return ;;
+ 		-f|--folder)    compadd -- ${(f)"$(liber --folders 2>/dev/null | awk '{print $1}')"}; return ;;
+ 		--import)       _files; return ;;
+ 		--export-site)  _files -/; return ;;
+ 		--sort)         compadd newest oldest visited title; return ;;
+ 		set)            compadd base_dir html_dir markdown_dir archive_dir attachment_dir singlefile_cmd singlefile_browser_path archive_backend monolith_cmd monolith_browser_path monolith_use_browser browser_cmd editor_cmd; return ;;
+ 		completion)     compadd bash zsh fish; return ;;
+ 	esac
 
 	# complete arguments based on the leading flag
 	case "$words[2]" in
@@ -95,6 +100,7 @@ _liber() {
 		--profile) compadd default delete; return ;;
 		--tags)    compadd rename delete; return ;;
 		--folders) compadd rename delete; return ;;
+		config)    compadd set; return ;;
 	esac
 
 	if (( CURRENT == 2 )); then
@@ -130,6 +136,8 @@ _liber() {
 			'-at[attach a file (repeatable)]' \
 			'-dt[detach an attachment]' \
 			'--deep[search archive content too]' \
+			'--sort[sort results]:mode:(newest oldest visited title)' \
+			'--stale[only recheck stale bookmarks]' \
 			'-y[no confirmation prompts]'
 	fi
 }
@@ -185,9 +193,13 @@ complete -c liber -n "__fish_seen_argument -l auto" -l reapply -d "re-sync after
 complete -c liber -n "__fish_seen_argument -l auto" -l min -d "learn threshold"
 complete -c liber -n "__fish_seen_argument -l auto" -l create -d "create learned rules"
 complete -c liber -n "__fish_seen_argument -l check" -l workers -d "parallel requests"
+complete -c liber -n "__fish_seen_argument -l check" -l stale -d "only stale checks"
 complete -c liber -n "__fish_seen_argument -l profile" -a "default delete" -d "profile"
 complete -c liber -n "__fish_seen_argument -l serve" -l addr -d "bind address"
 complete -c liber -n "__fish_seen_argument completion" -a "bash zsh fish" -d "shell"
+complete -c liber -n "__fish_seen_argument config" -a "set" -d "set a config key"
+complete -c liber -n "__fish_seen_argument set; and __fish_seen_argument config" -a "base_dir html_dir markdown_dir archive_dir attachment_dir singlefile_cmd singlefile_browser_path archive_backend monolith_cmd monolith_browser_path monolith_use_browser browser_cmd editor_cmd" -d "config key"
+complete -c liber -n "__fish_seen_argument -l sort" -a "newest oldest visited title" -d "sort mode"
 
 # boolean modifiers (-md/-at/-dt are single-dash multi-char = old-style options in fish)
 complete -c liber -o md -d "also a markdown copy"

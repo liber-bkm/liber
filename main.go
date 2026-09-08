@@ -348,8 +348,10 @@ Usage:
   liber -sl                      force the plain prompt (skip fzf even if installed)
   liber -sld                     legacy prompt restricted to descriptions (mix -l with any of n/u/t/d/f)
   liber -s --deep                also full-text search inside archived pages (asks for a query
-                                  first, then browses matches; combine with -sn/-sd/etc as usual)
+                                    first, then browses matches; combine with -sn/-sd/etc as usual)
   liber -sl --deep               same, forced to the plain prompt
+  liber -s --sort <mode>         order results: newest, oldest, visited, or title
+                                    (default orders by relevance: title match first)
   liber -l                       list all bookmarks with their ids
   liber -e <id>                  edit a bookmark interactively (also offers to add a
                                   markdown copy or archive if either is missing)
@@ -390,8 +392,9 @@ Usage:
   liber --folders delete <f>     move a folder's bookmarks back to the root
    liber --history                list bookmarks by most recently opened (via -s's (o) action)
    liber --check [ids]            check link health: report dead/moved/uncertain,
-                                    then prompt per item (update, delete, or skip)
+                                    then prompt per item (update, delete, quarantine, skip)
    liber --check --workers N      same, with N parallel requests (default 12)
+   liber --check --stale 720h     same, skipping bookmarks checked within the duration
   liber --auto add --match <str> --folder <f> --tag <t1 t2>
                                    auto-classify new bookmarks whose url contains <str> (folder
                                    and/or tags; also applied once, immediately, to matching
@@ -417,6 +420,7 @@ Usage:
   liber --profile default        switch back to using <base_dir> directly (no profile)
   liber --profile delete <name>  stop tracking a profile (its folder and data are untouched)
   liber config                   show the active config file and its path
+  liber config set <key> <val>   set one config key (validated before writing)
   liber -v                       print the version
   liber --serve                  local web UI at http://127.0.0.1:8080 -- search (with the
                                    same scoping/deep options as -s), plus add, edit, delete,
