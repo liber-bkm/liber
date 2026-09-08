@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 func runReindex(args []string) error {
@@ -38,6 +40,9 @@ func runReindex(args []string) error {
 			return err
 		}
 	}
+
+	adopted, dupMoved := adoptOrphanFiles(cfg, store)
+	_ = dupMoved
 
 	var kept []*Bookmark
 	removed := 0
@@ -83,6 +88,9 @@ func runReindex(args []string) error {
 	}
 
 	fmt.Printf("Reindexed: %d bookmark(s) remain.\n", len(kept))
+	if adopted > 0 {
+		fmt.Printf("Indexed %d bookmark file(s) found on disk but missing from the index.\n", adopted)
+	}
 	if removed > 0 {
 		fmt.Printf("Dropped %d entr%s whose bookmark file no longer exists.\n", removed, entrySuffix(removed))
 	}
@@ -95,7 +103,7 @@ func runReindex(args []string) error {
 			fmt.Println("  " + r)
 		}
 	}
-	if removed == 0 && orphansMoved == 0 && len(renamed) == 0 {
+	if removed == 0 && orphansMoved == 0 && len(renamed) == 0 && adopted == 0 {
 		fmt.Println("Nothing to clean up -- the index already matches what's on disk.")
 	}
 	return nil
@@ -108,6 +116,7 @@ func runMerge(cfg Config, store *Store, copies []string) error {
 		return nil
 	}
 	var others []*Store
+	var otherPaths []string
 	var skipped []string
 	for _, c := range copies {
 		other, err := LoadStore(c)
@@ -117,6 +126,29 @@ func runMerge(cfg Config, store *Store, copies []string) error {
 			continue
 		}
 		others = append(others, other)
+		otherPaths = append(otherPaths, c)
+	}
+	if len(others) > 0 {
+		mainPath := cfg.indexPath()
+		best := -1
+		bestCount := len(store.Bookmarks)
+		bestTime := mtimeOf(mainPath)
+		for i, o := range others {
+			mt := mtimeOf(otherPaths[i])
+			if len(o.Bookmarks) > bestCount || (len(o.Bookmarks) == bestCount && mt.Before(bestTime)) {
+				best = i
+				bestCount = len(o.Bookmarks)
+				bestTime = mt
+			}
+		}
+		if best >= 0 {
+			winner := others[best]
+			oldMain := &Store{NextID: store.NextID, Bookmarks: store.Bookmarks, NextAutoRuleID: store.NextAutoRuleID, AutoRules: store.AutoRules}
+			store.NextID, store.Bookmarks = winner.NextID, winner.Bookmarks
+			store.NextAutoRuleID, store.AutoRules = winner.NextAutoRuleID, winner.AutoRules
+			others[best] = oldMain
+			fmt.Printf("Using %s as merge base (%d bookmark(s)).\n", filepath.Base(otherPaths[best]), bestCount)
+		}
 	}
 	rep := mergeStores(store, others)
 
@@ -213,6 +245,248 @@ func entrySuffix(n int) string {
 		return "y"
 	}
 	return "ies"
+}
+
+func mtimeOf(path string) time.Time {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return time.Now()
+	}
+	return fi.ModTime()
+}
+
+var (
+	orphanURLRe    = regexp.MustCompile(`(?i)<meta[^>]+name=["']liber:url["'][^>]+content=["']([^"']+)["']`)
+	orphanFolderRe = regexp.MustCompile(`(?i)<meta[^>]+name=["']liber:folder["'][^>]+content=["']([^"']*)["']`)
+	orphanTagsRe   = regexp.MustCompile(`(?i)<meta[^>]+name=["']liber:tags["'][^>]+content=["']([^"']*)["']`)
+	orphanTitleRe  = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	orphanLinkRe   = regexp.MustCompile(`(?is)<h1[^>]*>\s*<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)</a>`)
+	orphanDescRe   = regexp.MustCompile(`(?is)<p[^>]+class=["']desc["'][^>]*>(.*?)</p>`)
+	orphanTagRe    = regexp.MustCompile(`(?i)<[^>]+>`)
+)
+
+func parseOrphanHTML(abs string) (url, title, folder string, tags []string, desc string) {
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return "", "", "", nil, ""
+	}
+	s := string(data)
+	if m := orphanURLRe.FindStringSubmatch(s); m != nil {
+		url = strings.TrimSpace(m[1])
+	}
+	if m := orphanFolderRe.FindStringSubmatch(s); m != nil {
+		folder = sanitizeFolder(m[1])
+	}
+	if m := orphanTagsRe.FindStringSubmatch(s); m != nil {
+		for _, t := range strings.Split(m[1], ",") {
+			if strings.TrimSpace(t) != "" {
+				tags = append(tags, strings.TrimSpace(t))
+			}
+		}
+		tags = dedupe(tags)
+	}
+	if m := orphanTitleRe.FindStringSubmatch(s); m != nil {
+		title = strings.TrimSpace(orphanTagRe.ReplaceAllString(m[1], ""))
+	}
+	if m := orphanLinkRe.FindStringSubmatch(s); m != nil {
+		if url == "" {
+			url = strings.TrimSpace(m[1])
+		}
+		if title == "" {
+			title = strings.TrimSpace(orphanTagRe.ReplaceAllString(m[2], ""))
+		}
+	}
+	if m := orphanDescRe.FindStringSubmatch(s); m != nil {
+		desc = strings.TrimSpace(orphanTagRe.ReplaceAllString(m[1], ""))
+	}
+	return url, title, folder, tags, desc
+}
+
+func adoptOrphanFiles(cfg Config, store *Store) (adopted, dupMoved int) {
+	htmlDir := cfg.htmlDir()
+	if !fileExists(htmlDir) {
+		return 0, 0
+	}
+	referenced := map[string]bool{}
+	for _, b := range store.Bookmarks {
+		if b.HTMLFile != "" {
+			referenced[b.HTMLFile] = true
+		}
+	}
+	byURL := map[string]*Bookmark{}
+	for _, b := range store.Bookmarks {
+		byURL[normalizeForDedupe(b.URL)] = b
+	}
+	var rels []string
+	_ = filepath.Walk(htmlDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(strings.ToLower(info.Name()), ".html") {
+			return nil
+		}
+		rel, err := filepath.Rel(htmlDir, p)
+		if err != nil {
+			return nil
+		}
+		rels = append(rels, rel)
+		return nil
+	})
+	sort.Strings(rels)
+	unindexedRoot := filepath.Join(cfg.effectiveBaseDir(), "unindexed")
+	maxID := 0
+	for _, b := range store.Bookmarks {
+		if b.ID > maxID {
+			maxID = b.ID
+		}
+	}
+	if store.NextID <= maxID {
+		store.NextID = maxID + 1
+	}
+	for _, rel := range rels {
+		if referenced[rel] {
+			continue
+		}
+		abs := filepath.Join(htmlDir, rel)
+		url, title, _, tags, desc := parseOrphanHTML(abs)
+		url = strings.TrimSpace(url)
+		if url == "" {
+			dst := filepath.Join(unindexedRoot, "html", rel)
+			if fileExists(abs) {
+				if err := moveFile(abs, dst); err == nil {
+					dupMoved++
+				}
+			}
+			continue
+		}
+		if dup, ok := byURL[normalizeForDedupe(url)]; ok && dup != nil {
+			dst := filepath.Join(unindexedRoot, "html", rel)
+			if fileExists(abs) {
+				if err := moveFile(abs, dst); err == nil {
+					dupMoved++
+				}
+			}
+			_ = dup
+			continue
+		}
+		fi, _ := os.Stat(abs)
+		ts := time.Now()
+		if fi != nil {
+			ts = fi.ModTime()
+		}
+		dir := filepath.Dir(rel)
+		folder := ""
+		if dir != "." && dir != "" {
+			folder = sanitizeFolder(dir)
+		}
+		if title == "" {
+			title = url
+		}
+		maxID++
+		nb := &Bookmark{
+			ID:          maxID,
+			URL:         url,
+			Title:       title,
+			Description: desc,
+			Tags:        tags,
+			Folder:      folder,
+			CreatedAt:   ts,
+			UpdatedAt:   ts,
+			HTMLFile:    rel,
+		}
+		newBase := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
+		if idx := strings.Index(newBase, "-"); idx > 0 {
+			rest := newBase[idx+1:]
+			if rest == "" {
+				rest = slugOrFallback(title, maxID)
+			}
+			newBase = fmt.Sprintf("%04d-%s", maxID, rest)
+		} else {
+			newBase = fmt.Sprintf("%04d-%s", maxID, slugOrFallback(title, maxID))
+		}
+		newRel := filepath.Join(filepath.Dir(rel), newBase+".html")
+		if newRel != rel && filepath.Dir(rel) == "." {
+			newRel = newBase + ".html"
+		}
+		if newRel != rel {
+			dst := filepath.Join(htmlDir, newRel)
+			if !fileExists(dst) {
+				if err := moveFile(abs, dst); err == nil {
+					nb.HTMLFile = newRel
+					rel = newRel
+				}
+			}
+		}
+		oldStem := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
+		_ = oldStem
+		attachSiblings(cfg, nb, abs, rel)
+		store.Bookmarks = append(store.Bookmarks, nb)
+		referenced[nb.HTMLFile] = true
+		byURL[normalizeForDedupe(url)] = nb
+		adopted++
+		fmt.Printf("  adopted %s as [%d] %s\n", nb.HTMLFile, nb.ID, nb.Title)
+	}
+	if adopted > 0 {
+		maxID = 0
+		for _, b := range store.Bookmarks {
+			if b.ID > maxID {
+				maxID = b.ID
+			}
+		}
+		store.NextID = maxID + 1
+	}
+	return adopted, dupMoved
+}
+
+func attachSiblings(cfg Config, nb *Bookmark, oldAbs, newRel string) {
+	oldBase := strings.TrimSuffix(filepath.Base(oldAbs), filepath.Ext(oldAbs))
+	newBase := strings.TrimSuffix(filepath.Base(newRel), filepath.Ext(filepath.Base(newRel)))
+	dir := filepath.Dir(newRel)
+	if dir == "." {
+		dir = ""
+	}
+	mdOldRel := filepath.Join(dir, oldBase+".md")
+	if dir == "" {
+		mdOldRel = oldBase + ".md"
+	}
+	mdOldAbs := filepath.Join(cfg.markdownDir(), mdOldRel)
+	if fileExists(mdOldAbs) {
+		mdNewRel := filepath.Join(dir, newBase+".md")
+		if dir == "" {
+			mdNewRel = newBase + ".md"
+		}
+		mdNewAbs := filepath.Join(cfg.markdownDir(), mdNewRel)
+		if !fileExists(mdNewAbs) {
+			if err := moveFile(mdOldAbs, mdNewAbs); err == nil {
+				nb.MarkdownFile = mdNewRel
+			} else {
+				nb.MarkdownFile = mdOldRel
+			}
+		} else {
+			nb.MarkdownFile = mdOldRel
+		}
+	}
+	archOldRel := filepath.Join(dir, oldBase+".html")
+	if dir == "" {
+		archOldRel = oldBase + ".html"
+	}
+	archOldAbs := filepath.Join(cfg.archiveDir(), archOldRel)
+	if fileExists(archOldAbs) {
+		archNewRel := filepath.Join(dir, newBase+".html")
+		if dir == "" {
+			archNewRel = newBase + ".html"
+		}
+		archNewAbs := filepath.Join(cfg.archiveDir(), archNewRel)
+		if !fileExists(archNewAbs) {
+			if err := moveFile(archOldAbs, archNewAbs); err == nil {
+				nb.ArchiveFile = archNewRel
+			} else {
+				nb.ArchiveFile = archOldRel
+			}
+		} else {
+			nb.ArchiveFile = archOldRel
+		}
+	}
 }
 
 type bookmarkFileField struct {

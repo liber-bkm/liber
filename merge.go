@@ -73,6 +73,12 @@ func mergeStores(base *Store, others []*Store) *mergeReport {
 				if normalizeForDedupe(eb.URL) == key {
 					mergeBookmarkFields(eb, ib)
 					rep.merged = append(rep.merged, eb.ID)
+				} else if dup, ok := byURL[key]; ok {
+					dup.Tags = dedupe(append(dup.Tags, ib.Tags...))
+					if dup.UpdatedAt.Before(ib.UpdatedAt) {
+						dup.UpdatedAt = ib.UpdatedAt
+					}
+					rep.deduped = append(rep.deduped, ib)
 				} else {
 					maxID++
 					old := ib.ID
