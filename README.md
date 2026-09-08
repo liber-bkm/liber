@@ -216,6 +216,7 @@ liber -d <id>                  delete a bookmark (asks for confirmation)
 liber -d <id> -y               delete without confirmation
 liber -d <ids>                 <id> can be a range/list too, same as -e above
 liber -r                       reindex: clean up + renumber (see "Reindexing" below)
+liber -r --merge               same, first folding sync conflict copies in
 liber --import <path>          import a browser bookmark export (see "Import" below)
 liber --import <path> -md -a   same, also generating markdown/archives for each (slow)
 liber --tags / --folders       list tags/folders with counts (see "Tag and folder hygiene")
@@ -675,6 +676,15 @@ Nothing changes if you never touch `--profile` — the original flat layout (`ba
 **2. Renumber to close id gaps.** If you had ids 1–4 and deleted 3, `liber -l` would otherwise show 1, 2, 4 forever. `liber -r` renumbers the remainder to 1, 2, 3, in their existing order — it's a gap-closing compaction, not an alphabetical or any other kind of sort. Since ids are embedded in filenames (`0004-...` → `0003-...`), this physically renames each affected bookmark's HTML/markdown/archive/attachment files to match. That rename is done in two passes: every affected file is moved to a temporary staging name first, and only once all of them are staged does anything land on its final numbered name — so a bookmark moving into a lower id slot can never collide with, or get confused with, another bookmark's files, no matter how many ids shift in the same run.
 
 Safe to run any time. Step 1 never touches a bookmark whose HTML file is still there and never deletes anything outright, and step 2 only ever renames files, never their content.
+
+**3. Merge sync conflict copies (`liber -r --merge` only).** When an external sync tool leaves conflict copies of the index in `.liber/` (Syncthing `sync-conflict`, Nextcloud/Dropbox conflicted copies), plain `liber -r` only lists them and changes nothing. With `--merge`, liber folds them in before steps 1-2:
+
+- Same id, same bookmark: fields merge (newer edit wins text, tags and attachments union).
+- Same id, different bookmarks (added offline on both sides): the incoming one gets a fresh id and its files are renamed to match.
+- Same URL under different ids: duplicates fold into the richer entry; the loser's files move to `unindexed/` instead of being deleted.
+- Automation rules union by match text; unparseable copies are reported and skipped.
+
+Consumed copies move to `.liber/resolved/` (never deleted), so the next `-r` is clean. See [syncing-guide.md](syncing-guide.md) for the full multi-device story.
 
 ## Archive backends
 
