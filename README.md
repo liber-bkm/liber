@@ -51,6 +51,7 @@ Liber is a cross-platform, simple, private and local bookmark manager that saves
 - Import bookmarks from browser
 - Rule-based automation of bookmarks into specific folders or tags
 - Git integration for history and sync
+- Merge conflict resolution
 - Profiles, each working independently from the others
 
 # Installing
@@ -468,6 +469,7 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
   liber --sync -p  # git push
   ```
 
+
 - **Profiles:** Liber also has profiles. By default there's just one collection, living directly under `base_dir`. If you want separate, fully independent collections — say, `work` and `personal` — profiles give you that. See details [here](#profiles).
 
   ```sh
@@ -685,6 +687,9 @@ Safe to run any time. Step 1 never touches a bookmark whose HTML file is still t
 - Automation rules union by match text; unparseable copies are reported and skipped.
 
 Consumed copies move to `.liber/resolved/` (never deleted), so the next `-r` is clean. See [syncing-guide.md](syncing-guide.md) for the full multi-device story.
+
+>[!Warning]
+> Merge conflict resolution due to syncing `liber -r --merge` are currently experimental, it's recommended to have backups and you must know how your provider's (Google drive and so on) syncing services work. If you want to use liber over multiple devices, have each device use device specific profile so conflicts don't rise or self host the server 
 
 ## Archive backends
 
