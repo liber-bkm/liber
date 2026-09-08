@@ -527,6 +527,8 @@ Anything that normalizes to a URL you already have is skipped automatically (no 
 
 This is deliberately minimal: one commit, optionally one push, nothing that manages branches, jj bookmarks, or remotes for you. Since everything liber writes is flat files and JSON, git or jj sync was already going to work without this command; `--sync` just saves you the two-or-three manual commands.
 
+For syncing without git (Syncthing, Nextcloud, Drive/Dropbox, Android), see [syncing-guide.md](syncing-guide.md).
+
 ### Automation
 
 Auto-classify bookmarks whose URL contains a given string. Also works to specify based on host/site or title. You can either user webUI or cli for automations, for cli consider the examples below:
