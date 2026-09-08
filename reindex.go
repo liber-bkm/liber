@@ -8,13 +8,36 @@ import (
 	"strings"
 )
 
-func runReindex() error {
+func runReindex(args []string) error {
+	merge := false
+	for _, a := range args {
+		if a == "--merge" {
+			merge = true
+			continue
+		}
+		return fmt.Errorf("unknown flag %q (usage: liber -r [--merge])", a)
+	}
 	cfg, store, err := loadCfgAndStore()
 	if err != nil {
 		return err
 	}
 
 	unindexedRoot := filepath.Join(cfg.effectiveBaseDir(), "unindexed")
+
+	copies := findConflictCopies(filepath.Join(cfg.effectiveBaseDir(), ".liber"))
+	if len(copies) > 0 && !merge {
+		fmt.Println("Sync conflict copies found (nothing changed):")
+		for _, c := range copies {
+			fmt.Println("  " + c)
+		}
+		fmt.Println("Re-run with --merge to fold them into the index.")
+		return nil
+	}
+	if merge {
+		if err := runMerge(cfg, store, copies); err != nil {
+			return err
+		}
+	}
 
 	var kept []*Bookmark
 	removed := 0
@@ -45,39 +68,7 @@ func runReindex() error {
 		}
 
 		removed++
-		if b.MarkdownFile != "" {
-			src := filepath.Join(cfg.markdownDir(), b.MarkdownFile)
-			if fileExists(src) {
-				dst := filepath.Join(unindexedRoot, "markdown", b.MarkdownFile)
-				if err := moveFile(src, dst); err != nil {
-					fmt.Fprintf(os.Stderr, "warning: could not move %s: %v\n", src, err)
-				} else {
-					orphansMoved++
-				}
-			}
-		}
-		if b.ArchiveFile != "" {
-			src := filepath.Join(cfg.archiveDir(), b.ArchiveFile)
-			if fileExists(src) {
-				dst := filepath.Join(unindexedRoot, "archive", b.ArchiveFile)
-				if err := moveFile(src, dst); err != nil {
-					fmt.Fprintf(os.Stderr, "warning: could not move %s: %v\n", src, err)
-				} else {
-					orphansMoved++
-				}
-			}
-		}
-		for _, at := range b.Attachments {
-			src := filepath.Join(cfg.attachmentsDir(), at.File)
-			if fileExists(src) {
-				dst := filepath.Join(unindexedRoot, "attachments", at.File)
-				if err := moveFile(src, dst); err != nil {
-					fmt.Fprintf(os.Stderr, "warning: could not move %s: %v\n", src, err)
-				} else {
-					orphansMoved++
-				}
-			}
-		}
+		orphansMoved += quarantineOrphans(cfg, unindexedRoot, b)
 	}
 
 	renamed, err := compactIDs(cfg, kept)
@@ -108,6 +99,113 @@ func runReindex() error {
 		fmt.Println("Nothing to clean up -- the index already matches what's on disk.")
 	}
 	return nil
+}
+
+// runMerge folds sync conflict copies into the store.
+func runMerge(cfg Config, store *Store, copies []string) error {
+	if len(copies) == 0 {
+		fmt.Println("No conflict copies to merge.")
+		return nil
+	}
+	var others []*Store
+	var skipped []string
+	for _, c := range copies {
+		other, err := LoadStore(c)
+		if err != nil {
+			skipped = append(skipped, c)
+			fmt.Fprintf(os.Stderr, "warning: skipping unparseable %s: %v\n", c, err)
+			continue
+		}
+		others = append(others, other)
+	}
+	rep := mergeStores(store, others)
+
+	unindexedRoot := filepath.Join(cfg.effectiveBaseDir(), "unindexed")
+	quarantined := 0
+	for _, pair := range rep.reassigned {
+		if b := store.Find(pair[1]); b != nil {
+			renameCollisionFiles(cfg, b, pair[0], pair[1])
+		}
+	}
+	for _, b := range rep.deduped {
+		if b.HTMLFile != "" {
+			src := filepath.Join(cfg.htmlDir(), b.HTMLFile)
+			dst := filepath.Join(unindexedRoot, "html", b.HTMLFile)
+			if fileExists(src) {
+				if err := moveFile(src, dst); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: could not move %s: %v\n", src, err)
+				} else {
+					quarantined++
+				}
+			}
+		}
+		quarantined += quarantineOrphans(cfg, unindexedRoot, b)
+	}
+
+	resolvedDir := filepath.Join(cfg.effectiveBaseDir(), ".liber", "resolved")
+	for _, c := range copies {
+		skip := false
+		for _, s := range skipped {
+			if s == c {
+				skip = true
+			}
+		}
+		if skip {
+			continue
+		}
+		dst := filepath.Join(resolvedDir, filepath.Base(c))
+		if err := moveFile(c, dst); err != nil {
+			return fmt.Errorf("moving resolved %s: %w", c, err)
+		}
+	}
+
+	fmt.Printf("Merged %d conflict cop%s:\n", len(others), entrySuffix(len(others)))
+	for _, id := range rep.merged {
+		fmt.Printf("  merged [%d]\n", id)
+	}
+	for _, pair := range rep.reassigned {
+		fmt.Printf("  collision [%d] reassigned to [%d]\n", pair[0], pair[1])
+	}
+	for _, b := range rep.deduped {
+		fmt.Printf("  duplicate [%d] %s folded away\n", b.ID, b.Title)
+	}
+	if rep.rulesAdded > 0 {
+		fmt.Printf("  %d automation rule(s) added\n", rep.rulesAdded)
+	}
+	for _, s := range skipped {
+		fmt.Printf("  skipped %s\n", s)
+	}
+	if quarantined > 0 {
+		fmt.Printf("Moved %d duplicate file(s) to %s\n", quarantined, unindexedRoot)
+	}
+	return nil
+}
+
+func quarantineOrphans(cfg Config, unindexedRoot string, b *Bookmark) int {
+	moved := 0
+	move := func(src, dst string) {
+		if !fileExists(src) {
+			return
+		}
+		if err := moveFile(src, dst); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not move %s: %v\n", src, err)
+		} else {
+			moved++
+		}
+	}
+	if b.MarkdownFile != "" {
+		move(filepath.Join(cfg.markdownDir(), b.MarkdownFile),
+			filepath.Join(unindexedRoot, "markdown", b.MarkdownFile))
+	}
+	if b.ArchiveFile != "" {
+		move(filepath.Join(cfg.archiveDir(), b.ArchiveFile),
+			filepath.Join(unindexedRoot, "archive", b.ArchiveFile))
+	}
+	for _, at := range b.Attachments {
+		move(filepath.Join(cfg.attachmentsDir(), at.File),
+			filepath.Join(unindexedRoot, "attachments", at.File))
+	}
+	return moved
 }
 
 func entrySuffix(n int) string {

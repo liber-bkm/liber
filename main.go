@@ -106,7 +106,7 @@ func run(args []string) error {
 		}
 		return runDelete(ids, rest)
 	case "-r", "--reindex":
-		return runReindex()
+		return runReindex(args[1:])
 	case "--profile":
 		return runProfile(args[1:])
 	case "--serve":
@@ -377,9 +377,13 @@ Usage:
                                     (one match opens directly, several offer a pick)
    liber pick <query>             print a matching bookmark's URL to stdout, for pipes
   liber -r                       reindex: drop entries whose files were deleted
-                                  outside liber (quarantining any surviving
-                                  markdown/archive copy into <base_dir>/unindexed/),
-                                  and renumber remaining ids to close gaps
+                                   outside liber (quarantining any surviving
+                                   markdown/archive copy into <base_dir>/unindexed/),
+                                   and renumber remaining ids to close gaps
+  liber -r --merge               same, first folding sync conflict copies of the
+                                   index into one (collisions get fresh ids,
+                                   duplicates fold away, consumed copies move
+                                   to <base_dir>/.liber/resolved/)
   liber --import <path>          import a browser bookmark export (Netscape HTML format)
   liber --import <path> -md -a   same, also generating markdown/archives for each (slow)
   liber --tags                   list all tags with counts
