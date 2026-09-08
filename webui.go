@@ -435,8 +435,15 @@ func handleEditSave(w http.ResponseWriter, r *http.Request, id int) {
 		renderEditPage(w, b, "Title can't be empty.")
 		return
 	}
+	rawURL := strings.TrimSpace(r.FormValue("url"))
+	if rawURL == "" {
+		renderEditPage(w, b, "URL can't be empty.")
+		return
+	}
+	newURL := normalizeURL(rawURL)
 
 	b.Title = newTitle
+	b.URL = newURL
 	b.Description = strings.TrimSpace(r.FormValue("description"))
 	b.Tags = dedupe(splitWebTags(r.FormValue("tags")))
 	newFolder := sanitizeFolder(r.FormValue("folder"))
@@ -591,11 +598,14 @@ func handleMarkdown(w http.ResponseWriter, r *http.Request) {
 <style>
 :root, html[data-theme=light] { --bg: #fbf1c7; --fg: #3c3836; --link: #076678; color-scheme: light; }
 html[data-theme=dark] { --bg: #282828; --fg: #ebdbb2; --link: #83a598; color-scheme: dark; }
-body { font-family: ui-monospace, monospace; max-width: 800px; margin: 2rem auto; padding: 0 1rem; white-space: pre-wrap; word-wrap: break-word; color: var(--fg); background: var(--bg); }
+body { font-family: -apple-system, system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; word-wrap: break-word; color: var(--fg); background: var(--bg); line-height: 1.6; }
 a { color: var(--link); }
+pre { background: var(--surface); padding: .75rem; border-radius: 4px; overflow-x: auto; }
+code { font-family: ui-monospace, monospace; font-size: .9em; }
+blockquote { border-left: 3px solid var(--border-strong); margin-left: 0; padding-left: 1rem; color: var(--fg-soft); }
 </style>
-</head><body><p><a href="/">&larr; back</a></p><pre>%s</pre></body></html>`,
-		template.HTMLEscapeString(b.Title), themeInitScript, template.HTMLEscapeString(string(data)))
+</head><body><p><a href="/">&larr; back</a></p>%s</body></html>`,
+		template.HTMLEscapeString(b.Title), themeInitScript, renderMarkdownHTML(string(data)))
 }
 
 func renderSearchPage(w http.ResponseWriter, data searchPageData) {
@@ -731,6 +741,7 @@ var editBodyTmpl = template.Must(template.New("editBody").Parse(`
 {{if .Error}}<p class="flash error">{{.Error}}</p>{{end}}
 <form method="post" action="/edit/{{.ID}}" class="editform" enctype="multipart/form-data">
   <label>Title<br><input type="text" name="title" value="{{.Title}}" required></label>
+  <label>URL<br><input type="text" name="url" value="{{.URL}}" required></label>
   <label>Description<br><input type="text" name="description" value="{{.Description}}"></label>
   <label>Tags<br><input type="text" name="tags" value="{{.TagsJoined}}" placeholder="comma or space separated"></label>
   <label>Folder<br><input type="text" name="folder" value="{{.Folder}}"></label>
