@@ -30,6 +30,40 @@ type checkResult struct {
 	target string
 }
 
+type checkAction int
+
+const (
+	actionSkip checkAction = iota
+	actionDelete
+	actionQuarantine
+)
+
+const quarantineFolder = "quarantine"
+
+func promptCheckAction(label string) checkAction {
+	fmt.Printf("%s [y/q/N]: ", label)
+	line, err := stdinReader.ReadString('\n')
+	exitOnEOF(err)
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return actionDelete
+	case "q", "quarantine":
+		return actionQuarantine
+	}
+	return actionSkip
+}
+
+func quarantineBookmark(cfg Config, b *Bookmark) {
+	if b.Folder == quarantineFolder {
+		fmt.Printf("[%d] already quarantined.\n", b.ID)
+		return
+	}
+	b.Folder = quarantineFolder
+	b.UpdatedAt = time.Now()
+	syncBookmarkFiles(cfg, b, true)
+	fmt.Printf("Quarantined [%d].\n", b.ID)
+}
+
 func parseCheckArgs(args []string) (spec string, workers int, stale time.Duration, rest []string, err error) {
 	workers = 12
 	spec, rest = consumeIDSpec(args)
@@ -307,7 +341,7 @@ func runCheck(args []string) error {
 		return nil
 	}
 
-	updated, deleted, skipped := 0, 0, 0
+	updated, deleted, quarantined, skipped := 0, 0, 0, 0
 	for _, r := range moved {
 		if !confirm(fmt.Sprintf("Update [%d] URL to %s?", r.b.ID, r.target), true) {
 			skipped++
@@ -328,28 +362,36 @@ func runCheck(args []string) error {
 		}
 	}
 	for _, r := range dead {
-		if !confirm(fmt.Sprintf("Delete dead [%d] %s?", r.b.ID, r.b.Title), false) {
+		switch promptCheckAction(fmt.Sprintf("Delete dead [%d] %s?", r.b.ID, r.b.Title)) {
+		case actionDelete:
+			deleteBookmarkFiles(cfg, r.b)
+			store.Delete(r.b.ID)
+			deleted++
+			fmt.Println("Deleted.")
+		case actionQuarantine:
+			quarantineBookmark(cfg, r.b)
+			quarantined++
+		default:
 			skipped++
-			continue
 		}
-		deleteBookmarkFiles(cfg, r.b)
-		store.Delete(r.b.ID)
-		deleted++
-		fmt.Println("Deleted.")
 	}
 	for _, r := range uncertain {
-		if !confirm(fmt.Sprintf("Delete uncertain [%d] %s (%s)?", r.b.ID, r.b.Title, r.detail), false) {
+		switch promptCheckAction(fmt.Sprintf("Delete uncertain [%d] %s (%s)?", r.b.ID, r.b.Title, r.detail)) {
+		case actionDelete:
+			deleteBookmarkFiles(cfg, r.b)
+			store.Delete(r.b.ID)
+			deleted++
+			fmt.Println("Deleted.")
+		case actionQuarantine:
+			quarantineBookmark(cfg, r.b)
+			quarantined++
+		default:
 			skipped++
-			continue
 		}
-		deleteBookmarkFiles(cfg, r.b)
-		store.Delete(r.b.ID)
-		deleted++
-		fmt.Println("Deleted.")
 	}
 	if err := store.Save(); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
-	fmt.Printf("Done: %d updated, %d deleted, %d skipped.\n", updated, deleted, skipped)
+	fmt.Printf("Done: %d updated, %d deleted, %d quarantined, %d skipped.\n", updated, deleted, quarantined, skipped)
 	return nil
 }
