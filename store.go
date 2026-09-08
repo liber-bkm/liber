@@ -305,6 +305,35 @@ func (s *Store) All() []*Bookmark {
 	return out
 }
 
+func (s *Store) allTags() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, b := range s.Bookmarks {
+		for _, t := range b.Tags {
+			if !seen[t] {
+				seen[t] = true
+				out = append(out, t)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (s *Store) allFolders() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, b := range s.Bookmarks {
+		if b.Folder == "" || seen[b.Folder] {
+			continue
+		}
+		seen[b.Folder] = true
+		out = append(out, b.Folder)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func loadCfgAndStore() (Config, *Store, error) {
 	cfg, _, err := LoadConfig()
 	if err != nil {

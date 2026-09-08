@@ -156,6 +156,7 @@ type searchPageData struct {
 	Results                                                              []webBookmarkView
 	Page, TotalPages                                                     int
 	PrevURL, NextURL                                                     string
+	AllTags, AllFolders                                                  []string
 }
 
 func handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +202,7 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 		ResultCount: len(results),
 		Results:     toWebViews(pageItems),
 		Page:        curPage, TotalPages: totalPages,
+		AllTags: store.allTags(), AllFolders: store.allFolders(),
 	}
 	if totalPages > 1 {
 		if curPage > 1 {
@@ -229,6 +231,7 @@ func renderSearchPageWithAddState(w http.ResponseWriter, store *Store, add addFo
 		PrefillURL: add.PrefillURL, PrefillDescription: add.PrefillDescription,
 		PrefillTags: add.PrefillTags, PrefillFolder: add.PrefillFolder,
 		PrefillMarkdown: add.PrefillMarkdown, PrefillArchive: add.PrefillArchive,
+		AllTags: store.allTags(), AllFolders: store.allFolders(),
 	})
 }
 
@@ -238,6 +241,7 @@ func renderDeleteConfirm(w http.ResponseWriter, store *Store, b *Bookmark) {
 	renderSearchPage(w, searchPageData{
 		ResultCount: len(results), Results: toWebViews(pageItems), Page: curPage, TotalPages: totalPages,
 		DeleteConfirmID: b.ID, DeleteConfirmTitle: b.Title,
+		AllTags: store.allTags(), AllFolders: store.allFolders(),
 	})
 }
 
@@ -363,9 +367,10 @@ type editPageData struct {
 	HasMarkdown, HasArchive    bool
 	Attachments                []webAttachmentView
 	Error                      string
+	AllTags, AllFolders        []string
 }
 
-func renderEditPage(w http.ResponseWriter, b *Bookmark, errMsg string) {
+func renderEditPage(w http.ResponseWriter, store *Store, b *Bookmark, errMsg string) {
 	var buf bytes.Buffer
 	var atts []webAttachmentView
 	for i, at := range b.Attachments {
@@ -377,6 +382,7 @@ func renderEditPage(w http.ResponseWriter, b *Bookmark, errMsg string) {
 		HasMarkdown: b.MarkdownFile != "", HasArchive: b.ArchiveFile != "",
 		Attachments: atts,
 		Error:       errMsg,
+		AllTags:     store.allTags(), AllFolders: store.allFolders(),
 	})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	layoutTmpl.Execute(w, struct {
@@ -407,7 +413,7 @@ func handleEdit(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	renderEditPage(w, b, "")
+	renderEditPage(w, store, b, "")
 }
 
 func handleEditSave(w http.ResponseWriter, r *http.Request, id int) {
@@ -432,12 +438,12 @@ func handleEditSave(w http.ResponseWriter, r *http.Request, id int) {
 
 	newTitle := strings.TrimSpace(r.FormValue("title"))
 	if newTitle == "" {
-		renderEditPage(w, b, "Title can't be empty.")
+		renderEditPage(w, store, b, "Title can't be empty.")
 		return
 	}
 	rawURL := strings.TrimSpace(r.FormValue("url"))
 	if rawURL == "" {
-		renderEditPage(w, b, "URL can't be empty.")
+		renderEditPage(w, store, b, "URL can't be empty.")
 		return
 	}
 	newURL := normalizeURL(rawURL)
@@ -743,8 +749,10 @@ var editBodyTmpl = template.Must(template.New("editBody").Parse(`
   <label>Title<br><input type="text" name="title" value="{{.Title}}" required></label>
   <label>URL<br><input type="text" name="url" value="{{.URL}}" required></label>
   <label>Description<br><input type="text" name="description" value="{{.Description}}"></label>
-  <label>Tags<br><input type="text" name="tags" value="{{.TagsJoined}}" placeholder="comma or space separated"></label>
-  <label>Folder<br><input type="text" name="folder" value="{{.Folder}}"></label>
+  <label>Tags<br><input type="text" name="tags" value="{{.TagsJoined}}" placeholder="comma or space separated" list="liber-tags"></label>
+  <label>Folder<br><input type="text" name="folder" value="{{.Folder}}" list="liber-folders"></label>
+  <datalist id="liber-tags">{{range .AllTags}}<option value="{{.}}">{{end}}</datalist>
+  <datalist id="liber-folders">{{range .AllFolders}}<option value="{{.}}">{{end}}</datalist>
   {{if not .HasMarkdown}}<label><input type="checkbox" name="markdown"> add markdown copy</label>{{end}}
   {{if not .HasArchive}}<label><input type="checkbox" name="archive"> add archive</label>{{end}}
   {{if .Attachments}}
@@ -805,8 +813,10 @@ var searchBodyTmpl = template.Must(template.New("searchBody").Parse(`
   {{if .PendingConfirm}}<input type="hidden" name="confirm_dup" value="1">{{end}}
   <input type="text" name="url" placeholder="https://example.com" required value="{{.PrefillURL}}">
   <input type="text" name="description" placeholder="Description (optional)" value="{{.PrefillDescription}}">
-  <input type="text" name="tags" placeholder="tags, comma or space separated" value="{{.PrefillTags}}">
-  <input type="text" name="folder" placeholder="folder (optional)" value="{{.PrefillFolder}}">
+  <input type="text" name="tags" placeholder="tags, comma or space separated" value="{{.PrefillTags}}" list="liber-tags">
+  <input type="text" name="folder" placeholder="folder (optional)" value="{{.PrefillFolder}}" list="liber-folders">
+  <datalist id="liber-tags">{{range .AllTags}}<option value="{{.}}">{{end}}</datalist>
+  <datalist id="liber-folders">{{range .AllFolders}}<option value="{{.}}">{{end}}</datalist>
   <label><input type="checkbox" name="markdown" {{if .PrefillMarkdown}}checked{{end}}> markdown copy</label>
   <label><input type="checkbox" name="archive" {{if .PrefillArchive}}checked{{end}}> archive</label>
   <label>attach files: <input type="file" name="attachments" multiple></label>
