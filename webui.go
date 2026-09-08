@@ -56,6 +56,8 @@ func runServe(args []string) error {
 	mux.HandleFunc("/attachment/", handleAttachment)
 	mux.HandleFunc("/settings", handleSettings)
 	mux.HandleFunc("/settings/auto/", handleSettingsAuto)
+	mux.HandleFunc("/tags", handleTags)
+	mux.HandleFunc("/tags/", handleTaxonomy)
 
 	fmt.Printf("liber web UI: http://%s (Ctrl+C to stop)\n", addr)
 	return http.ListenAndServe(addr, mux)
@@ -714,6 +716,8 @@ a.chip.folder { color: var(--fg-soft); }
 .themetoggle { position: fixed; top: .8rem; right: .8rem; z-index: 10; width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 999px; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); cursor: pointer; font-size: 1rem; line-height: 1; }
 .settingslink { position: fixed; top: .8rem; right: 3.3rem; z-index: 10; width: 2.1rem; height: 2.1rem; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); text-decoration: none; font-size: 1rem; line-height: 1; }
 .settingslink:hover { text-decoration: none; }
+.tagslink { position: fixed; top: .8rem; right: 5.8rem; z-index: 10; width: 2.1rem; height: 2.1rem; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); text-decoration: none; font-size: 1rem; line-height: 1; }
+.tagslink:hover { text-decoration: none; }
 .setform { display: grid; grid-template-columns: 210px 1fr; gap: .45rem .8rem; align-items: center; margin: .5rem 0 0; max-width: 780px; }
 .setform label { font-size: .85rem; color: var(--fg-soft); }
 .setform input[type=text] { padding: .35rem .55rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; font-family: inherit; }
@@ -752,6 +756,7 @@ paint();
 var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{{.Title}}</title><script>` + themeInitScript + `</script><style>` + pageCSS + `</style></head>
 <body>
+<a class="tagslink" href="/tags" title="Tags and folders" aria-label="Tags and folders">#</a>
 <a class="settingslink" href="/settings" title="Settings" aria-label="Settings">&#9881;</a>
 <button id="themetoggle" class="themetoggle" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme"></button>
 <div class="wrap">
