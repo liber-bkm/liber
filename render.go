@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -82,4 +83,88 @@ func writeMarkdownBookmark(path string, b *Bookmark) error {
 		sb.WriteString("\n_A local archive of this page is also saved alongside it._\n")
 	}
 	return os.WriteFile(path, []byte(sb.String()), 0o644)
+}
+
+var (
+	mdBoldRe   = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	mdItalicRe = regexp.MustCompile(`\*(.+?)\*`)
+	mdCodeRe   = regexp.MustCompile("`(.+?)`")
+	mdLinkRe   = regexp.MustCompile(`\[(.+?)\]\((.+?)\)`)
+)
+
+// renderMarkdownHTML converts notes markdown to HTML; input is escaped first.
+func renderMarkdownHTML(src string) string {
+	lines := strings.Split(src, "\n")
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
+		for i := 1; i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == "---" {
+				lines = lines[i+1:]
+				break
+			}
+		}
+	}
+	var sb strings.Builder
+	inCode, inList := false, false
+	flushList := func() {
+		if inList {
+			sb.WriteString("</ul>\n")
+			inList = false
+		}
+	}
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "```") {
+			flushList()
+			if inCode {
+				sb.WriteString("</code></pre>\n")
+			} else {
+				sb.WriteString("<pre><code>")
+			}
+			inCode = !inCode
+			continue
+		}
+		if inCode {
+			sb.WriteString(template.HTMLEscapeString(line) + "\n")
+			continue
+		}
+		switch {
+		case strings.HasPrefix(t, "### "):
+			flushList()
+			fmt.Fprintf(&sb, "<h3>%s</h3>\n", mdInline(t[4:]))
+		case strings.HasPrefix(t, "## "):
+			flushList()
+			fmt.Fprintf(&sb, "<h2>%s</h2>\n", mdInline(t[3:]))
+		case strings.HasPrefix(t, "# "):
+			flushList()
+			fmt.Fprintf(&sb, "<h1>%s</h1>\n", mdInline(t[2:]))
+		case strings.HasPrefix(t, "> "):
+			flushList()
+			fmt.Fprintf(&sb, "<blockquote>%s</blockquote>\n", mdInline(strings.TrimPrefix(t, "> ")))
+		case strings.HasPrefix(t, "- ") || strings.HasPrefix(t, "* "):
+			if !inList {
+				sb.WriteString("<ul>\n")
+				inList = true
+			}
+			fmt.Fprintf(&sb, "<li>%s</li>\n", mdInline(t[2:]))
+		case t == "":
+			flushList()
+		default:
+			flushList()
+			fmt.Fprintf(&sb, "<p>%s</p>\n", mdInline(t))
+		}
+	}
+	flushList()
+	if inCode {
+		sb.WriteString("</code></pre>\n")
+	}
+	return sb.String()
+}
+
+func mdInline(s string) string {
+	s = template.HTMLEscapeString(s)
+	s = mdCodeRe.ReplaceAllString(s, "<code>$1</code>")
+	s = mdBoldRe.ReplaceAllString(s, "<strong>$1</strong>")
+	s = mdItalicRe.ReplaceAllString(s, "<em>$1</em>")
+	s = mdLinkRe.ReplaceAllString(s, `<a href="$2">$1</a>`)
+	return s
 }
