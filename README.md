@@ -576,9 +576,11 @@ It reflects whichever profile is active, and even picks up a profile switch made
 
 Once a search's result count passes 500, simple `?page=N` pagination appears automatically (no controls at all below that). A scoped or deep search's page-forward/back links carry the same query along, so paging through a filtered search keeps it filtered. A filter box above the results narrows the shown rows instantly in the browser (client side only, works within any search).
 
-Single attachments link straight to the file from the results list; bookmarks with several link to the edit page where each file opens individually.
+Single attachments link straight to the file from the results list; bookmarks with several link to the edit page where each file opens individually. Each row also links its saved card, the same page the CLI `(c)ard` action opens.
 
 The edit page edits the URL too (same rewrite as `-e -u`), and the markdown view renders notes as formatted HTML instead of plain text. Tag and folder fields suggest existing values as you type.
+
+The `#` button (top right, next to settings) opens the tags and folders page: counts, direct rename forms, guarded deletes, and suggested automation rules for hosts that keep landing in one folder. Renaming onto an existing name merges, exactly like `--tags`/`--folders` on the CLI.
 
 The gear button (top right) opens `/settings`, a settings page for your collection. It shows which external tools liber detected on your machine (`single-file`, `monolith`, chromium for the browser pipe, your open/editor commands), shows the effective directories, and lets you override any of them, including `archive_backend` and `monolith_use_browser`. Changes are written straight to `config.json` and take effect immediately. The same page manages automation rules: add, edit (optionally with reapply), delete, and re-run all rules against existing bookmarks, the same things `liber --auto` does on the command line.
 
