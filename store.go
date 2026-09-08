@@ -27,6 +27,9 @@ type Bookmark struct {
 	LastOpenedAt *time.Time `json:"last_opened_at,omitempty"`
 	OpenCount    int        `json:"open_count,omitempty"`
 
+	LastCheckedAt   time.Time `json:"last_checked_at,omitempty"`
+	LastCheckStatus string    `json:"last_check_status,omitempty"`
+
 	AppliedRules []AppliedAutoRule `json:"applied_rules,omitempty"`
 
 	Attachments []Attachment `json:"attachments,omitempty"`

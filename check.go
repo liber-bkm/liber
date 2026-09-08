@@ -30,29 +30,40 @@ type checkResult struct {
 	target string
 }
 
-func parseCheckArgs(args []string) (spec string, workers int, rest []string, err error) {
+func parseCheckArgs(args []string) (spec string, workers int, stale time.Duration, rest []string, err error) {
 	workers = 12
 	spec, rest = consumeIDSpec(args)
 	var kept []string
 	for i := 0; i < len(rest); i++ {
-		if rest[i] == "--workers" {
+		switch rest[i] {
+		case "--workers":
 			if i+1 >= len(rest) {
-				return "", 0, nil, fmt.Errorf("--workers requires a number")
+				return "", 0, 0, nil, fmt.Errorf("--workers requires a number")
 			}
 			n, convErr := strconv.Atoi(rest[i+1])
 			if convErr != nil || n < 1 {
-				return "", 0, nil, fmt.Errorf("--workers requires a positive number")
+				return "", 0, 0, nil, fmt.Errorf("--workers requires a positive number")
 			}
 			workers = n
 			i++
-			continue
+		case "--stale":
+			if i+1 >= len(rest) {
+				return "", 0, 0, nil, fmt.Errorf("--stale requires a duration, e.g. 720h")
+			}
+			d, convErr := time.ParseDuration(rest[i+1])
+			if convErr != nil || d <= 0 {
+				return "", 0, 0, nil, fmt.Errorf("--stale requires a positive duration, e.g. 720h")
+			}
+			stale = d
+			i++
+		default:
+			kept = append(kept, rest[i])
 		}
-		kept = append(kept, rest[i])
 	}
 	if len(kept) > 0 {
-		return "", 0, nil, fmt.Errorf("unknown flag %q (usage: liber --check [ids] [--workers N])", kept[0])
+		return "", 0, 0, nil, fmt.Errorf("unknown flag %q (usage: liber --check [ids] [--workers N] [--stale D])", kept[0])
 	}
-	return spec, workers, nil, nil
+	return spec, workers, stale, nil, nil
 }
 
 func checkClient() *http.Client {
@@ -185,7 +196,7 @@ func shortErr(err error) string {
 }
 
 func runCheck(args []string) error {
-	spec, workers, _, err := parseCheckArgs(args)
+	spec, workers, stale, _, err := parseCheckArgs(args)
 	if err != nil {
 		return err
 	}
@@ -212,6 +223,22 @@ func runCheck(args []string) error {
 		}
 		if len(missing) > 0 {
 			fmt.Printf("No bookmark with id(s): %s\n", joinInts(missing))
+		}
+	}
+	if stale > 0 {
+		cutoff := time.Now().Add(-stale)
+		fresh := 0
+		kept := targets[:0]
+		for _, b := range targets {
+			if !b.LastCheckedAt.IsZero() && b.LastCheckedAt.After(cutoff) {
+				fresh++
+				continue
+			}
+			kept = append(kept, b)
+		}
+		targets = kept
+		if fresh > 0 {
+			fmt.Printf("Skipped %d freshly checked bookmark(s).\n", fresh)
 		}
 	}
 	if len(targets) == 0 {
@@ -241,14 +268,21 @@ func runCheck(args []string) error {
 	fmt.Fprintln(os.Stderr)
 
 	var moved, dead, uncertain []checkResult
+	now := time.Now()
 	for _, r := range results {
+		r.b.LastCheckedAt = now
 		switch r.status {
 		case checkMoved:
+			r.b.LastCheckStatus = "moved"
 			moved = append(moved, r)
 		case checkDead:
+			r.b.LastCheckStatus = "dead"
 			dead = append(dead, r)
 		case checkUncertain:
+			r.b.LastCheckStatus = "uncertain"
 			uncertain = append(uncertain, r)
+		default:
+			r.b.LastCheckStatus = "ok"
 		}
 	}
 	sort.Slice(moved, func(i, j int) bool { return moved[i].b.ID < moved[j].b.ID })
@@ -267,40 +301,55 @@ func runCheck(args []string) error {
 		fmt.Printf("[%d] %s\n    uncertain (%s)\n", r.b.ID, r.b.Title, r.detail)
 	}
 	if len(moved)+len(dead)+len(uncertain) == 0 {
-		return nil
-	}
-
-	changed := false
-	for _, r := range moved {
-		if confirm(fmt.Sprintf("Update [%d] URL to %s?", r.b.ID, r.target), true) {
-			r.b.URL = normalizeURL(r.target)
-			r.b.UpdatedAt = time.Now()
-			syncBookmarkFiles(cfg, r.b, false)
-			changed = true
-			fmt.Printf("Updated [%d].\n", r.b.ID)
-		}
-	}
-	for _, r := range dead {
-		if confirm(fmt.Sprintf("Delete dead [%d] %s?", r.b.ID, r.b.Title), false) {
-			deleteBookmarkFiles(cfg, r.b)
-			store.Delete(r.b.ID)
-			changed = true
-			fmt.Println("Deleted.")
-		}
-	}
-	for _, r := range uncertain {
-		if confirm(fmt.Sprintf("Delete uncertain [%d] %s (%s)?", r.b.ID, r.b.Title, r.detail), false) {
-			deleteBookmarkFiles(cfg, r.b)
-			store.Delete(r.b.ID)
-			changed = true
-			fmt.Println("Deleted.")
-		}
-	}
-	if changed {
 		if err := store.Save(); err != nil {
 			return fmt.Errorf("saving index: %w", err)
 		}
+		return nil
 	}
-	fmt.Println("Done.")
+
+	updated, deleted, skipped := 0, 0, 0
+	for _, r := range moved {
+		if !confirm(fmt.Sprintf("Update [%d] URL to %s?", r.b.ID, r.target), true) {
+			skipped++
+			continue
+		}
+		r.b.URL = normalizeURL(r.target)
+		r.b.UpdatedAt = time.Now()
+		syncBookmarkFiles(cfg, r.b, false)
+		updated++
+		fmt.Printf("Updated [%d].\n", r.b.ID)
+		if title := fetchTitle(r.b.URL); title != "" && title != r.b.Title {
+			if confirm(fmt.Sprintf("Update [%d] title to %q?", r.b.ID, title), true) {
+				r.b.Title = title
+				r.b.UpdatedAt = time.Now()
+				syncBookmarkFiles(cfg, r.b, false)
+				fmt.Printf("Retitled [%d].\n", r.b.ID)
+			}
+		}
+	}
+	for _, r := range dead {
+		if !confirm(fmt.Sprintf("Delete dead [%d] %s?", r.b.ID, r.b.Title), false) {
+			skipped++
+			continue
+		}
+		deleteBookmarkFiles(cfg, r.b)
+		store.Delete(r.b.ID)
+		deleted++
+		fmt.Println("Deleted.")
+	}
+	for _, r := range uncertain {
+		if !confirm(fmt.Sprintf("Delete uncertain [%d] %s (%s)?", r.b.ID, r.b.Title, r.detail), false) {
+			skipped++
+			continue
+		}
+		deleteBookmarkFiles(cfg, r.b)
+		store.Delete(r.b.ID)
+		deleted++
+		fmt.Println("Deleted.")
+	}
+	if err := store.Save(); err != nil {
+		return fmt.Errorf("saving index: %w", err)
+	}
+	fmt.Printf("Done: %d updated, %d deleted, %d skipped.\n", updated, deleted, skipped)
 	return nil
 }
