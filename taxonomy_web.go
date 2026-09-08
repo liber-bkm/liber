@@ -19,6 +19,13 @@ type taxonomyPageData struct {
 	Flash   string
 	Tags    []taxRow
 	Folders []taxRow
+	Learn   []learnRow
+}
+
+type learnRow struct {
+	Host   string
+	Folder string
+	Count  int
 }
 
 func sortedTaxRows(counts map[string]int) []taxRow {
@@ -35,6 +42,14 @@ func sortedTaxRows(counts map[string]int) []taxRow {
 	return out
 }
 
+func learnRows(store *Store) []learnRow {
+	var out []learnRow
+	for _, s := range suggestRules(store, 3) {
+		out = append(out, learnRow{Host: s.host, Folder: s.folder, Count: s.count})
+	}
+	return out
+}
+
 func renderTaxonomyPage(w http.ResponseWriter, store *Store, flash string) {
 	var buf bytes.Buffer
 	folders := sortedTaxRows(folderCounts(store))
@@ -45,6 +60,7 @@ func renderTaxonomyPage(w http.ResponseWriter, store *Store, flash string) {
 		Flash:   flash,
 		Tags:    sortedTaxRows(tagCounts(store)),
 		Folders: folders,
+		Learn:   learnRows(store),
 	}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -139,6 +155,14 @@ func handleTaxonomy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		msg = fmt.Sprintf("Moved %d bookmark(s) back to the root", n)
+	case "rule/learn":
+		host, folder := r.FormValue("host"), r.FormValue("folder")
+		rule, changed, err := createRule(cfg, store, "host:"+host, folder, nil)
+		if err != nil {
+			redirectTags(w, r, "Learn failed: "+err.Error())
+			return
+		}
+		msg = fmt.Sprintf("Added automation %s (applied to %d existing bookmark(s))", describeRule(rule), changed)
 	default:
 		http.NotFound(w, r)
 		return
@@ -154,6 +178,21 @@ var taxTmpl = template.Must(template.New("taxonomy").Parse(`
 <p><a href="/">&larr; back to search</a></p>
 <h2>Tags and folders</h2>
 {{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
+
+{{if .Learn}}
+<h2>Suggested rules</h2>
+<p class="count">Hosts that keep landing in one folder. Creating a rule files future matches automatically.</p>
+{{range .Learn}}
+<div class="ruleform">
+  <div>{{.Count}} bookmark(s) with host {{.Host}} are in folder {{.Folder}}</div>
+  <form method="post" action="/tags/rule/learn" class="fields">
+    <input type="hidden" name="host" value="{{.Host}}">
+    <input type="hidden" name="folder" value="{{.Folder}}">
+    <button type="submit">Create rule</button>
+  </form>
+</div>
+{{end}}
+{{end}}
 
 <h2>Tags</h2>
 <p class="count">Renaming onto an existing tag merges into it. Deleting removes the tag everywhere.</p>
