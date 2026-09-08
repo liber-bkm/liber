@@ -226,6 +226,7 @@ liber --folders delete <f>     move a folder's bookmarks back to the root
 liber --history                list bookmarks by most recently opened (see "History")
 liber --check [ids]            check link health, then prompt per item (see "Link health")
 liber --check --workers N      same, with N parallel requests (default 12)
+liber --check --stale 720h     same, skipping recently checked bookmarks
 liber --auto add --match <s> --folder <f> --tag <t1 t2>
                                 auto-classify new bookmarks by URL (see "Automation")
 liber --auto / --auto edit / --auto delete / --auto apply
@@ -238,6 +239,7 @@ liber --profile default        switch back to the non-profile layout
 liber --profile delete <name>  stop tracking a profile (its data is untouched)
 liber --sync / --sync -p       commit (and optionally push) if it's a jj/git repo (see "Sync")
 liber config                   show the active config file and its path
+liber config set <key> <val>   set one config key (validated before writing)
 liber -v                       print the version
 liber --serve                  local web UI for search + add (see "Web UI")
 liber --serve --addr <host:port>
@@ -318,6 +320,15 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
   Either way, picking a bookmark drops you into the open / edit / delete menu.
   The menu can open the live page `(o)`, the saved card `(c)`, the markdown
   copy `(m)`, or the archive `(a)`.
+
+  Results order by relevance: title match first, then the other fields. To
+  order differently:
+
+  ```sh
+  liber -s --sort newest    # newest / oldest / visited / title
+  ```
+
+  The web UI has the same sort box next to the search field.
 
   Liber can also perform deep search to look for text inside archived pages:
 
@@ -421,9 +432,10 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
   liber --check               # scan all bookmarks, then prompt per flagged item
   liber --check 1-100,200     # same, limited to an id range (idspec syntax)
   liber --check --workers 20  # more parallel requests (default 12)
+  liber --check --stale 720h  # skip bookmarks checked within the duration
   ```
 
-  Results fall into three buckets: `moved` (permanent redirect, proposes a URL update), `dead` (404/410 from the site itself, proposes deletion), and `uncertain` (timeouts, DNS/TLS errors, 403/429/503, blocks, anything ambiguous: shown for review, never auto deleted). Every destructive action asks first and defaults to no, except URL updates which default to yes. Scans use a browser-like user agent with a 15s timeout per request.
+  Results fall into three buckets: `moved` (permanent redirect, proposes a URL update and then a title refresh), `dead` (404/410 from the site itself), and `uncertain` (timeouts, DNS/TLS errors, 403/429/503, blocks, anything ambiguous: shown for review, never auto deleted). Each dead or uncertain item offers delete, quarantine (move to a `quarantine` folder), or skip. Every destructive action asks first and defaults to no, except URL updates which default to yes. Each scan records when it ran and what it found, which is what `--stale` filters on. Scans use a browser-like user agent with a 15s timeout per request. The run ends with a summary line of updated/deleted/quarantined/skipped counts.
 
 - **Open by name and pick:**
 
@@ -566,6 +578,8 @@ Once a search's result count passes 500, simple `?page=N` pagination appears aut
 
 Single attachments link straight to the file from the results list; bookmarks with several link to the edit page where each file opens individually.
 
+The edit page edits the URL too (same rewrite as `-e -u`), and the markdown view renders notes as formatted HTML instead of plain text. Tag and folder fields suggest existing values as you type.
+
 The gear button (top right) opens `/settings`, a settings page for your collection. It shows which external tools liber detected on your machine (`single-file`, `monolith`, chromium for the browser pipe, your open/editor commands), shows the effective directories, and lets you override any of them, including `archive_backend` and `monolith_use_browser`. Changes are written straight to `config.json` and take effect immediately. The same page manages automation rules: add, edit (optionally with reapply), delete, and re-run all rules against existing bookmarks, the same things `liber --auto` does on the command line.
 
 # Configuration
@@ -610,7 +624,14 @@ Fields:
 - `browser_cmd`: override the command used by `liber -s`'s "open"/"archive" actions (defaults to `xdg-open` / `open` / the Windows shell handler, by OS).
 - `editor_cmd`: override the command used by `liber -s`'s "markdown" action (defaults to `$VISUAL`, then `$EDITOR`, then the OS's default file association, in that order).
 
-Run `liber config` to see the resolved paths.
+Run `liber config` to see the resolved paths. To change one key without editing JSON:
+
+```sh
+liber config set archive_backend monolith
+liber config set base_dir ~/Other-Bookmarks
+```
+
+Keys are validated before writing (`archive_backend` must be one of the four backends, `monolith_use_browser` a bool).
 
 >[!Warning]
 >If liber is not archiving bookmarks, make sure all dependencies are installed and `"singlefile_browser_path"` or `monolith` options are set properly in `config.json` 
