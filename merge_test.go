@@ -67,6 +67,24 @@ func TestMergeCollisionReassign(t *testing.T) {
 	}
 }
 
+func TestMergeCollisionDuplicateURL(t *testing.T) {
+	base := mergeBase()
+	other := &Store{NextID: 2}
+	other.Bookmarks = []*Bookmark{
+		{ID: 1, URL: "https://b.com/y", Title: "By dup", HTMLFile: "0001-by.html", UpdatedAt: time.Now()},
+	}
+	rep := mergeStores(base, []*Store{other})
+	if len(rep.deduped) != 1 {
+		t.Fatalf("deduped = %+v", rep)
+	}
+	if len(rep.reassigned) != 0 {
+		t.Fatalf("reassigned = %+v", rep)
+	}
+	if len(base.Bookmarks) != 2 {
+		t.Fatalf("bookmarks = %d", len(base.Bookmarks))
+	}
+}
+
 func TestMergeDedupeURL(t *testing.T) {
 	base := mergeBase()
 	other := &Store{NextID: 2}
