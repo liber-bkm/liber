@@ -222,6 +222,7 @@ liber -r --prune              same, dropping pending entries
 liber -r --compact            same, renumbering ids to close gaps
 liber -r --merge               same, first folding sync conflict copies in
 liber -r --merge --all         same, merging every .liber json candidate
+liber -r --prune-journal       delete applied journal files older than 90 days
 liber --import <path>          import a browser bookmark export (see "Import" below)
 liber --import <path> -md -a   same, also generating markdown/archives for each (slow)
 liber --tags / --folders       list tags/folders with counts (see "Tag and folder hygiene")
@@ -520,7 +521,7 @@ Liber indexes bookmark ids in a simple JSON file. They are the ids that liber us
 liber -r --compact
 ```
 
-to reindex the bookmarks list. Plain `liber -r` adopts bookmark files found on disk but missing from the index, relinks sibling markdown and archive copies, and keeps entries with missing files as pending (listed on every run, safe for partial sync). Use `liber -r --prune` to drop pending entries. With `--prune`, surviving markdown and archive copies move to an `unindexed` folder instead of being deleted. Details explained below under Configuration.
+to reindex the bookmarks list. Plain `liber -r` adopts bookmark files found on disk but missing from the index, relinks sibling markdown and archive copies, and keeps entries with missing files as pending (listed on every run, safe for partial sync). Use `liber -r --prune` to drop pending entries. With `--prune`, surviving markdown and archive copies move to an `unindexed` folder instead of being deleted. `liber -r --merge` additionally replays the sync journal so changes from other devices converge even on last-writer-wins providers. Details explained below under Configuration.
 
 ### Importing Bookmarks
 
@@ -670,27 +671,27 @@ Nothing changes if you never touch `--profile` — the original flat layout (`ba
 
 ## Reindexing
 
-`liber -r` does two things, in order:
+`liber -r` does the following, in order:
 
-**1. Clean up entries whose files were deleted outside liber.** Every bookmark's Markdown/Archive/Attachment paths are recorded individually on that bookmark's own index entry when it's created (and kept in sync whenever you edit it) — liber never matches files across bookmarks by filename pattern. So:
-
-- If you delete a bookmark's `.html` file yourself (`rm`, a file manager, etc.) instead of through `liber -d` / `liber -s`, the index still points at it and thinks it exists.
-- `liber -r` checks every entry's recorded HTML path. If it's gone, that entry is dropped from the index — but its recorded Markdown/Archive/Attachment files (if they're still there) are **moved, not deleted**, into `<base_dir>/unindexed/markdown/...`, `<base_dir>/unindexed/archive/...`, and `<base_dir>/unindexed/attachments/...`, preserving their original relative path.
-- Because each move follows that one bookmark's own recorded path rather than a glob/prefix match, a stray `0002-*.md` can never get relocated alongside, or confused with, some other id's `.html`/archive file — even if two bookmarks share a folder or similar-looking filenames.
-- Bookmarks whose HTML is still present are left alone; only truly-missing Markdown/Archive/Attachment references on those are cleared (there's nothing to move since they're already fully gone).
-
-**2. Renumber to close id gaps.** If you had ids 1–4 and deleted 3, `liber -l` would otherwise show 1, 2, 4 forever. `liber -r` renumbers the remainder to 1, 2, 3, in their existing order — it's a gap-closing compaction, not an alphabetical or any other kind of sort. Since ids are embedded in filenames (`0004-...` → `0003-...`), this physically renames each affected bookmark's HTML/markdown/archive/attachment files to match. That rename is done in two passes: every affected file is moved to a temporary staging name first, and only once all of them are staged does anything land on its final numbered name — so a bookmark moving into a lower id slot can never collide with, or get confused with, another bookmark's files, no matter how many ids shift in the same run.
-
-Safe to run any time. Step 1 never touches a bookmark whose HTML file is still there and never deletes anything outright, and step 2 only ever renames files, never their content.
-
-**3. Merge sync conflict copies (`liber -r --merge` only).** When an external sync tool leaves conflict copies of the index in `.liber/` (Syncthing `sync-conflict`, Nextcloud/Dropbox conflicted copies), plain `liber -r` only lists them and changes nothing. With `--merge`, liber folds them in before steps 1-2:
+**1. Merge sync conflict copies and replay the journal (`liber -r --merge` only).** When an external sync tool leaves conflict copies of the index in `.liber/` (Syncthing `sync-conflict`, Nextcloud/Dropbox conflicted copies), plain `liber -r` only lists them and changes nothing. With `--merge` (add `--all` for Drive-style copies without conflict in the name), liber folds them in, then replays `.liber/journal/` files it has not applied yet:
 
 - Same id, same bookmark: fields merge (newer edit wins text, tags and attachments union).
 - Same id, different bookmarks (added offline on both sides): the incoming one gets a fresh id and its files are renamed to match.
 - Same URL under different ids: duplicates fold into the richer entry; the loser's files move to `unindexed/` instead of being deleted.
+- Deletes replay as tombstones: a bookmark edited after the delete survives, otherwise the delete applies.
 - Automation rules union by match text; unparseable copies are reported and skipped.
 
 Consumed copies move to `.liber/resolved/` (never deleted), so the next `-r` is clean. See [syncing-guide.md](syncing-guide.md) for the full multi-device story.
+
+**2. Adopt files and relink.** Every bookmark's Markdown/Archive/Attachment paths are recorded individually on that bookmark's own index entry when it's created (and kept in sync whenever you edit it) — liber never matches files across bookmarks by filename pattern. Bookmark files found on disk but missing from the index are adopted as new entries (sync-conflict files excluded); sibling markdown, archive, and attachment files found on disk are relinked to their bookmark.
+
+**3. Keep or clean up entries whose files are missing.** If you delete a bookmark's `.html` file yourself (`rm`, a file manager, etc.) instead of through `liber -d` / `liber -s`, the index still points at it and thinks it exists. Plain `liber -r` keeps such entries as pending (safe for partial sync). With `liber -r --prune`, the entry is dropped — but its recorded Markdown/Archive/Attachment files (if they're still there) are **moved, not deleted**, into `<base_dir>/unindexed/markdown/...`, `<base_dir>/unindexed/archive/...`, and `<base_dir>/unindexed/attachments/...`, preserving their original relative path.
+
+Because each move follows that one bookmark's own recorded path rather than a glob/prefix match, a stray `0002-*.md` can never get relocated alongside, or confused with, some other id's `.html`/archive file — even if two bookmarks share a folder or similar-looking filenames.
+
+**4. Renumber to close id gaps (`liber -r --compact` only).** If you had ids 1–4 and deleted 3, `liber -l` would otherwise show 1, 2, 4 forever. `liber -r --compact` renumbers the remainder to 1, 2, 3, in their existing order — it's a gap-closing compaction, not an alphabetical or any other kind of sort. Since ids are embedded in filenames (`0004-...` → `0003-...`), this physically renames each affected bookmark's HTML/markdown/archive/attachment files to match. That rename is done in two passes: every affected file is moved to a temporary staging name first, and only once all of them are staged does anything land on its final numbered name — so a bookmark moving into a lower id slot can never collide with, or get confused with, another bookmark's files, no matter how many ids shift in the same run.
+
+Safe to run any time. Steps 2-3 never delete anything outright, and step 4 only ever renames files, never their content.
 
 >[!Warning]
 > Merge conflict resolution due to syncing `liber -r --merge` are currently experimental, it's recommended to have backups and you must know how your provider's (Google drive and so on) syncing services work. If you want to use liber over multiple devices, have each device use device specific profile so conflicts don't rise or self host the server 
