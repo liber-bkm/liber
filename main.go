@@ -323,6 +323,9 @@ func runConfigCmd(args []string) error {
 	if cfg.EditorCmd != "" {
 		fmt.Println("editor_cmd    ", cfg.EditorCmd)
 	}
+	if cfg.DeviceID != "" {
+		fmt.Println("device_id     ", cfg.DeviceID)
+	}
 	fmt.Println("\nEdit the JSON file above to change these.")
 	return nil
 }
@@ -391,6 +394,8 @@ Usage:
   liber -r --merge --all         same, treating every .liber/*.json except
                                    index.json as a merge candidate (Drive style
                                    copies without conflict in the name)
+  liber -r --prune-journal        delete applied journal files older than 90 days
+                                   (see "Sync")
   liber --import <path>          import a browser bookmark export (Netscape HTML format)
   liber --import <path> -md -a   same, also generating markdown/archives for each (slow)
   liber --tags                   list all tags with counts
