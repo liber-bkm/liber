@@ -17,9 +17,9 @@ func taxonomyStore() (*Store, Config) {
 
 func TestRenameTag(t *testing.T) {
 	s, cfg := taxonomyStore()
-	n, err := renameTag(cfg, s, "b", "d")
-	if err != nil || n != 2 {
-		t.Fatalf("renameTag = %d %v", n, err)
+	changed, err := renameTag(cfg, s, "b", "d")
+	if err != nil || len(changed) != 2 {
+		t.Fatalf("renameTag = %d %v", len(changed), err)
 	}
 	if got := tagCounts(s); got["d"] != 2 || got["b"] != 0 {
 		t.Fatalf("counts = %v", got)
@@ -50,16 +50,16 @@ func TestRenameTagErrors(t *testing.T) {
 	if _, err := renameTag(cfg, s, "", "x"); err == nil {
 		t.Error("empty tag should fail")
 	}
-	if n, err := renameTag(cfg, s, "missing", "x"); err != nil || n != 0 {
-		t.Errorf("missing tag = %d %v", n, err)
+	if changed, err := renameTag(cfg, s, "missing", "x"); err != nil || len(changed) != 0 {
+		t.Errorf("missing tag = %d %v", len(changed), err)
 	}
 }
 
 func TestDeleteTag(t *testing.T) {
 	s, cfg := taxonomyStore()
-	n, err := deleteTag(cfg, s, "c")
-	if err != nil || n != 2 {
-		t.Fatalf("deleteTag = %d %v", n, err)
+	changed, err := deleteTag(cfg, s, "c")
+	if err != nil || len(changed) != 2 {
+		t.Fatalf("deleteTag = %d %v", len(changed), err)
 	}
 	if got := tagCounts(s); got["c"] != 0 {
 		t.Fatalf("counts = %v", got)
@@ -68,9 +68,9 @@ func TestDeleteTag(t *testing.T) {
 
 func TestRenameFolder(t *testing.T) {
 	s, cfg := taxonomyStore()
-	n, err := renameFolder(cfg, s, "work", "play")
-	if err != nil || n != 2 {
-		t.Fatalf("renameFolder = %d %v", n, err)
+	changed, err := renameFolder(cfg, s, "work", "play")
+	if err != nil || len(changed) != 2 {
+		t.Fatalf("renameFolder = %d %v", len(changed), err)
 	}
 	if got := folderCounts(s); got["play"] != 1 || got["play/urgent"] != 1 {
 		t.Fatalf("counts = %v", got)
@@ -78,9 +78,9 @@ func TestRenameFolder(t *testing.T) {
 	if _, err := renameFolder(cfg, s, "work", "work"); err == nil {
 		t.Error("same folder should fail")
 	}
-	n, err = renameFolder(cfg, s, "play", "")
-	if err != nil || n != 2 {
-		t.Fatalf("delete folder = %d %v", n, err)
+	changed, err = renameFolder(cfg, s, "play", "")
+	if err != nil || len(changed) != 2 {
+		t.Fatalf("delete folder = %d %v", len(changed), err)
 	}
 	if got := folderCounts(s); got["/"] != 2 || got["urgent"] != 1 {
 		t.Fatalf("counts = %v", got)
