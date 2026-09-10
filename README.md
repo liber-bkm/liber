@@ -216,8 +216,12 @@ liber -e <ids> ...             <id> can be a range/list too: 1-3, 2,5,3, or 1-4,
 liber -d <id>                  delete a bookmark (asks for confirmation)
 liber -d <id> -y               delete without confirmation
 liber -d <ids>                 <id> can be a range/list too, same as -e above
-liber -r                       reindex: clean up + renumber (see "Reindexing" below)
+liber -r                       reindex: adopt orphan files, relink siblings,
+                                 keep missing entries as pending (see "Reindexing")
+liber -r --prune              same, dropping pending entries
+liber -r --compact            same, renumbering ids to close gaps
 liber -r --merge               same, first folding sync conflict copies in
+liber -r --merge --all         same, merging every .liber json candidate
 liber --import <path>          import a browser bookmark export (see "Import" below)
 liber --import <path> -md -a   same, also generating markdown/archives for each (slow)
 liber --tags / --folders       list tags/folders with counts (see "Tag and folder hygiene")
@@ -513,10 +517,10 @@ The scripts complete all commands and flags, and fetch bookmark ids, tag names, 
 Liber indexes bookmark ids in a simple JSON file. They are the ids that liber uses to identify and sync bookmarks, their markdown, archive, and attachment copies. If you delete a bookmark, the empty index slot remains, and adding further bookmarks proceeds without any problems; but if you want to close the id gaps you can use:
 
 ```sh
-liber -r
+liber -r --compact
 ```
 
-to reindex the bookmarks list. It straightens the index and syncs up copies. It also checks for mismatched copies. For example, if a bookmark is deleted and its markdown or archives aren't (deleted directly in the path by the user outside of liber), liber moves the mismatched copies to an `unindexed` folder. This way you won't lose archives even if you delete anything in folders. Details explained below under Configuration.
+to reindex the bookmarks list. Plain `liber -r` adopts bookmark files found on disk but missing from the index, relinks sibling markdown and archive copies, and keeps entries with missing files as pending (listed on every run, safe for partial sync). Use `liber -r --prune` to drop pending entries. With `--prune`, surviving markdown and archive copies move to an `unindexed` folder instead of being deleted. Details explained below under Configuration.
 
 ### Importing Bookmarks
 

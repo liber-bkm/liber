@@ -39,7 +39,10 @@ conflicted copies). Plain `liber -r` lists them and changes nothing.
 
 ```sh
 liber -r            # reports conflict copies, changes nothing
-liber -r --merge    # merge, then clean up and renumber as usual
+liber -r --merge    # merge, then adopt orphan files and relink siblings
+liber -r --merge --all  # same, also merging .liber/*.json copies without conflict in the name
+liber -r --prune    # drop entries with missing files after the merge step
+liber -r --compact  # renumber ids to close gaps (renames files, syncs more)
 ```
 
 Merge rules, in order:
@@ -58,6 +61,24 @@ Merge rules, in order:
 Consumed copies move to `.liber/resolved/` (never deleted), so the next
 `-r` finds nothing left to merge. The run prints what it merged,
 reassigned, folded away, and skipped.
+
+Merge base: the index with the most bookmarks wins. On equal size the
+older file wins, except ties within 30 seconds keep the local index and
+print a clock skew notice. Device clocks affect this tie break.
+
+Safety defaults: missing HTML files stay in the index as pending and are
+listed on every run. They are only dropped with `-r --prune`. Sibling
+markdown and archive files found on disk are relinked automatically.
+Orphan attachments named `NNNN-slug.ext` are relinked to the bookmark
+with that id; other orphan attachments move to `unindexed/attachments/`.
+Content conflict files (`sync-conflict`, `conflicted`) in bookmark
+directories are never adopted as new bookmarks. They move to
+`unindexed/` with the conflict name preserved so both versions survive
+for manual review.
+Renumbering only runs with `-r --compact` because it renames files and
+creates extra sync traffic. Concurrent edits on last-writer-wins
+providers can still need manual review because there is no second copy
+to compare timestamps against.
 
 ## Method 1: git / jj (`liber --sync`)
 
@@ -105,9 +126,11 @@ Best when: you already run Nextcloud.
 Best when: that is where your files already live. Works, with caveats:
 
 - Conflict handling is proprietary (Drive: keeps both, renames opaquely;
-  Dropbox: `conflicted copy`). `--merge` detects any `*conflict*` name,
-  but if your provider names a copy without the word "conflict", rename
-  it to include it or merge manually.
+  Dropbox: `conflicted copy`). `--merge` detects any `*conflict*` name.
+  Use `liber -r --merge --all` for copies without the word conflict in
+  the name. Without any copy to merge, `-r` still adopts orphan bookmark
+  files and relinks siblings, but concurrent edits to the same bookmark
+  need manual review.
 - Treat these as last-writer-wins and keep the one-adder discipline
   stricter than with Syncthing/Nextcloud.
 - On mobile, sync is battery-gated and partial: fine for reading, avoid
@@ -153,6 +176,10 @@ bookmarks too, both sides follow the same discipline.
 - `site/` (static export output): regenerable via `liber --export-site`,
   exclude it to save bandwidth.
 - `.liber/resolved/` and `.liber/restage/`: regenerable bookkeeping;
-  excluding them is optional but saves noise.
+  exclude them to avoid sync noise.
+- `unindexed/`: quarantine for duplicates and orphans; excluding it avoids
+  syncing files back and forth. Keep a local copy if you need recovery.
+- `*.tmp` next to `index.json`: partial writes; exclude them so sync tools
+  never copy a half written index.
 - `config.json` is per-machine (paths differ); profiles and settings do
   not roam with these methods. Only `base_dir` content syncs.
