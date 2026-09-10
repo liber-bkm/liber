@@ -229,35 +229,35 @@ func runAutoAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, journalUpserts(changed).merge(journalRules([]*AutoRule{rule}))); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
 
 	fmt.Println("Added automation", describeRule(rule))
-	if changed > 0 {
-		fmt.Printf("Applied to %d existing bookmark(s).\n", changed)
+	if len(changed) > 0 {
+		fmt.Printf("Applied to %d existing bookmark(s).\n", len(changed))
 	}
 	return nil
 }
 
 // createRule adds the rule and backfills it onto matching existing bookmarks.
-func createRule(cfg Config, store *Store, match, folder string, tags []string) (*AutoRule, int, error) {
+func createRule(cfg Config, store *Store, match, folder string, tags []string) (*AutoRule, []*Bookmark, error) {
 	if strings.TrimSpace(match) == "" {
-		return nil, 0, fmt.Errorf("--match is required")
+		return nil, nil, fmt.Errorf("--match is required")
 	}
 	folder = sanitizeFolder(folder)
 	tags = dedupe(tags)
 	if folder == "" && len(tags) == 0 {
-		return nil, 0, fmt.Errorf("a rule needs --folder and/or --tag")
+		return nil, nil, fmt.Errorf("a rule needs --folder and/or --tag")
 	}
 
 	rule := &AutoRule{Match: match, Folder: folder, Tags: tags, CreatedAt: time.Now()}
 	store.AddAutoRule(rule)
 
-	changed := 0
+	var changed []*Bookmark
 	for _, b := range store.Bookmarks {
 		if applyRulesToExisting(cfg, b, []*AutoRule{rule}) {
-			changed++
+			changed = append(changed, b)
 		}
 	}
 	return rule, changed, nil
@@ -265,10 +265,10 @@ func createRule(cfg Config, store *Store, match, folder string, tags []string) (
 
 // editRule updates the rule's match/folder/tags (empty values keep the old ones);
 // with reapply it re-syncs the bookmarks it already classified.
-func editRule(cfg Config, store *Store, id int, match, folder string, tags []string, reapply bool) (*AutoRule, int, error) {
+func editRule(cfg Config, store *Store, id int, match, folder string, tags []string, reapply bool) (*AutoRule, []*Bookmark, error) {
 	rule := store.FindAutoRule(id)
 	if rule == nil {
-		return nil, 0, fmt.Errorf("no automation with id %d", id)
+		return nil, nil, fmt.Errorf("no automation with id %d", id)
 	}
 
 	if match != "" {
@@ -281,11 +281,11 @@ func editRule(cfg Config, store *Store, id int, match, folder string, tags []str
 		rule.Tags = dedupe(tags)
 	}
 
-	changed := 0
+	var changed []*Bookmark
 	if reapply {
 		for _, b := range store.Bookmarks {
 			if reapplyRule(cfg, b, rule) {
-				changed++
+				changed = append(changed, b)
 			}
 		}
 	}
@@ -335,13 +335,13 @@ func runAutoEdit(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, journalUpserts(changed).merge(journalRules([]*AutoRule{rule}))); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
 
 	fmt.Println("Updated automation", describeRule(rule))
 	if reapply {
-		fmt.Printf("Reapplied to %d bookmark(s).\n", changed)
+		fmt.Printf("Reapplied to %d bookmark(s).\n", len(changed))
 	}
 	return nil
 }
@@ -355,14 +355,17 @@ func runAutoDelete(args []string) error {
 		return fmt.Errorf("invalid automation id %q", args[0])
 	}
 
-	_, store, err := loadCfgAndStore()
+	cfg, store, err := loadCfgAndStore()
 	if err != nil {
 		return err
 	}
-	if !store.DeleteAutoRule(id) {
+	del := store.FindAutoRule(id)
+	if del == nil {
 		return fmt.Errorf("no automation with id %d (see `liber --auto list`)", id)
 	}
-	if err := store.Save(); err != nil {
+	tomb := journalRuleDeletes([]*AutoRule{del})
+	store.DeleteAutoRule(id)
+	if err := saveWithJournal(cfg, store, tomb); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
 	fmt.Printf("Deleted automation [%d]. Bookmarks it already classified are left as-is.\n", id)
@@ -370,22 +373,22 @@ func runAutoDelete(args []string) error {
 }
 
 // applyRules runs all rules (or one, when id != 0) against existing bookmarks.
-func applyRules(cfg Config, store *Store, id int) (int, error) {
+func applyRules(cfg Config, store *Store, id int) ([]*Bookmark, error) {
 	rules := store.AutoRules
 	if id != 0 {
 		rule := store.FindAutoRule(id)
 		if rule == nil {
-			return 0, fmt.Errorf("no automation with id %d", id)
+			return nil, fmt.Errorf("no automation with id %d", id)
 		}
 		rules = []*AutoRule{rule}
 	}
 	if len(rules) == 0 {
-		return 0, fmt.Errorf("no automations to apply")
+		return nil, fmt.Errorf("no automations to apply")
 	}
-	changed := 0
+	var changed []*Bookmark
 	for _, b := range store.Bookmarks {
 		if applyRulesToExisting(cfg, b, rules) {
-			changed++
+			changed = append(changed, b)
 		}
 	}
 	return changed, nil
@@ -409,10 +412,10 @@ func runAutoApply(args []string) error {
 		return err
 	}
 
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, journalUpserts(changed)); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
-	fmt.Printf("Applied automations to %d bookmark(s).\n", changed)
+	fmt.Printf("Applied automations to %d bookmark(s).\n", len(changed))
 	return nil
 }
 
@@ -495,6 +498,7 @@ func runAutoLearn(args []string) error {
 	}
 
 	made := 0
+	learned := &JournalEntry{}
 	for _, s := range suggestions {
 		fmt.Printf("%d bookmark(s) with host %s are in folder %q: liber --auto add --match host:%s --folder %s\n",
 			s.count, s.host, s.folder, s.host, s.folder)
@@ -507,10 +511,11 @@ func runAutoLearn(args []string) error {
 			continue
 		}
 		made++
-		fmt.Printf("Added automation %s (applied to %d existing bookmark(s)).\n", describeRule(rule), changed)
+		learned = learned.merge(journalUpserts(changed).merge(journalRules([]*AutoRule{rule})))
+		fmt.Printf("Added automation %s (applied to %d existing bookmark(s)).\n", describeRule(rule), len(changed))
 	}
 	if made > 0 {
-		if err := store.Save(); err != nil {
+		if err := saveWithJournal(cfg, store, learned); err != nil {
 			return fmt.Errorf("saving index: %w", err)
 		}
 	}

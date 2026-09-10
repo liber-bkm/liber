@@ -339,7 +339,7 @@ func handleAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	b.AppliedRules = appliedRuleIDs
 	attachUploads(cfg, b, r)
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, journalUpserts([]*Bookmark{b})); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -483,7 +483,7 @@ func handleEditSave(w http.ResponseWriter, r *http.Request, id int) {
 	}
 	attachUploads(cfg, b, r)
 
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, journalUpserts([]*Bookmark{b})); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -526,9 +526,10 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tomb := journalDeletes([]*Bookmark{b})
 	deleteBookmarkFiles(cfg, b)
 	store.Delete(b.ID)
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, tomb); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
