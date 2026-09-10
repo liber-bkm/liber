@@ -201,7 +201,9 @@ func reprefixBookmarkFiles(b *Bookmark, oldID, newID int) {
 
 // renameCollisionFiles moves reassigned files from the old id prefix.
 // Recorded paths already carry the new prefix (see reprefixBookmarkFiles).
-func renameCollisionFiles(cfg Config, b *Bookmark, oldID, newID int) {
+// With clearMissing, refs pointing at files that exist on neither side are
+// cleared; journal replay keeps them so a pending sync can still deliver.
+func renameCollisionFiles(cfg Config, b *Bookmark, oldID, newID int, clearMissing bool) {
 	oldPrefix := fmt.Sprintf("%04d-", oldID)
 	newPrefix := fmt.Sprintf("%04d-", newID)
 	move := func(dir, rel string) string {
@@ -218,7 +220,10 @@ func renameCollisionFiles(cfg Config, b *Bookmark, oldID, newID int) {
 			if fileExists(dst) {
 				return rel
 			}
-			return ""
+			if clearMissing {
+				return ""
+			}
+			return rel
 		}
 		if fileExists(dst) {
 			fmt.Fprintf(os.Stderr, "warning: %s already exists, leaving %s as-is\n", dst, src)

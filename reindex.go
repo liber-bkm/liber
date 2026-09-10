@@ -11,7 +11,7 @@ import (
 )
 
 func runReindex(args []string) error {
-	merge, all, prune, compact := false, false, false, false
+	merge, all, prune, compact, pruneJournal := false, false, false, false, false
 	for _, a := range args {
 		switch a {
 		case "--merge":
@@ -22,8 +22,10 @@ func runReindex(args []string) error {
 			prune = true
 		case "--compact":
 			compact = true
+		case "--prune-journal":
+			pruneJournal = true
 		default:
-			return fmt.Errorf("unknown flag %q (usage: liber -r [--merge [--all]] [--prune] [--compact])", a)
+			return fmt.Errorf("unknown flag %q (usage: liber -r [--merge [--all]] [--prune] [--compact] [--prune-journal])", a)
 		}
 	}
 	if all && !merge {
@@ -49,11 +51,31 @@ func runReindex(args []string) error {
 			fmt.Println("  " + c)
 		}
 		fmt.Println("Re-run with --merge to fold them into the index.")
+		if n := unappliedJournalCount(cfg, store); n > 0 {
+			fmt.Printf("%d journal entr%s not yet applied (run with --merge to apply).\n", n, entrySuffix(n))
+		}
 		return nil
 	}
 	if merge {
 		if err := runMerge(cfg, store, copies); err != nil {
 			return err
+		}
+		jrep, skipped, err := replayJournal(cfg, store)
+		if err != nil {
+			return err
+		}
+		printJournalReport(jrep, skipped)
+	}
+	if pruneJournal {
+		deleted, kept, skipped := pruneOldJournal(cfg, store, journalRetention)
+		if deleted > 0 {
+			fmt.Printf("Pruned %d journal file(s) older than 90 days.\n", deleted)
+		}
+		if kept > 0 {
+			fmt.Printf("Kept %d old journal file(s) not yet applied (run with --merge to apply).\n", kept)
+		}
+		for _, s := range skipped {
+			fmt.Printf("  skipped %s\n", s)
 		}
 	}
 
@@ -62,6 +84,10 @@ func runReindex(args []string) error {
 	relinked := relinkSiblings(cfg, store)
 	conflicts := sweepContentConflicts(cfg, unindexedRoot)
 	attRelinked, attQuarantined := relinkOrphanAttachments(cfg, store)
+	pendingJournal := 0
+	if !merge {
+		pendingJournal = unappliedJournalCount(cfg, store)
+	}
 
 	var kept []*Bookmark
 	var pending []string
@@ -145,6 +171,9 @@ func runReindex(args []string) error {
 	if attQuarantined > 0 {
 		fmt.Printf("Moved %d orphaned attachment file(s) to %s\n", attQuarantined, unindexedRoot)
 	}
+	if pendingJournal > 0 {
+		fmt.Printf("%d journal entr%s not yet applied (run with --merge to apply).\n", pendingJournal, entrySuffix(pendingJournal))
+	}
 	if len(pending) > 0 {
 		fmt.Printf("Kept %d entr%s with missing bookmark file (pending sync or prune with -r --prune):\n", len(pending), entrySuffix(len(pending)))
 		for _, p := range pending {
@@ -163,10 +192,41 @@ func runReindex(args []string) error {
 			fmt.Println("  " + r)
 		}
 	}
-	if removed == 0 && orphansMoved == 0 && len(renamed) == 0 && adopted == 0 && relinked == 0 && attRelinked == 0 && attQuarantined == 0 && len(conflicts) == 0 && len(pending) == 0 {
+	if removed == 0 && orphansMoved == 0 && len(renamed) == 0 && adopted == 0 && relinked == 0 && attRelinked == 0 && attQuarantined == 0 && len(conflicts) == 0 && len(pending) == 0 && pendingJournal == 0 {
 		fmt.Println("Nothing to clean up -- the index already matches what's on disk.")
 	}
 	return nil
+}
+
+func printJournalReport(rep journalReport, skipped []string) {
+	empty := len(rep.upserted) == 0 && len(rep.reassigned) == 0 && len(rep.deduped) == 0 &&
+		len(rep.deleted) == 0 && rep.rulesAdded == 0 && len(rep.rulesDeleted) == 0 && len(skipped) == 0
+	if empty {
+		fmt.Println("Journal: nothing new to apply.")
+		return
+	}
+	fmt.Println("Journal replay:")
+	for _, id := range rep.upserted {
+		fmt.Printf("  upserted [%d]\n", id)
+	}
+	for _, pair := range rep.reassigned {
+		fmt.Printf("  collision [%d] reassigned to [%d]\n", pair[0], pair[1])
+	}
+	for _, id := range rep.deduped {
+		fmt.Printf("  duplicate [%d] folded away\n", id)
+	}
+	for _, id := range rep.deleted {
+		fmt.Printf("  deleted [%d]\n", id)
+	}
+	if rep.rulesAdded > 0 {
+		fmt.Printf("  %d automation rule(s) added\n", rep.rulesAdded)
+	}
+	for _, m := range rep.rulesDeleted {
+		fmt.Printf("  rule %q deleted\n", m)
+	}
+	for _, s := range skipped {
+		fmt.Printf("  skipped %s\n", s)
+	}
 }
 
 // runMerge folds sync conflict copies into the store.
@@ -231,7 +291,7 @@ func runMerge(cfg Config, store *Store, copies []string) error {
 	quarantined := 0
 	for _, pair := range rep.reassigned {
 		if b := store.Find(pair[1]); b != nil {
-			renameCollisionFiles(cfg, b, pair[0], pair[1])
+			renameCollisionFiles(cfg, b, pair[0], pair[1], true)
 		}
 	}
 	for _, b := range rep.deduped {
