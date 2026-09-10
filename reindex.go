@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,32 +11,52 @@ import (
 	"time"
 )
 
-func runReindex(args []string) error {
-	merge, all, prune, compact, pruneJournal := false, false, false, false, false
+type reindexFlags struct {
+	merge        bool
+	all          bool
+	prune        bool
+	compact      bool
+	pruneJournal bool
+}
+
+func parseReindexArgs(args []string) (reindexFlags, error) {
+	var f reindexFlags
 	for _, a := range args {
 		switch a {
 		case "--merge":
-			merge = true
+			f.merge = true
 		case "--all":
-			all = true
+			f.all = true
 		case "--prune":
-			prune = true
+			f.prune = true
 		case "--compact":
-			compact = true
+			f.compact = true
 		case "--prune-journal":
-			pruneJournal = true
+			f.pruneJournal = true
 		default:
-			return fmt.Errorf("unknown flag %q (usage: liber -r [--merge [--all]] [--prune] [--compact] [--prune-journal])", a)
+			return f, fmt.Errorf("unknown flag %q (usage: liber -r [--merge [--all]] [--prune] [--compact] [--prune-journal])", a)
 		}
 	}
-	if all && !merge {
-		return fmt.Errorf("--all requires --merge (usage: liber -r --merge [--all])")
+	if f.all && !f.merge {
+		return f, fmt.Errorf("--all requires --merge (usage: liber -r --merge [--all])")
+	}
+	return f, nil
+}
+
+func runReindex(args []string) error {
+	f, err := parseReindexArgs(args)
+	if err != nil {
+		return err
 	}
 	cfg, store, err := loadCfgAndStore()
 	if err != nil {
 		return err
 	}
+	return runReindexWith(os.Stdout, cfg, store, f)
+}
 
+func runReindexWith(w io.Writer, cfg Config, store *Store, f reindexFlags) error {
+	merge, all, prune, compact, pruneJournal := f.merge, f.all, f.prune, f.compact, f.pruneJournal
 	unindexedRoot := filepath.Join(cfg.effectiveBaseDir(), "unindexed")
 
 	liberDir := filepath.Join(cfg.effectiveBaseDir(), ".liber")
@@ -46,44 +67,44 @@ func runReindex(args []string) error {
 		copies = findConflictCopies(liberDir)
 	}
 	if len(copies) > 0 && !merge {
-		fmt.Println("Sync conflict copies found (nothing changed):")
+		fmt.Fprintln(w, "Sync conflict copies found (nothing changed):")
 		for _, c := range copies {
-			fmt.Println("  " + c)
+			fmt.Fprintln(w, "  "+c)
 		}
-		fmt.Println("Re-run with --merge to fold them into the index.")
+		fmt.Fprintln(w, "Re-run with --merge to fold them into the index.")
 		if n := unappliedJournalCount(cfg, store); n > 0 {
-			fmt.Printf("%d journal entr%s not yet applied (run with --merge to apply).\n", n, entrySuffix(n))
+			fmt.Fprintf(w, "%d journal entr%s not yet applied (run with --merge to apply).\n", n, entrySuffix(n))
 		}
 		return nil
 	}
 	if merge {
-		if err := runMerge(cfg, store, copies); err != nil {
+		if err := runMerge(w, cfg, store, copies); err != nil {
 			return err
 		}
 		jrep, skipped, err := replayJournal(cfg, store)
 		if err != nil {
 			return err
 		}
-		printJournalReport(jrep, skipped)
+		printJournalReport(w, jrep, skipped)
 	}
 	if pruneJournal {
 		deleted, kept, skipped := pruneOldJournal(cfg, store, journalRetention)
 		if deleted > 0 {
-			fmt.Printf("Pruned %d journal file(s) older than 90 days.\n", deleted)
+			fmt.Fprintf(w, "Pruned %d journal file(s) older than 90 days.\n", deleted)
 		}
 		if kept > 0 {
-			fmt.Printf("Kept %d old journal file(s) not yet applied (run with --merge to apply).\n", kept)
+			fmt.Fprintf(w, "Kept %d old journal file(s) not yet applied (run with --merge to apply).\n", kept)
 		}
 		for _, s := range skipped {
-			fmt.Printf("  skipped %s\n", s)
+			fmt.Fprintf(w, "  skipped %s\n", s)
 		}
 	}
 
-	adopted, dupMoved := adoptOrphanFiles(cfg, store)
+	adopted, dupMoved := adoptOrphanFiles(w, cfg, store)
 	_ = dupMoved
 	relinked := relinkSiblings(cfg, store)
 	conflicts := sweepContentConflicts(cfg, unindexedRoot)
-	attRelinked, attQuarantined := relinkOrphanAttachments(cfg, store)
+	attRelinked, attQuarantined := relinkOrphanAttachments(w, cfg, store)
 	pendingJournal := 0
 	if !merge {
 		pendingJournal = unappliedJournalCount(cfg, store)
@@ -132,6 +153,7 @@ func runReindex(args []string) error {
 
 	var renamed []string
 	if compact {
+		var err error
 		renamed, err = compactIDs(cfg, kept)
 		if err != nil {
 			return fmt.Errorf("renumbering ids: %w", err)
@@ -154,85 +176,85 @@ func runReindex(args []string) error {
 		return fmt.Errorf("saving index: %w", err)
 	}
 
-	fmt.Printf("Reindexed: %d bookmark(s) remain.\n", len(kept))
+	fmt.Fprintf(w, "Reindexed: %d bookmark(s) remain.\n", len(kept))
 	if adopted > 0 {
-		fmt.Printf("Indexed %d bookmark file(s) found on disk but missing from the index.\n", adopted)
+		fmt.Fprintf(w, "Indexed %d bookmark file(s) found on disk but missing from the index.\n", adopted)
 	}
 	if relinked+attRelinked > 0 {
-		fmt.Printf("Relinked %d markdown/archive/attachment file(s) found on disk.\n", relinked+attRelinked)
+		fmt.Fprintf(w, "Relinked %d markdown/archive/attachment file(s) found on disk.\n", relinked+attRelinked)
 	}
 	if len(conflicts) > 0 {
-		fmt.Printf("Found %d content conflict file(s), kept both for manual review:\n", len(conflicts))
+		fmt.Fprintf(w, "Found %d content conflict file(s), kept both for manual review:\n", len(conflicts))
 		for _, c := range conflicts {
-			fmt.Println("  " + c)
+			fmt.Fprintln(w, "  "+c)
 		}
-		fmt.Printf("Moved conflict file(s) to %s\n", unindexedRoot)
+		fmt.Fprintf(w, "Moved conflict file(s) to %s\n", unindexedRoot)
 	}
 	if attQuarantined > 0 {
-		fmt.Printf("Moved %d orphaned attachment file(s) to %s\n", attQuarantined, unindexedRoot)
+		fmt.Fprintf(w, "Moved %d orphaned attachment file(s) to %s\n", attQuarantined, unindexedRoot)
 	}
 	if pendingJournal > 0 {
-		fmt.Printf("%d journal entr%s not yet applied (run with --merge to apply).\n", pendingJournal, entrySuffix(pendingJournal))
+		fmt.Fprintf(w, "%d journal entr%s not yet applied (run with --merge to apply).\n", pendingJournal, entrySuffix(pendingJournal))
 	}
 	if len(pending) > 0 {
-		fmt.Printf("Kept %d entr%s with missing bookmark file (pending sync or prune with -r --prune):\n", len(pending), entrySuffix(len(pending)))
+		fmt.Fprintf(w, "Kept %d entr%s with missing bookmark file (pending sync or prune with -r --prune):\n", len(pending), entrySuffix(len(pending)))
 		for _, p := range pending {
-			fmt.Println("  " + p)
+			fmt.Fprintln(w, "  "+p)
 		}
 	}
 	if removed > 0 {
-		fmt.Printf("Dropped %d entr%s whose bookmark file no longer exists.\n", removed, entrySuffix(removed))
+		fmt.Fprintf(w, "Dropped %d entr%s whose bookmark file no longer exists.\n", removed, entrySuffix(removed))
 	}
 	if orphansMoved > 0 {
-		fmt.Printf("Moved %d orphaned markdown/archive/attachment file(s) to %s\n", orphansMoved, unindexedRoot)
+		fmt.Fprintf(w, "Moved %d orphaned markdown/archive/attachment file(s) to %s\n", orphansMoved, unindexedRoot)
 	}
 	if len(renamed) > 0 {
-		fmt.Println("Renumbered to close gaps:")
+		fmt.Fprintln(w, "Renumbered to close gaps:")
 		for _, r := range renamed {
-			fmt.Println("  " + r)
+			fmt.Fprintln(w, "  "+r)
 		}
 	}
 	if removed == 0 && orphansMoved == 0 && len(renamed) == 0 && adopted == 0 && relinked == 0 && attRelinked == 0 && attQuarantined == 0 && len(conflicts) == 0 && len(pending) == 0 && pendingJournal == 0 {
-		fmt.Println("Nothing to clean up -- the index already matches what's on disk.")
+		fmt.Fprintln(w, "Nothing to clean up -- the index already matches what's on disk.")
 	}
 	return nil
 }
 
-func printJournalReport(rep journalReport, skipped []string) {
+func printJournalReport(w io.Writer, rep journalReport, skipped []string) {
 	empty := len(rep.upserted) == 0 && len(rep.reassigned) == 0 && len(rep.deduped) == 0 &&
 		len(rep.deleted) == 0 && rep.rulesAdded == 0 && len(rep.rulesDeleted) == 0 && len(skipped) == 0
 	if empty {
-		fmt.Println("Journal: nothing new to apply.")
+		fmt.Fprintln(w, "Journal: nothing new to apply.")
 		return
 	}
-	fmt.Println("Journal replay:")
+	fmt.Fprintln(w, "Journal replay:")
 	for _, id := range rep.upserted {
-		fmt.Printf("  upserted [%d]\n", id)
+		fmt.Fprintf(w, "  upserted [%d]\n", id)
 	}
 	for _, pair := range rep.reassigned {
-		fmt.Printf("  collision [%d] reassigned to [%d]\n", pair[0], pair[1])
+		fmt.Fprintf(w, "  collision [%d] reassigned to [%d]\n", pair[0], pair[1])
 	}
 	for _, id := range rep.deduped {
-		fmt.Printf("  duplicate [%d] folded away\n", id)
+		fmt.Fprintf(w, "  duplicate [%d] folded away\n", id)
 	}
 	for _, id := range rep.deleted {
-		fmt.Printf("  deleted [%d]\n", id)
+		fmt.Fprintf(w, "  deleted [%d]\n", id)
 	}
 	if rep.rulesAdded > 0 {
-		fmt.Printf("  %d automation rule(s) added\n", rep.rulesAdded)
+		fmt.Fprintf(w, "  %d automation rule(s) added\n", rep.rulesAdded)
 	}
 	for _, m := range rep.rulesDeleted {
-		fmt.Printf("  rule %q deleted\n", m)
+		fmt.Fprintf(w, "  rule %q deleted\n", m)
 	}
 	for _, s := range skipped {
-		fmt.Printf("  skipped %s\n", s)
+		fmt.Fprintf(w, "  skipped %s\n", s)
 	}
 }
 
 // runMerge folds sync conflict copies into the store.
-func runMerge(cfg Config, store *Store, copies []string) error {
+func runMerge(w io.Writer, cfg Config, store *Store, copies []string) error {
 	if len(copies) == 0 {
-		fmt.Println("No conflict copies to merge.")
+		fmt.Fprintln(w, "No conflict copies to merge.")
 		return nil
 	}
 	var others []*Store
@@ -280,9 +302,9 @@ func runMerge(cfg Config, store *Store, copies []string) error {
 			store.NextID, store.Bookmarks = winner.NextID, winner.Bookmarks
 			store.NextAutoRuleID, store.AutoRules = winner.NextAutoRuleID, winner.AutoRules
 			others[best] = oldMain
-			fmt.Printf("Using %s as merge base (%d bookmark(s)).\n", filepath.Base(otherPaths[best]), bestCount)
+			fmt.Fprintf(w, "Using %s as merge base (%d bookmark(s)).\n", filepath.Base(otherPaths[best]), bestCount)
 		} else if closeCall {
-			fmt.Println("Indexes are the same size and age, keeping the local index as base. Clock skew can affect this tie break.")
+			fmt.Fprintln(w, "Indexes are the same size and age, keeping the local index as base. Clock skew can affect this tie break.")
 		}
 	}
 	rep := mergeStores(store, others)
@@ -326,24 +348,24 @@ func runMerge(cfg Config, store *Store, copies []string) error {
 		}
 	}
 
-	fmt.Printf("Merged %d conflict cop%s:\n", len(others), entrySuffix(len(others)))
+	fmt.Fprintf(w, "Merged %d conflict cop%s:\n", len(others), entrySuffix(len(others)))
 	for _, id := range rep.merged {
-		fmt.Printf("  merged [%d]\n", id)
+		fmt.Fprintf(w, "  merged [%d]\n", id)
 	}
 	for _, pair := range rep.reassigned {
-		fmt.Printf("  collision [%d] reassigned to [%d]\n", pair[0], pair[1])
+		fmt.Fprintf(w, "  collision [%d] reassigned to [%d]\n", pair[0], pair[1])
 	}
 	for _, b := range rep.deduped {
-		fmt.Printf("  duplicate [%d] %s folded away\n", b.ID, b.Title)
+		fmt.Fprintf(w, "  duplicate [%d] %s folded away\n", b.ID, b.Title)
 	}
 	if rep.rulesAdded > 0 {
-		fmt.Printf("  %d automation rule(s) added\n", rep.rulesAdded)
+		fmt.Fprintf(w, "  %d automation rule(s) added\n", rep.rulesAdded)
 	}
 	for _, s := range skipped {
-		fmt.Printf("  skipped %s\n", s)
+		fmt.Fprintf(w, "  skipped %s\n", s)
 	}
 	if quarantined > 0 {
-		fmt.Printf("Moved %d duplicate file(s) to %s\n", quarantined, unindexedRoot)
+		fmt.Fprintf(w, "Moved %d duplicate file(s) to %s\n", quarantined, unindexedRoot)
 	}
 	return nil
 }
@@ -399,7 +421,7 @@ func sweepContentConflicts(cfg Config, unindexedRoot string) []string {
 	return moved
 }
 
-func relinkOrphanAttachments(cfg Config, store *Store) (relinked, quarantined int) {
+func relinkOrphanAttachments(w io.Writer, cfg Config, store *Store) (relinked, quarantined int) {
 	root := cfg.attachmentsDir()
 	if !fileExists(root) {
 		return 0, 0
@@ -466,7 +488,7 @@ func relinkOrphanAttachments(cfg Config, store *Store) (relinked, quarantined in
 		b.Attachments = append(b.Attachments, Attachment{Name: name, File: rel})
 		referenced[rel] = true
 		relinked++
-		fmt.Printf("  relinked attachment %s to [%d] %s\n", rel, b.ID, b.Title)
+		fmt.Fprintf(w, "  relinked attachment %s to [%d] %s\n", rel, b.ID, b.Title)
 	}
 	return relinked, quarantined
 }
@@ -603,7 +625,7 @@ func parseOrphanHTML(abs string) (url, title, folder string, tags []string, desc
 	return url, title, folder, tags, desc
 }
 
-func adoptOrphanFiles(cfg Config, store *Store) (adopted, dupMoved int) {
+func adoptOrphanFiles(w io.Writer, cfg Config, store *Store) (adopted, dupMoved int) {
 	htmlDir := cfg.htmlDir()
 	if !fileExists(htmlDir) {
 		return 0, 0
@@ -728,7 +750,7 @@ func adoptOrphanFiles(cfg Config, store *Store) (adopted, dupMoved int) {
 		referenced[nb.HTMLFile] = true
 		byURL[normalizeForDedupe(url)] = nb
 		adopted++
-		fmt.Printf("  adopted %s as [%d] %s\n", nb.HTMLFile, nb.ID, nb.Title)
+		fmt.Fprintf(w, "  adopted %s as [%d] %s\n", nb.HTMLFile, nb.ID, nb.Title)
 	}
 	if adopted > 0 {
 		maxID = 0

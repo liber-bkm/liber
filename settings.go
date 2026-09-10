@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -38,6 +39,8 @@ type settingsPageData struct {
 	MonolithUseBrowser bool
 	Rules              []ruleRow
 	Path               string // config file path, displayed to the user
+	MaintenanceStatus  string
+	ReindexOutput      string
 }
 
 func probe(names ...string) (string, bool) {
@@ -137,13 +140,46 @@ func settingsData(cfg Config, cfgPath string, store *Store, flash string) settin
 	return settingsPageData{
 		Flash: flash, Tools: tools, Dirs: dirs,
 		ArchiveBackend: backend, MonolithUseBrowser: cfg.MonolithUseBrowser,
-		Rules: rules, Path: cfgPath,
+		Rules: rules, Path: cfgPath, MaintenanceStatus: maintenanceStatus(cfg, store),
 	}
 }
 
+func maintenanceStatus(cfg Config, store *Store) string {
+	var parts []string
+	liberDir := filepath.Join(cfg.effectiveBaseDir(), ".liber")
+	if n := len(findConflictCopies(liberDir)); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d conflict cop%s", n, entrySuffix(n)))
+	}
+	if all := len(findMergeCandidates(liberDir, true)); all > len(findConflictCopies(liberDir)) {
+		parts = append(parts, fmt.Sprintf("%d other json candidate(s)", all-len(findConflictCopies(liberDir))))
+	}
+	if n := unappliedJournalCount(cfg, store); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d unapplied journal entr%s", n, entrySuffix(n)))
+	}
+	pending := 0
+	for _, b := range store.Bookmarks {
+		if b.HTMLFile == "" || !fileExists(filepath.Join(cfg.htmlDir(), b.HTMLFile)) {
+			pending++
+		}
+	}
+	if pending > 0 {
+		parts = append(parts, fmt.Sprintf("%d pending entr%s", pending, entrySuffix(pending)))
+	}
+	if len(parts) == 0 {
+		return "index matches disk: nothing to merge, apply, or prune."
+	}
+	return strings.Join(parts, ", ") + "."
+}
+
 func renderSettingsPage(w http.ResponseWriter, cfg Config, cfgPath string, store *Store, flash string) {
+	renderSettingsPageWithOutput(w, cfg, cfgPath, store, flash, "")
+}
+
+func renderSettingsPageWithOutput(w http.ResponseWriter, cfg Config, cfgPath string, store *Store, flash, output string) {
+	data := settingsData(cfg, cfgPath, store, flash)
+	data.ReindexOutput = output
 	var buf bytes.Buffer
-	if err := settingsTmpl.Execute(&buf, settingsData(cfg, cfgPath, store, flash)); err != nil {
+	if err := settingsTmpl.Execute(&buf, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -304,6 +340,50 @@ func handleSettingsAuto(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleSettingsReindex(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
+	cfg, cfgPath, err := LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	f := reindexFlags{
+		merge:        r.FormValue("merge") == "on",
+		all:          r.FormValue("all") == "on",
+		prune:        r.FormValue("prune") == "on",
+		compact:      r.FormValue("compact") == "on",
+		pruneJournal: r.FormValue("prune-journal") == "on",
+	}
+	if f.all && !f.merge {
+		renderSettingsPageWithOutput(w, cfg, cfgPath, store, "Reindex failed", "--all requires --merge\n")
+		return
+	}
+
+	var buf strings.Builder
+	if err := runReindexWith(&buf, cfg, store, f); err != nil {
+		renderSettingsPageWithOutput(w, cfg, cfgPath, store, "Reindex failed", buf.String()+"error: "+err.Error()+"\n")
+		return
+	}
+	renderSettingsPageWithOutput(w, cfg, cfgPath, store, "Reindex done", buf.String())
+}
+
 var settingsTmpl = template.Must(template.New("settings").Parse(`
 <p><a href="/">&larr; back to search</a></p>
 <h2>Settings</h2>
@@ -348,6 +428,35 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`
   <div></div>
   <div><button type="submit">Save settings</button></div>
 </form>
+
+<h2>Maintenance</h2>
+<p class="count">{{.MaintenanceStatus}} Only prune or compact on a fully synced collection.</p>
+<form method="post" action="/settings/reindex" class="stry" onsubmit="return confirmReindex();">
+  <label class="stry"><input type="checkbox" name="merge" id="rx-merge" checked> merge</label>
+  <label class="stry"><input type="checkbox" name="all" id="rx-all"> all</label>
+  <label class="stry"><input type="checkbox" name="prune" id="rx-prune"> prune</label>
+  <label class="stry"><input type="checkbox" name="compact" id="rx-compact"> compact</label>
+  <label class="stry"><input type="checkbox" name="prune-journal" id="rx-prune-journal"> prune journal</label>
+  <button type="submit">Run reindex</button>
+</form>
+<script>
+function confirmReindex() {
+  if (document.getElementById("rx-all").checked && !document.getElementById("rx-merge").checked) {
+    alert("--all requires --merge.");
+    return false;
+  }
+  if (document.getElementById("rx-prune").checked &&
+      !confirm("Prune drops pending entries. Only do this on a fully synced collection. Continue?")) {
+    return false;
+  }
+  if (document.getElementById("rx-compact").checked &&
+      !confirm("Compact renames bookmark files to close id gaps. Continue?")) {
+    return false;
+  }
+  return true;
+}
+</script>
+{{if .ReindexOutput}}<pre class="reindexout">{{.ReindexOutput}}</pre>{{end}}
 
 <h2>Automation rules</h2>
 <details class="ruleform">

@@ -56,6 +56,7 @@ func runServe(args []string) error {
 	mux.HandleFunc("/attachment/", handleAttachment)
 	mux.HandleFunc("/settings", handleSettings)
 	mux.HandleFunc("/settings/auto/", handleSettingsAuto)
+	mux.HandleFunc("/settings/reindex", handleSettingsReindex)
 	mux.HandleFunc("/tags", handleTags)
 	mux.HandleFunc("/tags/", handleTaxonomy)
 
@@ -729,6 +730,7 @@ a.chip.folder { color: var(--fg-soft); }
 .ruleform input[type=text] { padding: .3rem .5rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
 .ruleform label { font-size: .8rem; color: var(--muted); display: flex; flex-direction: column; gap: .15rem; }
 .stry { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+.reindexout { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: .6rem .8rem; overflow-x: auto; font-size: .8rem; white-space: pre-wrap; }
 `
 
 const themeInitScript = `(function(){
