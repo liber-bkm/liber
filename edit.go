@@ -266,5 +266,5 @@ func runEdit(ids []int, rest []string) error {
 		fmt.Printf("No bookmark with id(s): %s\n", joinInts(missing))
 	}
 
-	return store.Save()
+	return saveWithJournal(cfg, store, journalUpserts(targets))
 }

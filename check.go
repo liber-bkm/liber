@@ -342,6 +342,7 @@ func runCheck(args []string) error {
 	}
 
 	updated, deleted, quarantined, skipped := 0, 0, 0, 0
+	jent := &JournalEntry{}
 	for _, r := range moved {
 		if !confirm(fmt.Sprintf("Update [%d] URL to %s?", r.b.ID, r.target), true) {
 			skipped++
@@ -360,16 +361,19 @@ func runCheck(args []string) error {
 				fmt.Printf("Retitled [%d].\n", r.b.ID)
 			}
 		}
+		jent = jent.merge(journalUpserts([]*Bookmark{r.b}))
 	}
 	for _, r := range dead {
 		switch promptCheckAction(fmt.Sprintf("Delete dead [%d] %s?", r.b.ID, r.b.Title)) {
 		case actionDelete:
+			jent = jent.merge(journalDeletes([]*Bookmark{r.b}))
 			deleteBookmarkFiles(cfg, r.b)
 			store.Delete(r.b.ID)
 			deleted++
 			fmt.Println("Deleted.")
 		case actionQuarantine:
 			quarantineBookmark(cfg, r.b)
+			jent = jent.merge(journalUpserts([]*Bookmark{r.b}))
 			quarantined++
 		default:
 			skipped++
@@ -378,18 +382,20 @@ func runCheck(args []string) error {
 	for _, r := range uncertain {
 		switch promptCheckAction(fmt.Sprintf("Delete uncertain [%d] %s (%s)?", r.b.ID, r.b.Title, r.detail)) {
 		case actionDelete:
+			jent = jent.merge(journalDeletes([]*Bookmark{r.b}))
 			deleteBookmarkFiles(cfg, r.b)
 			store.Delete(r.b.ID)
 			deleted++
 			fmt.Println("Deleted.")
 		case actionQuarantine:
 			quarantineBookmark(cfg, r.b)
+			jent = jent.merge(journalUpserts([]*Bookmark{r.b}))
 			quarantined++
 		default:
 			skipped++
 		}
 	}
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, jent); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
 	fmt.Printf("Done: %d updated, %d deleted, %d quarantined, %d skipped.\n", updated, deleted, quarantined, skipped)

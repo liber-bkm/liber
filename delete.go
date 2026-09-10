@@ -49,11 +49,12 @@ func runDelete(ids []int, rest []string) error {
 		}
 	}
 
+	entry := journalDeletes(targets)
 	for _, b := range targets {
 		deleteBookmarkFiles(cfg, b)
 		store.Delete(b.ID)
 	}
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, entry); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
 
