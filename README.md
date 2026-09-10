@@ -43,7 +43,7 @@ Liber is a cross-platform, simple, private and local bookmark manager that saves
   - You can simply store them as HTML and later create a markdown copy or archive when editing a bookmark
 - Web UI in case you don't want to work with cli
 - Duplicate detection (tags, folder, and bookmarks)
-- Full archive of webpages (requires `single-file-cli`)
+- Full archive of webpages (requires `single-file-cli` or `monolith` for perfect 1-1 archives)
 - Attach files or related content to bookmarks
 - Check whether a bookmark has an archive, markdown copy, or attachments
 - Powerful search and edit: bulk management, deep search, missing archives
@@ -592,7 +592,7 @@ The edit page edits the URL too (same rewrite as `-e -u`), and the markdown view
 
 The `#` button (top right, next to settings) opens the tags and folders page: counts, direct rename forms, guarded deletes, and suggested automation rules for hosts that keep landing in one folder. Renaming onto an existing name merges, exactly like `--tags`/`--folders` on the CLI.
 
-The gear button (top right) opens `/settings`, a settings page for your collection. It shows which external tools liber detected on your machine (`single-file`, `monolith`, chromium for the browser pipe, your open/editor commands), shows the effective directories, and lets you override any of them, including `archive_backend` and `monolith_use_browser`. Changes are written straight to `config.json` and take effect immediately. The same page manages automation rules: add, edit (optionally with reapply), delete, and re-run all rules against existing bookmarks, the same things `liber --auto` does on the command line.
+The gear button (top right) opens `/settings`, a settings page for your collection. It shows which external tools liber detected on your machine (`single-file`, `monolith`, chromium for the browser pipe, your open/editor commands), shows the effective directories, and lets you override any of them, including `archive_backend` and `monolith_use_browser`. Changes are written straight to `config.json` and take effect immediately. The same page manages automation rules: add, edit (optionally with reapply), delete, and re-run all rules against existing bookmarks, the same things `liber --auto` does on the command line. A maintenance section on the same page runs the `liber -r` commands (merge, all, prune, compact, prune journal) with checkboxes and shows the report, the same thing `liber -r` does on the command line.
 
 # Configuration
 
@@ -693,8 +693,6 @@ Because each move follows that one bookmark's own recorded path rather than a gl
 
 Safe to run any time. Steps 2-3 never delete anything outright, and step 4 only ever renames files, never their content.
 
->[!Warning]
-> Merge conflict resolution due to syncing `liber -r --merge` are currently experimental, it's recommended to have backups and you must know how your provider's (Google drive and so on) syncing services work. If you want to use liber over multiple devices, have each device use device specific profile so conflicts don't rise or self host the server 
 
 ## Archive backends
 
