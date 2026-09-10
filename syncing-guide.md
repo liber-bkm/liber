@@ -13,7 +13,9 @@ including syncing with an Android device that is used regularly.
 ## How liber storage maps to sync
 
 - `<base_dir>/` holds `html/`, `markdown/`, `archive/`, `attachments/`,
-  plus `.liber/index.json` (the index: ids, tags, folders, rules).
+  plus `.liber/index.json` (the index: ids, tags, folders, rules) and
+  `.liber/journal/` (one small file per change, used to replay changes
+  that last-writer-wins sync would otherwise drop).
 - Point any sync tool at `base_dir` and the whole collection follows.
   Change it with `liber config set base_dir <path>`.
 - Each `--profile` is a subfolder with its own index, so profiles sync
@@ -39,10 +41,11 @@ conflicted copies). Plain `liber -r` lists them and changes nothing.
 
 ```sh
 liber -r            # reports conflict copies, changes nothing
-liber -r --merge    # merge, then adopt orphan files and relink siblings
+liber -r --merge    # merge, replay journal, adopt orphans, relink siblings
 liber -r --merge --all  # same, also merging .liber/*.json copies without conflict in the name
 liber -r --prune    # drop entries with missing files after the merge step
 liber -r --compact  # renumber ids to close gaps (renames files, syncs more)
+liber -r --prune-journal  # delete applied journal files older than 90 days
 ```
 
 Merge rules, in order:
@@ -76,9 +79,30 @@ directories are never adopted as new bookmarks. They move to
 `unindexed/` with the conflict name preserved so both versions survive
 for manual review.
 Renumbering only runs with `-r --compact` because it renames files and
-creates extra sync traffic. Concurrent edits on last-writer-wins
-providers can still need manual review because there is no second copy
-to compare timestamps against.
+creates extra sync traffic.
+
+## The journal
+
+Every change (add, edit, delete, tag and folder moves, automation rules)
+also appends one small file to `.liber/journal/`, named with a timestamp,
+a per-device id, and random characters, so two devices never produce the
+same filename and sync never collapses two changes into one. `liber -r
+--merge` replays journal files it has not applied yet, using the same
+rules as index merging: same id plus same URL merges fields with newer
+`UpdatedAt` winning, same id plus different bookmarks keeps both under
+fresh ids, same URL folds into one entry. Deletes replay as tombstones:
+a bookmark edited after the delete wins and survives, otherwise the
+delete applies and its files move to `unindexed/`. This is what makes
+Drive-style last-writer-wins sync converge: even when `index.json` keeps
+only the last writer, the journal still carries every change.
+
+The journal must sync (do not exclude `.liber/journal/`). Old clients
+ignore the directory. Each device gets an id in `config.json`
+(`device_id`, generated on first write, changeable with `liber config
+set device_id <name>`). Journal files older than 90 days that were
+already applied are deleted with `liber -r --prune-journal`. A device
+offline longer than that still converges through `index.json`, except a
+deliberate delete it never saw stays pending until pruned by hand.
 
 ## Method 1: git / jj (`liber --sync`)
 
@@ -128,9 +152,10 @@ Best when: that is where your files already live. Works, with caveats:
 - Conflict handling is proprietary (Drive: keeps both, renames opaquely;
   Dropbox: `conflicted copy`). `--merge` detects any `*conflict*` name.
   Use `liber -r --merge --all` for copies without the word conflict in
-  the name. Without any copy to merge, `-r` still adopts orphan bookmark
-  files and relinks siblings, but concurrent edits to the same bookmark
-  need manual review.
+  the name. Even with no copy to merge, `-r --merge` still replays the
+  journal, so adds from the other side converge. Concurrent edits to the
+  same bookmark converge on newer `UpdatedAt`; notes file content follows
+  the surviving file, so check `unindexed/` when both sides edited text.
 - Treat these as last-writer-wins and keep the one-adder discipline
   stricter than with Syncthing/Nextcloud.
 - On mobile, sync is battery-gated and partial: fine for reading, avoid
@@ -161,6 +186,22 @@ bookmarks too, both sides follow the same discipline.
    those by hand: compare against the current index, keep what matters,
    delete the copy, re-run `liber -r --merge`.
 
+## Recommended workflow
+
+1. Let the sync client finish fully before switching devices, and again
+   before running liber after switching.
+2. Add on one side at a time where you can; colliding offline adds still
+   merge, but avoiding them is cheaper.
+3. Run `liber -r --merge` on the desktop (add `--all` on Drive or
+   Dropbox). Read the merge and journal report for reassigned ids.
+4. Check `unindexed/` when the report mentions duplicates, conflicts, or
+   deleted entries, and resolve those by hand.
+5. Only run `--prune` or `--compact` on a fully synced desktop. Never
+   prune on a partial sync: pending entries are how liber waits for
+   files that have not arrived yet.
+6. Deletes propagate as pending entries on other devices; run `--prune`
+   there too once sync is complete.
+
 ## Recovery cheat sheet
 
 | Symptom | Fix |
@@ -181,5 +222,8 @@ bookmarks too, both sides follow the same discipline.
   syncing files back and forth. Keep a local copy if you need recovery.
 - `*.tmp` next to `index.json`: partial writes; exclude them so sync tools
   never copy a half written index.
+- `.liber/journal/` must sync. It carries changes that the index alone
+  would lose on last-writer-wins providers.
 - `config.json` is per-machine (paths differ); profiles and settings do
-  not roam with these methods. Only `base_dir` content syncs.
+  not roam with these methods. Only `base_dir` content syncs. Each
+  machine keeps its own `device_id`.

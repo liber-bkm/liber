@@ -1,0 +1,18 @@
+{
+  "next_id": 2,
+  "bookmarks": [
+    {
+      "id": 1,
+      "url": "https://a.com",
+      "title": "a",
+      "created_at": "0001-01-01T00:00:00Z",
+      "updated_at": "0001-01-01T00:00:00Z",
+      "html_file": "0001-a.html",
+      "last_checked_at": "0001-01-01T00:00:00Z"
+    }
+  ],
+  "next_auto_rule_id": 1,
+  "applied_journal": [
+    "20260910-182122.614506037-dev-a-ac5a6835.json"
+  ]
+}
