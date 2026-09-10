@@ -241,25 +241,28 @@ func handleSettingsAuto(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case "add":
-		_, changed, err := createRule(cfg, store, r.FormValue("match"),
+		rule, changed, err := createRule(cfg, store, r.FormValue("match"),
 			r.FormValue("folder"), strings.Fields(r.FormValue("tags")))
 		if err != nil {
 			redirectSettings(w, r, "Add failed: "+err.Error())
 			return
 		}
-		if err := store.Save(); err != nil {
+		if err := saveWithJournal(cfg, store, journalUpserts(changed).merge(journalRules([]*AutoRule{rule}))); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		redirectSettings(w, r, fmt.Sprintf("Rule added (applied to %d existing bookmark(s))", changed))
+		redirectSettings(w, r, fmt.Sprintf("Rule added (applied to %d existing bookmark(s))", len(changed)))
 
 	case "delete":
 		id, _ := strconv.Atoi(r.FormValue("id"))
-		if !store.DeleteAutoRule(id) {
+		del := store.FindAutoRule(id)
+		if del == nil {
 			redirectSettings(w, r, "No rule with that id")
 			return
 		}
-		if err := store.Save(); err != nil {
+		tomb := journalRuleDeletes([]*AutoRule{del})
+		store.DeleteAutoRule(id)
+		if err := saveWithJournal(cfg, store, tomb); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -267,19 +270,19 @@ func handleSettingsAuto(w http.ResponseWriter, r *http.Request) {
 
 	case "edit":
 		id, _ := strconv.Atoi(r.FormValue("id"))
-		_, changed, err := editRule(cfg, store, id, r.FormValue("match"), r.FormValue("folder"),
+		rule, changed, err := editRule(cfg, store, id, r.FormValue("match"), r.FormValue("folder"),
 			strings.Fields(r.FormValue("tags")), r.FormValue("reapply") == "on")
 		if err != nil {
 			redirectSettings(w, r, "Edit failed: "+err.Error())
 			return
 		}
-		if err := store.Save(); err != nil {
+		if err := saveWithJournal(cfg, store, journalUpserts(changed).merge(journalRules([]*AutoRule{rule}))); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		msg := "Rule updated"
 		if r.FormValue("reapply") == "on" {
-			msg += fmt.Sprintf(" (reapplied to %d bookmark(s))", changed)
+			msg += fmt.Sprintf(" (reapplied to %d bookmark(s))", len(changed))
 		}
 		redirectSettings(w, r, msg)
 
@@ -290,11 +293,11 @@ func handleSettingsAuto(w http.ResponseWriter, r *http.Request) {
 			redirectSettings(w, r, err.Error())
 			return
 		}
-		if err := store.Save(); err != nil {
+		if err := saveWithJournal(cfg, store, journalUpserts(changed)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		redirectSettings(w, r, fmt.Sprintf("Applied to %d bookmark(s)", changed))
+		redirectSettings(w, r, fmt.Sprintf("Applied to %d bookmark(s)", len(changed)))
 
 	default:
 		http.NotFound(w, r)

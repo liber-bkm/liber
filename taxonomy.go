@@ -67,16 +67,16 @@ func runTagsList() error {
 	return nil
 }
 
-func renameTag(cfg Config, store *Store, old, newTag string) (int, error) {
+func renameTag(cfg Config, store *Store, old, newTag string) ([]*Bookmark, error) {
 	old = strings.TrimSpace(old)
 	newTag = strings.TrimSpace(newTag)
 	if old == "" || newTag == "" {
-		return 0, fmt.Errorf("usage: liber --tags rename <old> <new>")
+		return nil, fmt.Errorf("usage: liber --tags rename <old> <new>")
 	}
 	if strings.EqualFold(old, newTag) {
-		return 0, fmt.Errorf("%q and %q are the same tag", old, newTag)
+		return nil, fmt.Errorf("%q and %q are the same tag", old, newTag)
 	}
-	changed := 0
+	var changed []*Bookmark
 	for _, b := range store.Bookmarks {
 		idx := indexOfFold(b.Tags, old)
 		if idx == -1 {
@@ -86,7 +86,7 @@ func renameTag(cfg Config, store *Store, old, newTag string) (int, error) {
 		b.Tags = dedupe(append(b.Tags, newTag))
 		b.UpdatedAt = time.Now()
 		syncBookmarkFiles(cfg, b, false)
-		changed++
+		changed = append(changed, b)
 	}
 	return changed, nil
 }
@@ -100,23 +100,23 @@ func runTagsRename(old, newTag string) error {
 	if err != nil {
 		return err
 	}
-	if changed == 0 {
+	if len(changed) == 0 {
 		fmt.Printf("No bookmarks have the tag %q.\n", old)
 		return nil
 	}
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, journalUpserts(changed)); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
-	fmt.Printf("Renamed tag %q to %q on %d bookmark(s).\n", old, newTag, changed)
+	fmt.Printf("Renamed tag %q to %q on %d bookmark(s).\n", old, newTag, len(changed))
 	return nil
 }
 
-func deleteTag(cfg Config, store *Store, tag string) (int, error) {
+func deleteTag(cfg Config, store *Store, tag string) ([]*Bookmark, error) {
 	tag = strings.TrimSpace(tag)
 	if tag == "" {
-		return 0, fmt.Errorf("usage: liber --tags delete <tag>")
+		return nil, fmt.Errorf("usage: liber --tags delete <tag>")
 	}
-	changed := 0
+	var changed []*Bookmark
 	for _, b := range store.Bookmarks {
 		idx := indexOfFold(b.Tags, tag)
 		if idx == -1 {
@@ -125,7 +125,7 @@ func deleteTag(cfg Config, store *Store, tag string) (int, error) {
 		b.Tags = append(append([]string{}, b.Tags[:idx]...), b.Tags[idx+1:]...)
 		b.UpdatedAt = time.Now()
 		syncBookmarkFiles(cfg, b, false)
-		changed++
+		changed = append(changed, b)
 	}
 	return changed, nil
 }
@@ -139,14 +139,14 @@ func runTagsDelete(tag string) error {
 	if err != nil {
 		return err
 	}
-	if changed == 0 {
+	if len(changed) == 0 {
 		fmt.Printf("No bookmarks have the tag %q.\n", tag)
 		return nil
 	}
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, journalUpserts(changed)); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
-	fmt.Printf("Removed tag %q from %d bookmark(s).\n", tag, changed)
+	fmt.Printf("Removed tag %q from %d bookmark(s).\n", tag, len(changed))
 	return nil
 }
 
@@ -170,16 +170,16 @@ func renameFolderPrefix(folder, oldPrefix, newPrefix string) string {
 	return newPrefix + folder[len(oldPrefix):]
 }
 
-func renameFolder(cfg Config, store *Store, old, newFolder string) (int, error) {
+func renameFolder(cfg Config, store *Store, old, newFolder string) ([]*Bookmark, error) {
 	old = sanitizeFolder(old)
 	newFolder = sanitizeFolder(newFolder)
 	if old == "" {
-		return 0, fmt.Errorf("old folder can't be root -- did you mean a specific subfolder?")
+		return nil, fmt.Errorf("old folder can't be root -- did you mean a specific subfolder?")
 	}
 	if old == newFolder {
-		return 0, fmt.Errorf("%q and %q are the same folder", displayFolder(old), displayFolder(newFolder))
+		return nil, fmt.Errorf("%q and %q are the same folder", displayFolder(old), displayFolder(newFolder))
 	}
-	changed := 0
+	var changed []*Bookmark
 	for _, b := range store.Bookmarks {
 		if !folderMatchesOrIsChild(b.Folder, old) {
 			continue
@@ -187,7 +187,7 @@ func renameFolder(cfg Config, store *Store, old, newFolder string) (int, error) 
 		b.Folder = sanitizeFolder(renameFolderPrefix(b.Folder, old, newFolder))
 		b.UpdatedAt = time.Now()
 		syncBookmarkFiles(cfg, b, true)
-		changed++
+		changed = append(changed, b)
 	}
 	return changed, nil
 }
@@ -201,14 +201,14 @@ func runFoldersRename(old, newFolder string) error {
 	if err != nil {
 		return err
 	}
-	if changed == 0 {
+	if len(changed) == 0 {
 		fmt.Printf("No bookmarks are in folder %q.\n", old)
 		return nil
 	}
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, journalUpserts(changed)); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
-	fmt.Printf("Moved %d bookmark(s) from %q to %q.\n", changed, old, displayFolder(newFolder))
+	fmt.Printf("Moved %d bookmark(s) from %q to %q.\n", len(changed), old, displayFolder(newFolder))
 	return nil
 }
 

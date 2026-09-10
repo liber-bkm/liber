@@ -110,51 +110,56 @@ func handleTaxonomy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var msg string
+	jent := &JournalEntry{}
 	switch action {
 	case "tag/rename":
-		n, err := renameTag(cfg, store, r.FormValue("old"), r.FormValue("new"))
+		changed, err := renameTag(cfg, store, r.FormValue("old"), r.FormValue("new"))
 		if err != nil {
 			redirectTags(w, r, "Rename failed: "+err.Error())
 			return
 		}
-		if n == 0 {
+		if len(changed) == 0 {
 			redirectTags(w, r, "No bookmarks have that tag")
 			return
 		}
-		msg = fmt.Sprintf("Renamed tag on %d bookmark(s)", n)
+		jent = jent.merge(journalUpserts(changed))
+		msg = fmt.Sprintf("Renamed tag on %d bookmark(s)", len(changed))
 	case "tag/delete":
-		n, err := deleteTag(cfg, store, r.FormValue("name"))
+		changed, err := deleteTag(cfg, store, r.FormValue("name"))
 		if err != nil {
 			redirectTags(w, r, "Delete failed: "+err.Error())
 			return
 		}
-		if n == 0 {
+		if len(changed) == 0 {
 			redirectTags(w, r, "No bookmarks have that tag")
 			return
 		}
-		msg = fmt.Sprintf("Removed tag from %d bookmark(s)", n)
+		jent = jent.merge(journalUpserts(changed))
+		msg = fmt.Sprintf("Removed tag from %d bookmark(s)", len(changed))
 	case "folder/rename":
-		n, err := renameFolder(cfg, store, r.FormValue("old"), r.FormValue("new"))
+		changed, err := renameFolder(cfg, store, r.FormValue("old"), r.FormValue("new"))
 		if err != nil {
 			redirectTags(w, r, "Rename failed: "+err.Error())
 			return
 		}
-		if n == 0 {
+		if len(changed) == 0 {
 			redirectTags(w, r, "No bookmarks are in that folder")
 			return
 		}
-		msg = fmt.Sprintf("Moved %d bookmark(s)", n)
+		jent = jent.merge(journalUpserts(changed))
+		msg = fmt.Sprintf("Moved %d bookmark(s)", len(changed))
 	case "folder/delete":
-		n, err := renameFolder(cfg, store, r.FormValue("name"), "")
+		changed, err := renameFolder(cfg, store, r.FormValue("name"), "")
 		if err != nil {
 			redirectTags(w, r, "Delete failed: "+err.Error())
 			return
 		}
-		if n == 0 {
+		if len(changed) == 0 {
 			redirectTags(w, r, "No bookmarks are in that folder")
 			return
 		}
-		msg = fmt.Sprintf("Moved %d bookmark(s) back to the root", n)
+		jent = jent.merge(journalUpserts(changed))
+		msg = fmt.Sprintf("Moved %d bookmark(s) back to the root", len(changed))
 	case "rule/learn":
 		host, folder := r.FormValue("host"), r.FormValue("folder")
 		rule, changed, err := createRule(cfg, store, "host:"+host, folder, nil)
@@ -162,12 +167,13 @@ func handleTaxonomy(w http.ResponseWriter, r *http.Request) {
 			redirectTags(w, r, "Learn failed: "+err.Error())
 			return
 		}
-		msg = fmt.Sprintf("Added automation %s (applied to %d existing bookmark(s))", describeRule(rule), changed)
+		jent = jent.merge(journalUpserts(changed).merge(journalRules([]*AutoRule{rule})))
+		msg = fmt.Sprintf("Added automation %s (applied to %d existing bookmark(s))", describeRule(rule), len(changed))
 	default:
 		http.NotFound(w, r)
 		return
 	}
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, jent); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
