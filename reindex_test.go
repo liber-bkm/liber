@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,7 +77,7 @@ func TestAdoptOrphanFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfg.htmlDir(), "0009-orphan.html"), []byte(orphan), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	adopted, _ := adoptOrphanFiles(cfg, store)
+	adopted, _ := adoptOrphanFiles(io.Discard, cfg, store)
 	if adopted != 1 {
 		t.Fatalf("adopted = %d", adopted)
 	}
@@ -111,7 +112,7 @@ func TestAdoptOrphanDuplicateMovesToUnindexed(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfg.htmlDir(), "0009-a-dup.html"), []byte(dup), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	adopted, dupMoved := adoptOrphanFiles(cfg, store)
+	adopted, dupMoved := adoptOrphanFiles(io.Discard, cfg, store)
 	if adopted != 0 {
 		t.Fatalf("adopted = %d", adopted)
 	}
@@ -219,7 +220,7 @@ func TestRelinkOrphanAttachments(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	relinked, quarantined := relinkOrphanAttachments(cfg, store)
+	relinked, quarantined := relinkOrphanAttachments(io.Discard, cfg, store)
 	if relinked != 1 {
 		t.Fatalf("relinked = %d", relinked)
 	}
@@ -249,7 +250,7 @@ func TestAdoptSkipsContentConflicts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfg.htmlDir(), name), []byte("<html></html>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	adopted, _ := adoptOrphanFiles(cfg, store)
+	adopted, _ := adoptOrphanFiles(io.Discard, cfg, store)
 	if adopted != 0 {
 		t.Fatalf("adopted = %d", adopted)
 	}
