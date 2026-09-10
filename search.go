@@ -254,19 +254,20 @@ func actionMenu(cfg Config, store *Store, b *Bookmark) actionResult {
 			}
 		case "e":
 			editBookmarkInteractive(cfg, b)
-			if err := store.Save(); err != nil {
+			if err := saveWithJournal(cfg, store, journalUpserts([]*Bookmark{b})); err != nil {
 				fmt.Println("Could not save index:", err)
 			}
 		case "t":
 			attachmentsMenu(cfg, b)
-			if err := store.Save(); err != nil {
+			if err := saveWithJournal(cfg, store, journalUpserts([]*Bookmark{b})); err != nil {
 				fmt.Println("Could not save index:", err)
 			}
 		case "d":
 			if confirm(fmt.Sprintf("Delete '%s'?", b.Title), false) {
+				tomb := journalDeletes([]*Bookmark{b})
 				deleteBookmarkFiles(cfg, b)
 				store.Delete(b.ID)
-				if err := store.Save(); err != nil {
+				if err := saveWithJournal(cfg, store, tomb); err != nil {
 					fmt.Println("Could not save index:", err)
 				}
 				fmt.Println("Deleted.")
