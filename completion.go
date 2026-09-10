@@ -36,7 +36,7 @@ _liber() {
 		-f|--folder)   COMPREPLY=( $(compgen -W "$(_liber_folders)" -- "$cur") ); return 0 ;;
 		--import)      compopt -o default 2>/dev/null; return 0 ;;
 		--export-site) compopt -o default 2>/dev/null; return 0 ;;
-		-r|--reindex)  COMPREPLY=( $(compgen -W "--merge" -- "$cur") ); return 0 ;;
+		-r|--reindex)  COMPREPLY=( $(compgen -W "--merge --all --prune --compact" -- "$cur") ); return 0 ;;
 		--sort)        COMPREPLY=( $(compgen -W "newest oldest visited title" -- "$cur") ); return 0 ;;
 		--stale)       return 0 ;;
 		completion)    COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ); return 0 ;;
@@ -89,7 +89,7 @@ _liber() {
  		--import)       _files; return ;;
  		--export-site)  _files -/; return ;;
  		--sort)         compadd newest oldest visited title; return ;;
- 		-r|--reindex)   compadd --merge; return ;;
+  		-r|--reindex)   compadd --merge --all --prune --compact; return ;;
  		set)            compadd base_dir html_dir markdown_dir archive_dir attachment_dir singlefile_cmd singlefile_browser_path archive_backend monolith_cmd monolith_browser_path monolith_use_browser browser_cmd editor_cmd; return ;;
  		completion)     compadd bash zsh fish; return ;;
  	esac
@@ -213,4 +213,7 @@ complete -c liber -s u -l url -d "change URL (with -e)"
 complete -c liber -l deep -d "search archive content too"
 complete -c liber -s y -l yes -d "no confirmation prompts"
 complete -c liber -n "__fish_seen_argument -s r; or __fish_seen_argument -l reindex" -l merge -d "fold in conflict copies"
+complete -c liber -n "__fish_seen_argument -s r; or __fish_seen_argument -l reindex" -l all -d "merge every json candidate"
+complete -c liber -n "__fish_seen_argument -s r; or __fish_seen_argument -l reindex" -l prune -d "drop pending entries"
+complete -c liber -n "__fish_seen_argument -s r; or __fish_seen_argument -l reindex" -l compact -d "renumber ids"
 `
