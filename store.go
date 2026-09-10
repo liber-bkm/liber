@@ -60,6 +60,8 @@ type Store struct {
 	NextAutoRuleID int         `json:"next_auto_rule_id"`
 	AutoRules      []*AutoRule `json:"auto_rules,omitempty"`
 
+	AppliedJournal []string `json:"applied_journal,omitempty"`
+
 	path string // not persisted
 }
 

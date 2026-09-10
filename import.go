@@ -133,6 +133,7 @@ func runImport(path string, opt importOptions) error {
 	}
 
 	imported, skippedDup, skippedBad := 0, 0, 0
+	var added []*Bookmark
 	for _, e := range entries {
 		if strings.TrimSpace(e.href) == "" {
 			skippedBad++
@@ -166,10 +167,11 @@ func runImport(path string, opt importOptions) error {
 			continue
 		}
 		b.AppliedRules = appliedRuleIDs
+		added = append(added, b)
 		imported++
 	}
 
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, journalUpserts(added)); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
 

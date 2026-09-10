@@ -69,7 +69,7 @@ func runCreate(rawURL string, opt CreateOptions) error {
 		attachmentsMenu(cfg, b)
 	}
 
-	if err := store.Save(); err != nil {
+	if err := saveWithJournal(cfg, store, journalUpserts([]*Bookmark{b})); err != nil {
 		return fmt.Errorf("saving index: %w", err)
 	}
 
