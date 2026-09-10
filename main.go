@@ -376,14 +376,21 @@ Usage:
    liber -o <query>               same, but looks the bookmark up by search text
                                     (one match opens directly, several offer a pick)
    liber pick <query>             print a matching bookmark's URL to stdout, for pipes
-  liber -r                       reindex: drop entries whose files were deleted
-                                   outside liber (quarantining any surviving
-                                   markdown/archive copy into <base_dir>/unindexed/),
-                                   and renumber remaining ids to close gaps
+  liber -r                       reindex: adopt bookmark files found on disk but
+                                   missing from the index, relink sibling
+                                   markdown/archive copies, keep entries with
+                                   missing files as pending
+  liber -r --prune              same, dropping pending entries (surviving
+                                   markdown/archive copies move to
+                                   <base_dir>/unindexed/)
+  liber -r --compact            same, renumbering ids to close gaps
   liber -r --merge               same, first folding sync conflict copies of the
                                    index into one (collisions get fresh ids,
                                    duplicates fold away, consumed copies move
                                    to <base_dir>/.liber/resolved/)
+  liber -r --merge --all         same, treating every .liber/*.json except
+                                   index.json as a merge candidate (Drive style
+                                   copies without conflict in the name)
   liber --import <path>          import a browser bookmark export (Netscape HTML format)
   liber --import <path> -md -a   same, also generating markdown/archives for each (slow)
   liber --tags                   list all tags with counts

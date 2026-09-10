@@ -18,6 +18,10 @@ type mergeReport struct {
 
 // findConflictCopies lists sync-tool conflict copies of the index.
 func findConflictCopies(dir string) []string {
+	return findMergeCandidates(dir, false)
+}
+
+func findMergeCandidates(dir string, all bool) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -32,6 +36,13 @@ func findConflictCopies(dir string) []string {
 			continue
 		}
 		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		if strings.HasSuffix(name, ".tmp") {
+			continue
+		}
+		if all {
+			out = append(out, filepath.Join(dir, name))
 			continue
 		}
 		if strings.Contains(strings.ToLower(name), "conflict") {
