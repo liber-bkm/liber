@@ -1,0 +1,40 @@
+# Maintainer: liber <https://github.com/liber-bkm/liber>
+pkgname=liber-git
+pkgver=0.8.1.r0.g0000000
+pkgrel=1
+pkgdesc="A small, dependency-free CLI bookmark manager (html + markdown + archive) - git version"
+arch=('x86_64')
+url="https://github.com/liber-bkm/liber"
+license=('GPL')
+provides=('liber')
+conflicts=('liber')
+makedepends=('go' 'git')
+optdepends=(
+    'fzf: fuzzy picker for liber -s'
+    'single-file-cli: full-page archives (liber -a, archive_backend=single-file)'
+    'monolith: HTML archival alternative (archive_backend=monolith)'
+)
+source=("${pkgname}::git+https://github.com/liber-bkm/liber.git#branch=main")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "${pkgname}"
+    git describe --long --tags | sed 's/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+build() {
+    cd "${pkgname}"
+    export CGO_ENABLED=0
+    go build -ldflags "-X main.Version=${pkgver}" -o liber .
+}
+
+package() {
+    cd "${pkgname}"
+    install -Dm755 liber "${pkgdir}/usr/bin/liber"
+    ./liber completion bash > "${srcdir}/liber"
+    ./liber completion zsh > "${srcdir}/_liber"
+    ./liber completion fish > "${srcdir}/liber.fish"
+    install -Dm644 "${srcdir}/liber" "${pkgdir}/usr/share/bash-completion/completions/liber"
+    install -Dm644 "${srcdir}/_liber" "${pkgdir}/usr/share/zsh/site-functions/_liber"
+    install -Dm644 "${srcdir}/liber.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/liber.fish"
+}

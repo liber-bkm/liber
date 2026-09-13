@@ -53,8 +53,11 @@ jobs:
         run: |
           mkdir -p dist
           sed "s/@VERSION@/${GITHUB_REF_NAME#v}/" packaging/PKGBUILD > dist/PKGBUILD
+          cp packaging/PKGBUILD-git dist/PKGBUILD-git
           # sanity: makepkg --lint is Arch-only; at least refuse unsubstituted versions
           ! grep -q '@VERSION@' dist/PKGBUILD
+          bash -n dist/PKGBUILD
+          bash -n dist/PKGBUILD-git
 
       - name: Upload release assets
         env:
@@ -67,4 +70,5 @@ jobs:
             dist/liber-darwin-arm64 \
             dist/SHA256SUMS.txt \
             dist/PKGBUILD \
+            dist/PKGBUILD-git \
             --clobber

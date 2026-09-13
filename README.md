@@ -83,6 +83,14 @@ wget https://github.com/liber-bkm/liber/releases/latest/download/PKGBUILD
 makepkg -si
 ```
 
+To build the latest `main` branch from source instead (includes shell completions either way):
+
+```sh
+wget https://github.com/liber-bkm/liber/releases/latest/download/PKGBUILD-git
+mv PKGBUILD-git PKGBUILD
+makepkg -si
+```
+
 ## NixOS
 
 This repo provides a flake to install it on your NixOS system.

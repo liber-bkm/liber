@@ -17,4 +17,10 @@ sha256sums=('SKIP' 'SKIP')
 
 package() {
     install -Dm755 "${srcdir}/${pkgname}-${pkgver}" "${pkgdir}/usr/bin/liber"
+    "${srcdir}/${pkgname}-${pkgver}" completion bash > "${srcdir}/liber"
+    "${srcdir}/${pkgname}-${pkgver}" completion zsh > "${srcdir}/_liber"
+    "${srcdir}/${pkgname}-${pkgver}" completion fish > "${srcdir}/liber.fish"
+    install -Dm644 "${srcdir}/liber" "${pkgdir}/usr/share/bash-completion/completions/liber"
+    install -Dm644 "${srcdir}/_liber" "${pkgdir}/usr/share/zsh/site-functions/_liber"
+    install -Dm644 "${srcdir}/liber.fish" "${pkgdir}/usr/share/fish/vendor_completions.d/liber.fish"
 }
