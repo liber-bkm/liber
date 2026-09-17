@@ -7,6 +7,8 @@ import (
 	"net/http"
 	neturl "net/url"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 type taxRow struct {
@@ -20,6 +22,7 @@ type taxonomyPageData struct {
 	Tags    []taxRow
 	Folders []taxRow
 	Learn   []learnRow
+	Min     int
 }
 
 type learnRow struct {
@@ -42,15 +45,23 @@ func sortedTaxRows(counts map[string]int) []taxRow {
 	return out
 }
 
-func learnRows(store *Store) []learnRow {
+func learnRows(store *Store, min int) []learnRow {
 	var out []learnRow
-	for _, s := range suggestRules(store, 3) {
+	for _, s := range suggestRules(store, min) {
 		out = append(out, learnRow{Host: s.host, Folder: s.folder, Count: s.count})
 	}
 	return out
 }
 
-func renderTaxonomyPage(w http.ResponseWriter, store *Store, flash string) {
+func learnMin(r *http.Request) int {
+	min := 3
+	if n, err := strconv.Atoi(strings.TrimSpace(r.FormValue("min"))); err == nil && n >= 2 {
+		min = n
+	}
+	return min
+}
+
+func renderTaxonomyPage(w http.ResponseWriter, store *Store, flash string, min int) {
 	var buf bytes.Buffer
 	folders := sortedTaxRows(folderCounts(store))
 	for i := range folders {
@@ -60,7 +71,8 @@ func renderTaxonomyPage(w http.ResponseWriter, store *Store, flash string) {
 		Flash:   flash,
 		Tags:    sortedTaxRows(tagCounts(store)),
 		Folders: folders,
-		Learn:   learnRows(store),
+		Learn:   learnRows(store, min),
+		Min:     min,
 	}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -86,7 +98,7 @@ func handleTags(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	renderTaxonomyPage(w, store, r.URL.Query().Get("msg"))
+	renderTaxonomyPage(w, store, r.URL.Query().Get("msg"), learnMin(r))
 }
 
 func handleTaxonomy(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +181,26 @@ func handleTaxonomy(w http.ResponseWriter, r *http.Request) {
 		}
 		jent = jent.merge(journalUpserts(changed).merge(journalRules([]*AutoRule{rule})))
 		msg = fmt.Sprintf("Added automation %s (applied to %d existing bookmark(s))", describeRule(rule), len(changed))
+	case "rule/learn-all":
+		min := 3
+		if n, err := strconv.Atoi(strings.TrimSpace(r.FormValue("min"))); err == nil && n >= 2 {
+			min = n
+		}
+		suggestions := suggestRules(store, min)
+		if len(suggestions) == 0 {
+			redirectTags(w, r, "No rule suggestions at this threshold.")
+			return
+		}
+		made := 0
+		for _, s := range suggestions {
+			rule, changed, err := createRule(cfg, store, "host:"+s.host, s.folder, nil)
+			if err != nil {
+				continue
+			}
+			made++
+			jent = jent.merge(journalUpserts(changed).merge(journalRules([]*AutoRule{rule})))
+		}
+		msg = fmt.Sprintf("Created %d automation rule(s).", made)
 	default:
 		http.NotFound(w, r)
 		return
@@ -185,9 +217,17 @@ var taxTmpl = template.Must(template.New("taxonomy").Parse(`
 <h2>Tags and folders</h2>
 {{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
 
-{{if .Learn}}
 <h2>Suggested rules</h2>
 <p class="count">Hosts that keep landing in one folder. Creating a rule files future matches automatically.</p>
+<form method="get" action="/tags" class="stry">
+  <label class="stry">threshold <input type="number" name="min" value="{{.Min}}" min="2" style="width:4rem"></label>
+  <button type="submit">Apply</button>
+</form>
+{{if .Learn}}
+<form method="post" action="/tags/rule/learn-all" class="stry">
+  <input type="hidden" name="min" value="{{.Min}}">
+  <button type="submit">Create all</button>
+</form>
 {{range .Learn}}
 <div class="ruleform">
   <div>{{.Count}} bookmark(s) with host {{.Host}} are in folder {{.Folder}}</div>
