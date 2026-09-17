@@ -8,14 +8,18 @@ import (
 	"time"
 )
 
+func recordOpen(b *Bookmark) {
+	now := time.Now()
+	b.LastOpenedAt = &now
+	b.OpenCount++
+}
+
 func markOpened(cfg Config, b *Bookmark) bool {
 	if err := openURL(cfg, b.URL); err != nil {
 		fmt.Printf("[%d] %s -- could not open: %v\n", b.ID, b.Title, err)
 		return false
 	}
-	now := time.Now()
-	b.LastOpenedAt = &now
-	b.OpenCount++
+	recordOpen(b)
 	fmt.Printf("Opened [%d] %s\n", b.ID, b.Title)
 	return true
 }
