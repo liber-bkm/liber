@@ -100,6 +100,109 @@ func parseCheckArgs(args []string) (spec string, workers int, stale time.Duratio
 	return spec, workers, stale, nil, nil
 }
 
+func resolveCheckTargets(store *Store, spec string, stale time.Duration) (targets []*Bookmark, missing []int, fresh int, err error) {
+	if strings.TrimSpace(spec) == "" {
+		targets = store.All()
+	} else {
+		var ids []int
+		ids, err = parseIDSpec(spec)
+		if err != nil {
+			return nil, nil, 0, fmt.Errorf("%w (use `liber -l` to see valid ids)", err)
+		}
+		for _, id := range ids {
+			b := store.Find(id)
+			if b == nil {
+				missing = append(missing, id)
+				continue
+			}
+			targets = append(targets, b)
+		}
+	}
+	if stale > 0 {
+		cutoff := time.Now().Add(-stale)
+		var kept []*Bookmark
+		for _, b := range targets {
+			if !b.LastCheckedAt.IsZero() && b.LastCheckedAt.After(cutoff) {
+				fresh++
+				continue
+			}
+			kept = append(kept, b)
+		}
+		targets = kept
+	}
+	return targets, missing, fresh, nil
+}
+
+func targetIDs(targets []*Bookmark) []int {
+	ids := make([]int, 0, len(targets))
+	for _, b := range targets {
+		ids = append(ids, b.ID)
+	}
+	return ids
+}
+
+func scanCheckTargets(client *http.Client, targets []*Bookmark, workers int, progress func(done, total int)) (moved, dead, uncertain []checkResult) {
+	results := make([]checkResult, len(targets))
+	var done int64
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, workers)
+	for i, b := range targets {
+		wg.Add(1)
+		go func(i int, b *Bookmark) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			r := classifyURL(client, b.URL)
+			r.b = b
+			results[i] = r
+			if progress != nil {
+				progress(int(atomic.AddInt64(&done, 1)), len(targets))
+			}
+		}(i, b)
+	}
+	wg.Wait()
+
+	for _, r := range results {
+		switch r.status {
+		case checkMoved:
+			moved = append(moved, r)
+		case checkDead:
+			dead = append(dead, r)
+		case checkUncertain:
+			uncertain = append(uncertain, r)
+		}
+	}
+	sort.Slice(moved, func(i, j int) bool { return moved[i].b.ID < moved[j].b.ID })
+	sort.Slice(dead, func(i, j int) bool { return dead[i].b.ID < dead[j].b.ID })
+	sort.Slice(uncertain, func(i, j int) bool { return uncertain[i].b.ID < uncertain[j].b.ID })
+	return moved, dead, uncertain
+}
+
+func stampCheckTargets(store *Store, ids []int, moved, dead, uncertain []checkResult, now time.Time) {
+	status := map[int]string{}
+	for _, r := range moved {
+		status[r.b.ID] = "moved"
+	}
+	for _, r := range dead {
+		status[r.b.ID] = "dead"
+	}
+	for _, r := range uncertain {
+		status[r.b.ID] = "uncertain"
+	}
+	for _, id := range ids {
+		b := store.Find(id)
+		if b == nil {
+			continue
+		}
+		b.LastCheckedAt = now
+		if s, ok := status[id]; ok {
+			b.LastCheckStatus = s
+		} else {
+			b.LastCheckStatus = "ok"
+		}
+	}
+}
+
 func checkClient() *http.Client {
 	return &http.Client{
 		Timeout: 15 * time.Second,
@@ -238,42 +341,15 @@ func runCheck(args []string) error {
 	if err != nil {
 		return err
 	}
-	var targets []*Bookmark
-	if strings.TrimSpace(spec) == "" {
-		targets = store.All()
-	} else {
-		ids, perr := parseIDSpec(spec)
-		if perr != nil {
-			return fmt.Errorf("%w (use `liber -l` to see valid ids)", perr)
-		}
-		var missing []int
-		for _, id := range ids {
-			b := store.Find(id)
-			if b == nil {
-				missing = append(missing, id)
-				continue
-			}
-			targets = append(targets, b)
-		}
-		if len(missing) > 0 {
-			fmt.Printf("No bookmark with id(s): %s\n", joinInts(missing))
-		}
+	targets, missing, fresh, err := resolveCheckTargets(store, spec, stale)
+	if err != nil {
+		return err
 	}
-	if stale > 0 {
-		cutoff := time.Now().Add(-stale)
-		fresh := 0
-		kept := targets[:0]
-		for _, b := range targets {
-			if !b.LastCheckedAt.IsZero() && b.LastCheckedAt.After(cutoff) {
-				fresh++
-				continue
-			}
-			kept = append(kept, b)
-		}
-		targets = kept
-		if fresh > 0 {
-			fmt.Printf("Skipped %d freshly checked bookmark(s).\n", fresh)
-		}
+	if len(missing) > 0 {
+		fmt.Printf("No bookmark with id(s): %s\n", joinInts(missing))
+	}
+	if fresh > 0 {
+		fmt.Printf("Skipped %d freshly checked bookmark(s).\n", fresh)
 	}
 	if len(targets) == 0 {
 		fmt.Println("No bookmarks to check.")
@@ -281,47 +357,12 @@ func runCheck(args []string) error {
 	}
 
 	client := checkClient()
-	results := make([]checkResult, len(targets))
-	var done int64
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, workers)
-	for i, b := range targets {
-		wg.Add(1)
-		go func(i int, b *Bookmark) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			r := classifyURL(client, b.URL)
-			r.b = b
-			results[i] = r
-			n := atomic.AddInt64(&done, 1)
-			fmt.Fprintf(os.Stderr, "\rChecking %d/%d...", n, len(targets))
-		}(i, b)
-	}
-	wg.Wait()
+	moved, dead, uncertain := scanCheckTargets(client, targets, workers, func(done, total int) {
+		fmt.Fprintf(os.Stderr, "\rChecking %d/%d...", done, total)
+	})
 	fmt.Fprintln(os.Stderr)
-
-	var moved, dead, uncertain []checkResult
 	now := time.Now()
-	for _, r := range results {
-		r.b.LastCheckedAt = now
-		switch r.status {
-		case checkMoved:
-			r.b.LastCheckStatus = "moved"
-			moved = append(moved, r)
-		case checkDead:
-			r.b.LastCheckStatus = "dead"
-			dead = append(dead, r)
-		case checkUncertain:
-			r.b.LastCheckStatus = "uncertain"
-			uncertain = append(uncertain, r)
-		default:
-			r.b.LastCheckStatus = "ok"
-		}
-	}
-	sort.Slice(moved, func(i, j int) bool { return moved[i].b.ID < moved[j].b.ID })
-	sort.Slice(dead, func(i, j int) bool { return dead[i].b.ID < dead[j].b.ID })
-	sort.Slice(uncertain, func(i, j int) bool { return uncertain[i].b.ID < uncertain[j].b.ID })
+	stampCheckTargets(store, targetIDs(targets), moved, dead, uncertain, now)
 
 	ok := len(targets) - len(moved) - len(dead) - len(uncertain)
 	fmt.Printf("%d ok, %d moved, %d dead, %d uncertain (of %d checked)\n", ok, len(moved), len(dead), len(uncertain), len(targets))
