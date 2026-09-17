@@ -604,6 +604,8 @@ The gear button (top right) opens `/settings`, a settings page for your collecti
 
 The clock button (top right) opens `/history`, the same list as `liber --history`. Opening a bookmark from the web (`/open/<id>`, used by title and visit-original links) records the visit exactly like the CLI open action, so history and `visited` sort stay in sync. `/pick?q=...` returns a matching URL as plain text, the web equivalent of `liber pick`.
 
+The settings page also covers library and sync tasks: import a browser bookmark export (file upload, same duplicate skipping as `--import`), export the static site (same as `--export-site`, default `<base_dir>/site`), and commit the collection with jj or git (same as `--sync`, with optional push). `/profiles` lists, switches, creates, and deletes profiles, the same things `liber --profile` does on the command line.
+
 # Configuration
 
 You can either use webUI for configuring liber or use config file / cli. 
