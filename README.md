@@ -606,6 +606,8 @@ The clock button (top right) opens `/history`, the same list as `liber --history
 
 The settings page also covers library and sync tasks: import a browser bookmark export (file upload, same duplicate skipping as `--import`), export the static site (same as `--export-site`, default `<base_dir>/site`), and commit the collection with jj or git (same as `--sync`, with optional push). `/profiles` lists, switches, creates, and deletes profiles, the same things `liber --profile` does on the command line.
 
+The add form accepts an optional title (otherwise fetched like the CLI), the edit form removes attachments by name as well as by checkbox, and search rows have checkboxes for bulk delete (with confirm), bulk tag set, and bulk folder move. The tags page tunes the host-rule threshold and creates all suggestions at once; each automation rule has its own apply button next to delete.
+
 # Configuration
 
 You can either use webUI for configuring liber or use config file / cli. 
