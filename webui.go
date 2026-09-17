@@ -54,6 +54,9 @@ func runServe(args []string) error {
 	mux.HandleFunc("/card/", handleCard)
 	mux.HandleFunc("/markdown/", handleMarkdown)
 	mux.HandleFunc("/attachment/", handleAttachment)
+	mux.HandleFunc("/open/", handleOpen)
+	mux.HandleFunc("/history", handleHistory)
+	mux.HandleFunc("/pick", handlePick)
 	mux.HandleFunc("/settings", handleSettings)
 	mux.HandleFunc("/settings/auto/", handleSettingsAuto)
 	mux.HandleFunc("/settings/reindex", handleSettingsReindex)
@@ -538,6 +541,88 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/?msg="+neturl.QueryEscape(fmt.Sprintf("Deleted [%d] %s", b.ID, b.Title)), http.StatusSeeOther)
 }
 
+func handleOpen(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/open/"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	b := store.Find(id)
+	if b == nil || strings.TrimSpace(b.URL) == "" {
+		http.NotFound(w, r)
+		return
+	}
+	recordOpen(b)
+	if err := store.Save(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, b.URL, http.StatusFound)
+}
+
+func handleHistory(w http.ResponseWriter, r *http.Request) {
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var buf bytes.Buffer
+	if err := historyBodyTmpl.Execute(&buf, struct {
+		Results []webBookmarkView
+		Count   int
+	}{toWebViews(historyRows(store)), len(historyRows(store))}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	layoutTmpl.Execute(w, struct {
+		Title string
+		Body  template.HTML
+	}{"liber - history", template.HTML(buf.String())})
+}
+
+func handlePick(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		http.Error(w, "missing q parameter, e.g. /pick?q=example", http.StatusBadRequest)
+		return
+	}
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	cfg, _, err := LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	results := searchTargets(store, cfg, q)
+	if len(results) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if len(results) == 1 {
+		fmt.Fprintln(w, results[0].URL)
+		return
+	}
+	shown := results
+	if len(shown) > 30 {
+		shown = shown[:30]
+	}
+	for _, b := range shown {
+		fmt.Fprintf(w, "[%d] %s\n%s\n", b.ID, b.Title, b.URL)
+	}
+}
+
 func handleAttachment(w http.ResponseWriter, r *http.Request) {
 	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/attachment/"), "/", 2)
 	if len(parts) != 2 {
@@ -720,6 +805,8 @@ a.chip.folder { color: var(--fg-soft); }
 .settingslink:hover { text-decoration: none; }
 .tagslink { position: fixed; top: .8rem; right: 5.8rem; z-index: 10; width: 2.1rem; height: 2.1rem; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); text-decoration: none; font-size: 1rem; line-height: 1; }
 .tagslink:hover { text-decoration: none; }
+.historylink { position: fixed; top: .8rem; right: 8.3rem; z-index: 10; width: 2.1rem; height: 2.1rem; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); text-decoration: none; font-size: 1rem; line-height: 1; }
+.historylink:hover { text-decoration: none; }
 .setform { display: grid; grid-template-columns: 210px 1fr; gap: .45rem .8rem; align-items: center; margin: .5rem 0 0; max-width: 780px; }
 .setform label { font-size: .85rem; color: var(--fg-soft); }
 .setform input[type=text] { padding: .35rem .55rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; font-family: inherit; }
@@ -759,6 +846,7 @@ paint();
 var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{{.Title}}</title><script>` + themeInitScript + `</script><style>` + pageCSS + `</style></head>
 <body>
+<a class="historylink" href="/history" title="History" aria-label="History">&#8635;</a>
 <a class="tagslink" href="/tags" title="Tags and folders" aria-label="Tags and folders">#</a>
 <a class="settingslink" href="/settings" title="Settings" aria-label="Settings">&#9881;</a>
 <button id="themetoggle" class="themetoggle" type="button" title="Toggle light/dark theme" aria-label="Toggle light/dark theme"></button>
@@ -798,10 +886,33 @@ var editBodyTmpl = template.Must(template.New("editBody").Parse(`
   <button type="submit">Save</button>
 </form>
 <p class="rowlinks">
-  <a href="{{.URL}}" target="_blank" rel="noopener">visit original</a>
+  <a href="/open/{{.ID}}" target="_blank" rel="noopener">visit original</a>
   {{if .HasMarkdown}}<a href="/markdown/{{.ID}}">view markdown</a>{{end}}
   {{if .HasArchive}}<a href="/archive/{{.ID}}">view archive</a>{{end}}
 </p>
+`))
+
+var historyBodyTmpl = template.Must(template.New("historyBody").Parse(`
+<p><a href="/">&larr; back to search</a></p>
+<h2>History</h2>
+<p class="count">{{.Count}} bookmark(s) opened</p>
+{{if .Results}}
+<ul class="results">
+{{range .Results}}
+<li>
+  <div class="title"><a class="link" href="/open/{{.ID}}" target="_blank" rel="noopener">{{.Title}}</a>{{if .HasMarkdown}} <a class="badge" href="/markdown/{{.ID}}">md</a>{{end}}{{if .HasArchive}} <a class="badge" href="/archive/{{.ID}}">arc</a>{{end}}</div>
+  <div class="meta">{{.URL}} &middot; id {{.ID}}</div>
+  {{if .Desc}}<div class="desc">{{.Desc}}</div>{{end}}
+  <div class="rowlinks">
+    <a href="/edit/{{.ID}}">edit</a>
+    <a href="/card/{{.ID}}" target="_blank" rel="noopener">card</a>
+  </div>
+</li>
+{{end}}
+</ul>
+{{else}}
+<p class="count">No open history yet. Opening a bookmark records it here.</p>
+{{end}}
 `))
 
 var searchBodyTmpl = template.Must(template.New("searchBody").Parse(`
@@ -871,7 +982,7 @@ box.addEventListener('input', function(){
 <ul class="results">
 {{range .Results}}
 <li>
-  <div class="title"><a class="link" href="{{.URL}}" target="_blank" rel="noopener">{{.Title}}</a>{{if .HasMarkdown}} <a class="badge" href="/markdown/{{.ID}}">md</a>{{end}}{{if .HasArchive}} <a class="badge" href="/archive/{{.ID}}">arc</a>{{end}}{{if .AttachCount}} {{if .AttachOne}}<a class="badge" href="/attachment/{{.ID}}/1" title="attachment">att</a>{{else}}<a class="badge" href="/edit/{{.ID}}" title="attachments">att{{.AttachCount}}</a>{{end}}{{end}}</div>
+  <div class="title"><a class="link" href="/open/{{.ID}}" target="_blank" rel="noopener">{{.Title}}</a>{{if .HasMarkdown}} <a class="badge" href="/markdown/{{.ID}}">md</a>{{end}}{{if .HasArchive}} <a class="badge" href="/archive/{{.ID}}">arc</a>{{end}}{{if .AttachCount}} {{if .AttachOne}}<a class="badge" href="/attachment/{{.ID}}/1" title="attachment">att</a>{{else}}<a class="badge" href="/edit/{{.ID}}" title="attachments">att{{.AttachCount}}</a>{{end}}{{end}}</div>
   <div class="meta">{{.URL}} &middot; {{if .FolderRaw}}<a class="chip folder" href="/?q={{.FolderRaw | urlquery}}&amp;scope=f" title="filter by folder {{.Folder}}">{{.Folder}}</a>{{else}}{{.Folder}}{{end}}{{if .Tags}}{{range .Tags}} <a class="tag chip" href="/?q={{. | urlquery}}&amp;scope=t" title="filter by tag {{.}}">#{{.}}</a>{{end}}{{end}} &middot; id {{.ID}}</div>
   {{if .Desc}}<div class="desc">{{.Desc}}</div>{{end}}
   <div class="rowlinks">
