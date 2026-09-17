@@ -39,6 +39,8 @@ type settingsPageData struct {
 	MonolithUseBrowser bool
 	Rules              []ruleRow
 	Path               string // config file path, displayed to the user
+	DeviceID           string
+	ActiveProfile      string
 	MaintenanceStatus  string
 	ReindexOutput      string
 }
@@ -141,6 +143,7 @@ func settingsData(cfg Config, cfgPath string, store *Store, flash string) settin
 		Flash: flash, Tools: tools, Dirs: dirs,
 		ArchiveBackend: backend, MonolithUseBrowser: cfg.MonolithUseBrowser,
 		Rules: rules, Path: cfgPath, MaintenanceStatus: maintenanceStatus(cfg, store),
+		DeviceID: cfg.DeviceID, ActiveProfile: cfg.ActiveProfile,
 	}
 }
 
@@ -238,6 +241,9 @@ func handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	cfg.BrowserCmd = strings.TrimSpace(r.FormValue("browser_cmd"))
 	cfg.EditorCmd = strings.TrimSpace(r.FormValue("editor_cmd"))
 	cfg.MonolithUseBrowser = r.FormValue("monolith_use_browser") == "on"
+	if v := strings.TrimSpace(r.FormValue("device_id")); v != "" {
+		cfg.DeviceID = sanitizeDevice(v)
+	}
 
 	switch b := strings.TrimSpace(r.FormValue("archive_backend")); b {
 	case "", "auto", "single-file", "monolith", "native":
@@ -424,6 +430,13 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`
   </div>
   <label for="monolith_use_browser">use browser pipe for monolith</label>
   <div><input type="checkbox" name="monolith_use_browser" id="monolith_use_browser" {{if .MonolithUseBrowser}}checked{{end}}></div>
+
+  <h2 style="grid-column: 1 / -1">Sync</h2>
+  <label for="device_id">device id</label>
+  <div>
+    <input type="text" name="device_id" id="device_id" value="{{.DeviceID}}">
+    <div class="setdetect">effective: {{if .DeviceID}}{{.DeviceID}}{{else}}(generated on first write){{end}} &middot; active profile: {{if .ActiveProfile}}{{.ActiveProfile}}{{else}}default{{end}} (switch profiles with the CLI)</div>
+  </div>
 
   <div></div>
   <div><button type="submit">Save settings</button></div>
