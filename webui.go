@@ -69,6 +69,9 @@ func runServe(args []string) error {
 	mux.HandleFunc("/profiles/delete", handleProfileDelete)
 	mux.HandleFunc("/tags", handleTags)
 	mux.HandleFunc("/tags/", handleTaxonomy)
+	mux.HandleFunc("/check", handleCheck)
+	mux.HandleFunc("/check/run", handleCheckRun)
+	mux.HandleFunc("/check/apply", handleCheckApply)
 
 	fmt.Printf("liber web UI: http://%s (Ctrl+C to stop)\n", addr)
 	return http.ListenAndServe(addr, mux)

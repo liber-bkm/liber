@@ -607,7 +607,7 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`
 {{if .SyncOutput}}<pre class="reindexout">{{.SyncOutput}}</pre>{{end}}
 
 <h2>Library</h2>
-<p class="count">Import a browser bookmark export, or write a static site of the whole collection.</p>
+<p class="count">Import a browser bookmark export, write a static site of the whole collection, or <a href="/check">check link health</a>.</p>
 <form method="post" action="/settings/import" class="stry" enctype="multipart/form-data">
   <input type="file" name="bookmark_file" required>
   <label class="stry"><input type="checkbox" name="markdown"> markdown</label>
