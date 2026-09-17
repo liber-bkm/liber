@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -43,6 +44,8 @@ type settingsPageData struct {
 	ActiveProfile      string
 	MaintenanceStatus  string
 	ReindexOutput      string
+	SyncOutput         string
+	LibraryOutput      string
 }
 
 func probe(names ...string) (string, bool) {
@@ -181,6 +184,10 @@ func renderSettingsPage(w http.ResponseWriter, cfg Config, cfgPath string, store
 func renderSettingsPageWithOutput(w http.ResponseWriter, cfg Config, cfgPath string, store *Store, flash, output string) {
 	data := settingsData(cfg, cfgPath, store, flash)
 	data.ReindexOutput = output
+	renderSettingsData(w, data)
+}
+
+func renderSettingsData(w http.ResponseWriter, data settingsPageData) {
 	var buf bytes.Buffer
 	if err := settingsTmpl.Execute(&buf, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -390,6 +397,153 @@ func handleSettingsReindex(w http.ResponseWriter, r *http.Request) {
 	renderSettingsPageWithOutput(w, cfg, cfgPath, store, "Reindex done", buf.String())
 }
 
+func handleSettingsImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	if err := parseWebForm(r); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
+	cfg, cfgPath, err := LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	flash, output := importUploadedFile(cfg, store, r)
+	data := settingsData(cfg, cfgPath, store, flash)
+	data.LibraryOutput = output
+	renderSettingsData(w, data)
+}
+
+func importUploadedFile(cfg Config, store *Store, r *http.Request) (flash, output string) {
+	if r.MultipartForm == nil {
+		return "Import failed", "no file uploaded\n"
+	}
+	fhs := r.MultipartForm.File["bookmark_file"]
+	if len(fhs) == 0 {
+		return "Import failed", "no file uploaded\n"
+	}
+	f, err := fhs[0].Open()
+	if err != nil {
+		return "Import failed", "error: " + err.Error() + "\n"
+	}
+	defer f.Close()
+	defer r.MultipartForm.RemoveAll()
+	data, err := io.ReadAll(io.LimitReader(f, 32<<20))
+	if err != nil {
+		return "Import failed", "error: " + err.Error() + "\n"
+	}
+	opt := importOptions{Markdown: r.FormValue("markdown") == "on", Archive: r.FormValue("archive") == "on"}
+	added, skippedDup, skippedBad, warnings := importData(cfg, store, data, opt)
+	if len(added) == 0 && skippedDup == 0 && skippedBad == 0 {
+		return "Import done", "No bookmarks found in that file -- is it a browser bookmark export?\n"
+	}
+	if err := saveWithJournal(cfg, store, journalUpserts(added)); err != nil {
+		return "Import failed", "error: " + err.Error() + "\n"
+	}
+	var buf strings.Builder
+	for _, w := range warnings {
+		buf.WriteString(w + "\n")
+	}
+	fmt.Fprintf(&buf, "Imported %d bookmark(s).\n", len(added))
+	if skippedDup > 0 {
+		fmt.Fprintf(&buf, "Skipped %d already in your collection.\n", skippedDup)
+	}
+	if skippedBad > 0 {
+		fmt.Fprintf(&buf, "Skipped %d entr%s with no URL.\n", skippedBad, entrySuffix(skippedBad))
+	}
+	return "Import done", buf.String()
+}
+
+func handleSettingsExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
+	cfg, cfgPath, err := LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	outDir := strings.TrimSpace(r.FormValue("dir"))
+	if outDir == "" {
+		outDir = filepath.Join(cfg.effectiveBaseDir(), "site")
+	}
+	outDir = expandTilde(outDir)
+	out, err := doExportSite(cfg, store, outDir)
+	data := settingsData(cfg, cfgPath, store, "Export done")
+	if err != nil {
+		data = settingsData(cfg, cfgPath, store, "Export failed")
+		data.LibraryOutput = "error: " + err.Error() + "\n"
+	} else {
+		data.LibraryOutput = fmt.Sprintf("Exported %d bookmark(s) to %s\n", len(store.Bookmarks), out)
+	}
+	renderSettingsData(w, data)
+}
+
+func handleSettingsSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
+	_, cfgPath, err := LoadConfig()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var buf strings.Builder
+	push := r.FormValue("push") == "on"
+	if err := runSyncTo(&buf, push); err != nil {
+		data := settingsData(cfg, cfgPath, store, "Sync failed")
+		data.SyncOutput = buf.String() + "error: " + err.Error() + "\n"
+		renderSettingsData(w, data)
+		return
+	}
+	data := settingsData(cfg, cfgPath, store, "Sync done")
+	data.SyncOutput = buf.String()
+	renderSettingsData(w, data)
+}
+
 var settingsTmpl = template.Must(template.New("settings").Parse(`
 <p><a href="/">&larr; back to search</a></p>
 <h2>Settings</h2>
@@ -435,12 +589,36 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`
   <label for="device_id">device id</label>
   <div>
     <input type="text" name="device_id" id="device_id" value="{{.DeviceID}}">
-    <div class="setdetect">effective: {{if .DeviceID}}{{.DeviceID}}{{else}}(generated on first write){{end}} &middot; active profile: {{if .ActiveProfile}}{{.ActiveProfile}}{{else}}default{{end}} (switch profiles with the CLI)</div>
+    <div class="setdetect">effective: {{if .DeviceID}}{{.DeviceID}}{{else}}(generated on first write){{end}} &middot; active profile: {{if .ActiveProfile}}{{.ActiveProfile}}{{else}}default{{end}}</div>
   </div>
+  <label>profiles</label>
+  <div><a href="/profiles">manage profiles</a> <span class="setdetect">switch, create, or delete collections</span></div>
 
   <div></div>
   <div><button type="submit">Save settings</button></div>
 </form>
+
+<h2>Sync</h2>
+<p class="count">Commit the collection with jj or git, the same thing liber --sync does. Needs a repo at or above the base dir.</p>
+<form method="post" action="/settings/sync" class="stry">
+  <label class="stry"><input type="checkbox" name="push"> push</label>
+  <button type="submit">Run sync</button>
+</form>
+{{if .SyncOutput}}<pre class="reindexout">{{.SyncOutput}}</pre>{{end}}
+
+<h2>Library</h2>
+<p class="count">Import a browser bookmark export, or write a static site of the whole collection.</p>
+<form method="post" action="/settings/import" class="stry" enctype="multipart/form-data">
+  <input type="file" name="bookmark_file" required>
+  <label class="stry"><input type="checkbox" name="markdown"> markdown</label>
+  <label class="stry"><input type="checkbox" name="archive"> archive</label>
+  <button type="submit">Import</button>
+</form>
+<form method="post" action="/settings/export" class="stry">
+  <input type="text" name="dir" placeholder="output dir (default <base_dir>/site)" size="40">
+  <button type="submit">Export site</button>
+</form>
+{{if .LibraryOutput}}<pre class="reindexout">{{.LibraryOutput}}</pre>{{end}}
 
 <h2>Maintenance</h2>
 <p class="count">{{.MaintenanceStatus}} Only prune or compact on a fully synced collection.</p>
