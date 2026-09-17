@@ -675,6 +675,10 @@ function confirmReindex() {
     <input type="hidden" name="id" value="{{.ID}}">
     <button type="submit" class="linklike">delete</button>
   </form>
+  <form method="post" action="/settings/auto/apply" class="stry">
+    <input type="hidden" name="id" value="{{.ID}}">
+    <button type="submit" class="linklike neutral">apply</button>
+  </form>
 </div>
 {{end}}
 {{if .Rules}}

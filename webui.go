@@ -50,6 +50,7 @@ func runServe(args []string) error {
 	mux.HandleFunc("/add", handleAdd)
 	mux.HandleFunc("/edit/", handleEdit)
 	mux.HandleFunc("/delete", handleDelete)
+	mux.HandleFunc("/bulk", handleBulk)
 	mux.HandleFunc("/archive/", handleArchive)
 	mux.HandleFunc("/card/", handleCard)
 	mux.HandleFunc("/markdown/", handleMarkdown)
@@ -161,10 +162,13 @@ type searchPageData struct {
 	Flash                                                                string
 	ShowAdd, PendingConfirm                                              bool
 	DupWarning                                                           string
-	PrefillURL, PrefillDescription, PrefillTags, PrefillFolder           string
+	PrefillURL, PrefillTitle                                             string
+	PrefillDescription, PrefillTags, PrefillFolder                       string
 	PrefillMarkdown, PrefillArchive                                      bool
 	DeleteConfirmID                                                      int
 	DeleteConfirmTitle                                                   string
+	BulkConfirm                                                          []webBookmarkView
+	BulkAction, BulkTags, BulkFolder                                     string
 	ResultCount                                                          int
 	Results                                                              []webBookmarkView
 	Page, TotalPages                                                     int
@@ -229,10 +233,11 @@ func handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 type addFormState struct {
-	ShowAdd, PendingConfirm                                    bool
-	DupWarning                                                 string
-	PrefillURL, PrefillDescription, PrefillTags, PrefillFolder string
-	PrefillMarkdown, PrefillArchive                            bool
+	ShowAdd, PendingConfirm                        bool
+	DupWarning                                     string
+	PrefillURL, PrefillTitle                       string
+	PrefillDescription, PrefillTags, PrefillFolder string
+	PrefillMarkdown, PrefillArchive                bool
 }
 
 func renderSearchPageWithAddState(w http.ResponseWriter, store *Store, add addFormState) {
@@ -241,8 +246,9 @@ func renderSearchPageWithAddState(w http.ResponseWriter, store *Store, add addFo
 	renderSearchPage(w, searchPageData{
 		ResultCount: len(results), Results: toWebViews(pageItems), Page: curPage, TotalPages: totalPages,
 		ShowAdd: add.ShowAdd, PendingConfirm: add.PendingConfirm, DupWarning: add.DupWarning,
-		PrefillURL: add.PrefillURL, PrefillDescription: add.PrefillDescription,
-		PrefillTags: add.PrefillTags, PrefillFolder: add.PrefillFolder,
+		PrefillURL: add.PrefillURL, PrefillTitle: add.PrefillTitle,
+		PrefillDescription: add.PrefillDescription,
+		PrefillTags:        add.PrefillTags, PrefillFolder: add.PrefillFolder,
 		PrefillMarkdown: add.PrefillMarkdown, PrefillArchive: add.PrefillArchive,
 		AllTags: store.allTags(), AllFolders: store.allFolders(),
 	})
@@ -256,6 +262,110 @@ func renderDeleteConfirm(w http.ResponseWriter, store *Store, b *Bookmark) {
 		DeleteConfirmID: b.ID, DeleteConfirmTitle: b.Title,
 		AllTags: store.allTags(), AllFolders: store.allFolders(),
 	})
+}
+
+func parseBulkIDs(vals []string) []int {
+	seen := map[int]bool{}
+	var ids []int
+	for _, v := range vals {
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 1 || seen[n] {
+			continue
+		}
+		seen[n] = true
+		ids = append(ids, n)
+	}
+	sort.Ints(ids)
+	return ids
+}
+
+func handleBulk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+
+	writeMu.Lock()
+	defer writeMu.Unlock()
+
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ids := parseBulkIDs(r.Form["ids"])
+	action := strings.TrimSpace(r.FormValue("action"))
+	if len(ids) == 0 {
+		http.Redirect(w, r, "/?msg="+neturl.QueryEscape("No bookmarks selected."), http.StatusSeeOther)
+		return
+	}
+
+	var targets []*Bookmark
+	for _, id := range ids {
+		if b := store.Find(id); b != nil {
+			targets = append(targets, b)
+		}
+	}
+	if len(targets) == 0 {
+		http.Redirect(w, r, "/?msg="+neturl.QueryEscape("No matching bookmarks found."), http.StatusSeeOther)
+		return
+	}
+
+	switch action {
+	case "delete":
+		if r.FormValue("confirm") != "1" {
+			results := store.All()
+			pageItems, totalPages, curPage := paginate(results, 1)
+			renderSearchPage(w, searchPageData{
+				ResultCount: len(results), Results: toWebViews(pageItems), Page: curPage, TotalPages: totalPages,
+				BulkConfirm: toWebViews(targets), BulkAction: "delete",
+				AllTags: store.allTags(), AllFolders: store.allFolders(),
+			})
+			return
+		}
+		tomb := journalDeletes(targets)
+		for _, b := range targets {
+			deleteBookmarkFiles(cfg, b)
+			store.Delete(b.ID)
+		}
+		if err := saveWithJournal(cfg, store, tomb); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/?msg="+neturl.QueryEscape(fmt.Sprintf("Deleted %d bookmark(s).", len(targets))), http.StatusSeeOther)
+	case "tags":
+		tags := dedupe(splitWebTags(r.FormValue("bulk_tags")))
+		for _, b := range targets {
+			b.Tags = tags
+			b.UpdatedAt = time.Now()
+			syncBookmarkFiles(cfg, b, false)
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(targets)); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/?msg="+neturl.QueryEscape(fmt.Sprintf("Updated tags on %d bookmark(s).", len(targets))), http.StatusSeeOther)
+	case "folder":
+		newFolder := sanitizeFolder(r.FormValue("bulk_folder"))
+		for _, b := range targets {
+			folderChanged := newFolder != b.Folder
+			b.Folder = newFolder
+			b.UpdatedAt = time.Now()
+			syncBookmarkFiles(cfg, b, folderChanged)
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(targets)); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/?msg="+neturl.QueryEscape(fmt.Sprintf("Moved %d bookmark(s).", len(targets))), http.StatusSeeOther)
+	default:
+		http.Redirect(w, r, "/?msg="+neturl.QueryEscape("Unknown bulk action."), http.StatusSeeOther)
+	}
 }
 
 func parseWebForm(r *http.Request) error {
@@ -293,6 +403,7 @@ func handleAdd(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rawURL := strings.TrimSpace(r.FormValue("url"))
+	titleIn := strings.TrimSpace(r.FormValue("title"))
 	folderIn := r.FormValue("folder")
 	tagsRaw := r.FormValue("tags")
 	description := strings.TrimSpace(r.FormValue("description"))
@@ -312,6 +423,7 @@ func handleAdd(w http.ResponseWriter, r *http.Request) {
 	if rawURL == "" {
 		renderSearchPageWithAddState(w, store, addFormState{
 			ShowAdd: true, DupWarning: "A URL is required.",
+			PrefillTitle:       titleIn,
 			PrefillDescription: description, PrefillTags: tagsRaw, PrefillFolder: folderIn,
 			PrefillMarkdown: addMarkdown, PrefillArchive: addArchive,
 		})
@@ -326,7 +438,8 @@ func handleAdd(w http.ResponseWriter, r *http.Request) {
 				ShowAdd: true, PendingConfirm: true,
 				DupWarning: fmt.Sprintf("This looks like it's already bookmarked: [%d] %s (folder: %s). Submit again to add it anyway.",
 					dup.ID, dup.Title, displayFolder(dup.Folder)),
-				PrefillURL: rawURL, PrefillDescription: description, PrefillTags: tagsRaw, PrefillFolder: folderIn,
+				PrefillURL: rawURL, PrefillTitle: titleIn,
+				PrefillDescription: description, PrefillTags: tagsRaw, PrefillFolder: folderIn,
 				PrefillMarkdown: addMarkdown, PrefillArchive: addArchive,
 			})
 			return
@@ -336,11 +449,15 @@ func handleAdd(w http.ResponseWriter, r *http.Request) {
 	tags := splitWebTags(tagsRaw)
 	folder := sanitizeFolder(folderIn)
 
-	title := fetchTitle(normalizedURL)
-	if strings.TrimSpace(title) == "" {
-		title = normalizedURL
+	fetched := fetchTitle(normalizedURL)
+	if strings.TrimSpace(fetched) == "" {
+		fetched = normalizedURL
 	}
-	folder, tags, appliedRuleIDs := resolveAutoRulesForNew(store, normalizedURL, title, folder, tags)
+	folder, tags, appliedRuleIDs := resolveAutoRulesForNew(store, normalizedURL, fetched, folder, tags)
+	title := fetched
+	if titleIn != "" {
+		title = titleIn
+	}
 
 	b, err := addBookmarkToStore(cfg, store, normalizedURL, title, description, tags, folder, addMarkdown, addArchive)
 	if err != nil {
@@ -485,6 +602,26 @@ func handleEditSave(w http.ResponseWriter, r *http.Request, id int) {
 			delIdx = append(delIdx, n)
 		}
 	}
+	for _, v := range r.Form["delattname"] {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if i, err := findAttachment(b, v); err == nil {
+			delIdx = append(delIdx, i+1)
+		} else {
+			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		}
+	}
+	seen := map[int]bool{}
+	uniq := delIdx[:0]
+	for _, n := range delIdx {
+		if !seen[n] {
+			seen[n] = true
+			uniq = append(uniq, n)
+		}
+	}
+	delIdx = uniq
 	sort.Sort(sort.Reverse(sort.IntSlice(delIdx)))
 	for _, n := range delIdx {
 		if n >= 1 && n <= len(b.Attachments) {
@@ -803,6 +940,7 @@ a.chip.folder { color: var(--fg-soft); }
 .attlist a:hover { text-decoration: underline; }
 .linklike { background: none; border: none; padding: 0; margin-right: .8rem; color: var(--danger); text-decoration: none; cursor: pointer; font: inherit; font-size: .8rem; }
 .linklike:hover { text-decoration: underline; }
+.linklike.neutral { color: var(--link); }
 .pager { display: flex; justify-content: center; gap: 1rem; margin: 1rem 0; font-size: .9rem; }
 .pager .disabled { color: var(--muted); }
 .pager a { color: var(--link); text-decoration: none; }
@@ -823,6 +961,9 @@ a.chip.folder { color: var(--fg-soft); }
 .ruleform input[type=text] { padding: .3rem .5rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
 .ruleform label { font-size: .8rem; color: var(--muted); display: flex; flex-direction: column; gap: .15rem; }
 .stry { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+.bulkbar { margin: .75rem 0; }
+.bulkbar select, .bulkbar input[type=text] { padding: .4rem .6rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
+.title input[type=checkbox] { margin-right: .3rem; accent-color: var(--link); }
 .reindexout { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: .6rem .8rem; overflow-x: auto; font-size: .8rem; white-space: pre-wrap; }
 `
 
@@ -887,6 +1028,7 @@ var editBodyTmpl = template.Must(template.New("editBody").Parse(`
     {{end}}
     </ul>
   </fieldset>
+  <label>Remove attachment by name<br><input type="text" name="delattname" placeholder="filename"></label>
   {{end}}
   <label>Attach files<br><input type="file" name="attachments" multiple></label>
   <button type="submit">Save</button>
@@ -951,12 +1093,23 @@ var searchBodyTmpl = template.Must(template.New("searchBody").Parse(`
 </form>
 {{end}}
 
+{{if .BulkConfirm}}
+<form method="post" action="/bulk" class="confirmbox">
+  <span>Delete {{len .BulkConfirm}} bookmark(s)? {{range .BulkConfirm}}[{{.ID}}] {{.Title}}; {{end}}</span>
+  {{range .BulkConfirm}}<input type="hidden" name="ids" value="{{.ID}}">{{end}}
+  <input type="hidden" name="action" value="delete">
+  <input type="hidden" name="confirm" value="1">
+  <button type="submit">Yes, delete all</button>
+</form>
+{{end}}
+
 <details {{if .ShowAdd}}open{{end}}>
 <summary>+ Add bookmark</summary>
 {{if .DupWarning}}<p class="flash error">{{.DupWarning}}</p>{{end}}
 <form method="post" action="/add" class="addform" enctype="multipart/form-data">
   {{if .PendingConfirm}}<input type="hidden" name="confirm_dup" value="1">{{end}}
   <input type="text" name="url" placeholder="https://example.com" required value="{{.PrefillURL}}">
+  <input type="text" name="title" placeholder="Title (optional, auto-fetched)" value="{{.PrefillTitle}}">
   <input type="text" name="description" placeholder="Description (optional)" value="{{.PrefillDescription}}">
   <input type="text" name="tags" placeholder="tags, comma or space separated" value="{{.PrefillTags}}" list="liber-tags">
   <input type="text" name="folder" placeholder="folder (optional)" value="{{.PrefillFolder}}" list="liber-folders">
@@ -988,7 +1141,7 @@ box.addEventListener('input', function(){
 <ul class="results">
 {{range .Results}}
 <li>
-  <div class="title"><a class="link" href="/open/{{.ID}}" target="_blank" rel="noopener">{{.Title}}</a>{{if .HasMarkdown}} <a class="badge" href="/markdown/{{.ID}}">md</a>{{end}}{{if .HasArchive}} <a class="badge" href="/archive/{{.ID}}">arc</a>{{end}}{{if .AttachCount}} {{if .AttachOne}}<a class="badge" href="/attachment/{{.ID}}/1" title="attachment">att</a>{{else}}<a class="badge" href="/edit/{{.ID}}" title="attachments">att{{.AttachCount}}</a>{{end}}{{end}}</div>
+  <div class="title"><input type="checkbox" name="ids" value="{{.ID}}" form="bulkform" title="select [{{.ID}}]"> <a class="link" href="/open/{{.ID}}" target="_blank" rel="noopener">{{.Title}}</a>{{if .HasMarkdown}} <a class="badge" href="/markdown/{{.ID}}">md</a>{{end}}{{if .HasArchive}} <a class="badge" href="/archive/{{.ID}}">arc</a>{{end}}{{if .AttachCount}} {{if .AttachOne}}<a class="badge" href="/attachment/{{.ID}}/1" title="attachment">att</a>{{else}}<a class="badge" href="/edit/{{.ID}}" title="attachments">att{{.AttachCount}}</a>{{end}}{{end}}</div>
   <div class="meta">{{.URL}} &middot; {{if .FolderRaw}}<a class="chip folder" href="/?q={{.FolderRaw | urlquery}}&amp;scope=f" title="filter by folder {{.Folder}}">{{.Folder}}</a>{{else}}{{.Folder}}{{end}}{{if .Tags}}{{range .Tags}} <a class="tag chip" href="/?q={{. | urlquery}}&amp;scope=t" title="filter by tag {{.}}">#{{.}}</a>{{end}}{{end}} &middot; id {{.ID}}</div>
   {{if .Desc}}<div class="desc">{{.Desc}}</div>{{end}}
   <div class="rowlinks">
@@ -1002,6 +1155,27 @@ box.addEventListener('input', function(){
 </li>
 {{end}}
 </ul>
+
+<form method="post" action="/bulk" id="bulkform" class="stry bulkbar" onsubmit="return confirmBulk(this);">
+  <span class="count">selected:</span>
+  <select name="action">
+    <option value="delete">delete</option>
+    <option value="tags">set tags</option>
+    <option value="folder">move to folder</option>
+  </select>
+  <input type="text" name="bulk_tags" placeholder="tags (for set tags)" list="liber-tags">
+  <input type="text" name="bulk_folder" placeholder="folder (for move)" list="liber-folders">
+  <button type="submit">Apply</button>
+</form>
+<script>(function(){
+var f = document.getElementById('bulkform');
+if (!f) return;
+window.confirmBulk = function(form) {
+  var a = form.querySelector('select[name=action]').value;
+  if (a === 'delete' && !confirm('Delete all selected bookmarks?')) return false;
+  return true;
+};
+})();</script>
 
 {{if gt .TotalPages 1}}
 <p class="pager">
