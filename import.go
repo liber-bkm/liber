@@ -126,14 +126,31 @@ func runImport(path string, opt importOptions) error {
 		return err
 	}
 
-	entries := parseNetscapeBookmarks(string(data))
-	if len(entries) == 0 {
+	added, skippedDup, skippedBad, warnings := importData(cfg, store, data, opt)
+	for _, w := range warnings {
+		fmt.Println(w)
+	}
+	if len(added) == 0 && skippedDup == 0 && skippedBad == 0 {
 		fmt.Println("No bookmarks found in that file -- is it a browser bookmark export (Netscape Bookmark File Format)?")
 		return nil
 	}
 
-	imported, skippedDup, skippedBad := 0, 0, 0
-	var added []*Bookmark
+	if err := saveWithJournal(cfg, store, journalUpserts(added)); err != nil {
+		return fmt.Errorf("saving index: %w", err)
+	}
+
+	fmt.Printf("Imported %d bookmark(s).\n", len(added))
+	if skippedDup > 0 {
+		fmt.Printf("Skipped %d already in your collection.\n", skippedDup)
+	}
+	if skippedBad > 0 {
+		fmt.Printf("Skipped %d entr%s with no URL.\n", skippedBad, entrySuffix(skippedBad))
+	}
+	return nil
+}
+
+func importData(cfg Config, store *Store, data []byte, opt importOptions) (added []*Bookmark, skippedDup, skippedBad int, warnings []string) {
+	entries := parseNetscapeBookmarks(string(data))
 	for _, e := range entries {
 		if strings.TrimSpace(e.href) == "" {
 			skippedBad++
@@ -163,24 +180,11 @@ func runImport(path string, opt importOptions) error {
 
 		b, err := addBookmarkToStore(cfg, store, url, title, e.desc, tags, folder, opt.Markdown, opt.Archive)
 		if err != nil {
-			fmt.Printf("warning: could not import %s: %v\n", url, err)
+			warnings = append(warnings, fmt.Sprintf("warning: could not import %s: %v", url, err))
 			continue
 		}
 		b.AppliedRules = appliedRuleIDs
 		added = append(added, b)
-		imported++
 	}
-
-	if err := saveWithJournal(cfg, store, journalUpserts(added)); err != nil {
-		return fmt.Errorf("saving index: %w", err)
-	}
-
-	fmt.Printf("Imported %d bookmark(s).\n", imported)
-	if skippedDup > 0 {
-		fmt.Printf("Skipped %d already in your collection.\n", skippedDup)
-	}
-	if skippedBad > 0 {
-		fmt.Printf("Skipped %d entr%s with no URL.\n", skippedBad, entrySuffix(skippedBad))
-	}
-	return nil
+	return added, skippedDup, skippedBad, warnings
 }
