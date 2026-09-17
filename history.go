@@ -5,26 +5,30 @@ import (
 	"sort"
 )
 
-func runHistory() error {
-	_, store, err := loadCfgAndStore()
-	if err != nil {
-		return err
-	}
-
+func historyRows(store *Store) []*Bookmark {
 	var opened []*Bookmark
 	for _, b := range store.Bookmarks {
 		if b.LastOpenedAt != nil {
 			opened = append(opened, b)
 		}
 	}
+	sort.Slice(opened, func(i, j int) bool {
+		return opened[i].LastOpenedAt.After(*opened[j].LastOpenedAt)
+	})
+	return opened
+}
+
+func runHistory() error {
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		return err
+	}
+
+	opened := historyRows(store)
 	if len(opened) == 0 {
 		fmt.Println("No open history yet -- using the (o) action in `liber -s`/`liber -sl` records it here.")
 		return nil
 	}
-
-	sort.Slice(opened, func(i, j int) bool {
-		return opened[i].LastOpenedAt.After(*opened[j].LastOpenedAt)
-	})
 
 	for _, b := range opened {
 		times := "time"
