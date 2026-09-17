@@ -71,3 +71,32 @@ func TestSettingsPageShowsMaintenance(t *testing.T) {
 		t.Fatalf("status line missing:\n%s", body)
 	}
 }
+
+func TestSettingsDeviceIDSave(t *testing.T) {
+	entries := []*Bookmark{
+		{ID: 1, URL: "https://a.com", Title: "a", HTMLFile: "0001-a.html"},
+	}
+	_, base := setupReindexTest(t, entries)
+	writeHTMLFile(t, base, "0001-a.html", "https://a.com", "a")
+	vals := url.Values{"device_id": {"My Laptop!"}, "base_dir": {base}}
+	r := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(vals.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handleSettings(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("code = %d, body:\n%s", w.Code, w.Body.String())
+	}
+	cfg, _, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DeviceID != "my-laptop" {
+		t.Fatalf("device_id = %q", cfg.DeviceID)
+	}
+	r = httptest.NewRequest(http.MethodGet, "/settings", nil)
+	w = httptest.NewRecorder()
+	handleSettings(w, r)
+	if !strings.Contains(w.Body.String(), "my-laptop") || !strings.Contains(w.Body.String(), "active profile") {
+		t.Fatalf("settings page missing device/profile section")
+	}
+}
