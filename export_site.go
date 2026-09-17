@@ -29,6 +29,16 @@ func runExportSite(args []string) error {
 	}
 	outDir = expandTilde(outDir)
 
+	out, err := doExportSite(cfg, store, outDir)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Exported %d bookmark(s) to %s\n", len(store.Bookmarks), out)
+	return nil
+}
+
+func doExportSite(cfg Config, store *Store, outDir string) (string, error) {
 	bookmarkPath := func(kindDir, rel string) string {
 		if rel == "" {
 			return ""
@@ -87,23 +97,22 @@ func runExportSite(args []string) error {
 	}
 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	out := filepath.Join(outDir, "index.html")
 	f, err := os.Create(out)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer f.Close()
 	if err := exportSiteTmpl.Execute(f, struct {
 		Folders []exportedFolder
 		Total   int
 	}{groups, len(store.Bookmarks)}); err != nil {
-		return err
+		return "", err
 	}
 
-	fmt.Printf("Exported %d bookmark(s) to %s\n", len(store.Bookmarks), out)
-	return nil
+	return out, nil
 }
 
 var exportSiteTmpl = template.Must(template.New("exportSite").Parse(`<!DOCTYPE html>
