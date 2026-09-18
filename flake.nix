@@ -6,22 +6,31 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
       in
       {
         packages.default = pkgs.buildGoModule {
           pname = "liber";
-          version = "0.8.1";
+          version = "0.9.1";
           src = ./.;
 
           vendorHash = null;
 
-          ldflags = [ "-X main.Version=0.8.1" ];
-          buildInputs = [ pkgs.fzf pkgs.single-file-cli pkgs.monolith];
-
+          ldflags = [ "-X main.Version=0.9.1" ];
+          buildInputs = [
+            pkgs.fzf
+            pkgs.single-file-cli
+            pkgs.monolith
+          ];
 
           meta = with pkgs.lib; {
             description = "A small CLI bookmark manager (html + markdown + archive)";
@@ -32,9 +41,16 @@
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = [ pkgs.go pkgs.gopls pkgs.fzf pkgs.monolith pkgs.single-file-cli];
+          buildInputs = [
+            pkgs.go
+            pkgs.gopls
+            pkgs.fzf
+            pkgs.monolith
+            pkgs.single-file-cli
+          ];
         };
 
         apps.default = flake-utils.lib.mkApp { drv = self.packages.${system}.default; };
-      });
+      }
+    );
 }
