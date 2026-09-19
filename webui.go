@@ -906,7 +906,7 @@ body { font-family: -apple-system, system-ui, sans-serif; max-width: 900px; marg
 h1 { font-size: 1.3rem; margin-bottom: 1rem; }
 h1 a { color: inherit; text-decoration: none; }
 h2 { font-size: 1.1rem; }
-.searchform { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-bottom: .75rem; }
+.searchform { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-bottom: .75rem; position: sticky; top: 0; background: var(--bg); padding: .5rem 0; z-index: 5; }
 .searchform input[type=text] { flex: 1; min-width: 200px; padding: .4rem .6rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
 .searchform select { padding: .4rem .6rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
 .searchform label { font-size: .85rem; color: var(--fg-soft); white-space: nowrap; }
@@ -926,14 +926,15 @@ ul.results li { padding: .6rem 0; border-bottom: 1px solid var(--border); }
 .title a.link { font-weight: 600; color: var(--link); text-decoration: none; }
 .title a.link:hover { text-decoration: underline; }
 .badge { font-size: .7rem; background: var(--surface2); padding: .05rem .4rem; border-radius: 999px; color: var(--fg-soft); text-decoration: none; margin-left: .3rem; }
-.meta { font-size: .8rem; color: var(--muted); margin-top: .15rem; }
+.meta { font-size: .8rem; color: var(--muted); margin-top: .15rem; overflow-wrap: anywhere; }
+.title { overflow-wrap: anywhere; }
 .tag { color: var(--tag); }
 a.chip { text-decoration: none; }
 a.chip:hover { text-decoration: underline; }
 a.chip.folder { color: var(--fg-soft); }
 .desc { font-size: .85rem; color: var(--fg-soft); margin-top: .2rem; }
 .rowlinks { font-size: .8rem; margin-top: .25rem; }
-.rowlinks a { color: var(--muted); text-decoration: none; margin-right: .8rem; }
+.rowlinks a { color: var(--muted); text-decoration: none; margin-right: .8rem; padding: .3rem 0; display: inline-block; }
 .rowlinks a:hover { text-decoration: underline; }
 .inlineform { display: inline; }
 .attfieldset { border: 1px solid var(--border); border-radius: 4px; padding: .4rem .6rem; }
@@ -966,8 +967,21 @@ a.chip.folder { color: var(--fg-soft); }
 .stry { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
 .bulkbar { margin: .75rem 0; }
 .bulkbar select, .bulkbar input[type=text] { padding: .4rem .6rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
-.title input[type=checkbox] { margin-right: .3rem; accent-color: var(--link); }
+.title input[type=checkbox] { margin-right: .3rem; accent-color: var(--link); width: 1.1rem; height: 1.1rem; vertical-align: -0.2rem; }
 .reindexout { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: .6rem .8rem; overflow-x: auto; font-size: .8rem; white-space: pre-wrap; }
+@media (max-width: 600px) {
+  body { margin: 1rem auto; }
+  .setform { grid-template-columns: 1fr; }
+  .searchform input[type=text] { flex-basis: 100%; }
+  .addform, .editform { max-width: none; }
+  .bulkbar input[type=text] { flex: 1 1 100%; }
+  .title input[type=checkbox] { width: 1.4rem; height: 1.4rem; }
+  .rowlinks a { margin-right: 1.1rem; padding: .5rem 0; }
+  .themetoggle, .settingslink, .tagslink, .historylink { width: 1.8rem; height: 1.8rem; }
+  .settingslink { right: 2.9rem; }
+  .tagslink { right: 5rem; }
+  .historylink { right: 7.1rem; }
+}
 `
 
 const themeInitScript = `(function(){
@@ -994,7 +1008,7 @@ paint();
 })();`
 
 var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>{{.Title}}</title><script>` + themeInitScript + `</script><style>` + pageCSS + `</style></head>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title><script>` + themeInitScript + `</script><style>` + pageCSS + `</style></head>
 <body>
 <a class="historylink" href="/history" title="History" aria-label="History">&#8635;</a>
 <a class="tagslink" href="/tags" title="Tags and folders" aria-label="Tags and folders">#</a>
