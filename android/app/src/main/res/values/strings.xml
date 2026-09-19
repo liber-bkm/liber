@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">liber</string>
+    <string name="server_failed">liber server failed to start. See logcat (LiberApp) for details.</string>
+</resources>
