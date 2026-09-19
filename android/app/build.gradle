@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'bkm.liber'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'bkm.liber'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        // Keep in sync with liber releases (Makefile VERSION / flake version).
+        versionName '0.8.1'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    packagingOptions {
+        // Keep the Go binary as an extractable file we can execute.
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// No third-party dependencies: framework WebView only, so builds need
+// nothing from Maven beyond the Android Gradle Plugin itself.
+dependencies {
+}
