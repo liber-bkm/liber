@@ -219,6 +219,8 @@ func openURL(cfg Config, url string) error {
 		return exec.Command("open", url).Start()
 	case "windows":
 		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "android":
+		return exec.Command("am", "start", "--user", "0", "-a", "android.intent.action.VIEW", "-d", url).Start()
 	default:
 		return exec.Command("xdg-open", url).Start()
 	}

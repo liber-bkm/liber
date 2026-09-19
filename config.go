@@ -40,6 +40,9 @@ type Config struct {
 }
 
 func configPath() (string, error) {
+	if p := strings.TrimSpace(os.Getenv("LIBER_CONFIG")); p != "" {
+		return p, nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -49,6 +52,9 @@ func configPath() (string, error) {
 
 func defaultConfig() Config {
 	home, _ := os.UserHomeDir()
+	if home == "" {
+		home, _ = os.Getwd()
+	}
 	return Config{
 		BaseDir:       filepath.Join(home, "Bookmarks"),
 		SingleFileCmd: "single-file",
@@ -81,6 +87,9 @@ func LoadConfig() (Config, string, error) {
 	}
 	if cfg.BaseDir == "" {
 		cfg.BaseDir = defaultConfig().BaseDir
+	}
+	if base := strings.TrimSpace(os.Getenv("LIBER_BASE_DIR")); base != "" {
+		cfg.BaseDir = base
 	}
 	return cfg, path, nil
 }
