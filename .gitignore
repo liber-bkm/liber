@@ -2,3 +2,7 @@ docs.md
 dev-docs.md
 liber
 /local
+android/app/src/main/jniLibs/
+android/app/build/
+android/build/
+android/.gradle/

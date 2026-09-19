@@ -657,6 +657,10 @@ liber config set archive_backend monolith
 liber config set base_dir ~/Other-Bookmarks
 ```
 
+`LIBER_CONFIG` and `LIBER_BASE_DIR` env vars override the config file path
+and `base_dir` respectively (used by wrappers and on platforms without a home
+directory, e.g. Android).
+
 Keys are validated before writing (`archive_backend` must be one of the four backends, `monolith_use_browser` a bool).
 
 >[!Warning]
