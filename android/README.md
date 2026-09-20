@@ -41,6 +41,20 @@ Install with `adb install`, or transfer the APK to the device and open it.
 First launch creates `<app-files>/bookmarks` (`LIBER_BASE_DIR`) and
 `<app-files>/liber-config.json` (`LIBER_CONFIG`).
 
+## Manual test checklist (on device)
+
+File inputs in the WebView only work through the `WebChromeClient` bridge in
+`MainActivity.kt`; verify after any change there:
+
+1. Attach a file to a bookmark from the edit page, then open it back.
+2. Import a browser bookmark export via settings, confirm counts.
+3. Open the picker and cancel it, confirm no crash and the next picker still works.
+4. Attach two files at once (multiple selection path).
+5. Share a page URL from the browser to liber, confirm the add form opens prefilled.
+6. Share plain text without a URL, confirm it falls back to search.
+7. Share while the app is already open, confirm it navigates without losing history.
+8. Export the static site from settings, tap the download, confirm it lands in Downloads/liber with a completion notice.
+
 ## ABIs
 
 `arm64-v8a` builds with plain Go, no NDK. `x86_64` (emulators, Chromebooks)

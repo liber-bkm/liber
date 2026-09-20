@@ -1,6 +1,6 @@
 docs.md
 dev-docs.md
-liber
+/liber
 /local
 android/app/src/main/jniLibs/
 android/app/build/
