@@ -188,6 +188,15 @@ bookmarks too, both sides follow the same discipline.
 
 ## Recommended workflow
 
+> **Prefer self-hosting if you can.** Everything below works, and liber is
+> designed to make multi-device syncing seamless (conflict copies merge,
+> journals replay, nothing is ever deleted outright). But syncing is still
+> moving parts: clients, timing, providers. One always-on server with thin
+> clients has no conflicts by construction. If you can afford a machine that
+> stays on, follow [self-hosting.md](self-hosting.md) instead and skip the
+> rest of this guide, except the exclusion list at the bottom, which applies
+> to backups too.
+
 1. Let the sync client finish fully before switching devices, and again
    before running liber after switching.
 2. Add on one side at a time where you can; colliding offline adds still
