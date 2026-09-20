@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -98,5 +99,45 @@ func TestSettingsDeviceIDSave(t *testing.T) {
 	handleSettings(w, r)
 	if !strings.Contains(w.Body.String(), "my-laptop") || !strings.Contains(w.Body.String(), "active profile") {
 		t.Fatalf("settings page missing device/profile section")
+	}
+}
+
+func TestSettingsPartialPostPreserves(t *testing.T) {
+	entries := []*Bookmark{
+		{ID: 1, URL: "https://a.com", Title: "a", HTMLFile: "0001-a.html"},
+	}
+	_, base := setupReindexTest(t, entries)
+	writeHTMLFile(t, base, "0001-a.html", "https://a.com", "a")
+	r := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(url.Values{"archive_backend": {"native"}}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handleSettings(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("code = %d", w.Code)
+	}
+	cfg, _, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ArchiveBackend != "native" {
+		t.Fatalf("backend = %q", cfg.ArchiveBackend)
+	}
+	if cfg.BaseDir != base {
+		t.Fatalf("base_dir wiped to %q", cfg.BaseDir)
+	}
+}
+
+func TestArchiveBackendDefaults(t *testing.T) {
+	if got := defaultArchiveBackend("android"); got != "native" {
+		t.Fatalf("android = %q", got)
+	}
+	if got := defaultArchiveBackend("linux"); got != "auto" {
+		t.Fatalf("linux = %q", got)
+	}
+	if got := (Config{ArchiveBackend: "monolith"}).effectiveArchiveBackend(); got != "monolith" {
+		t.Fatalf("explicit = %q", got)
+	}
+	if got := (Config{}).effectiveArchiveBackend(); got != defaultArchiveBackend(runtime.GOOS) {
+		t.Fatalf("empty = %q", got)
 	}
 }

@@ -121,6 +121,19 @@ recipe in `scripts/build-go-lib.sh`. Only ship ABIs you built.
   sync client at an app-exposed folder later; scoped storage makes arbitrary
   shared folders painful, so this is deliberately not attempted in v1.
 
+## Android option semantics
+
+- Config lives at app-private `filesDir/liber-config.json` (`LIBER_CONFIG`),
+  collection at `filesDir/bookmarks` (`LIBER_BASE_DIR`). The file is not
+  directly editable: manage everything through the settings page, which shows
+  the effective path.
+- Archiving is native-snapshot only. The backend selector still lists the
+  other backends, but an empty backend resolves to native on Android and the
+  settings page says so; `single-file` and `monolith` have no on-device
+  binaries to call.
+- `browser_cmd` is irrelevant inside the WebView (links are handled natively).
+- `device_id` is per install. Each phone gets its own on first write.
+
 ## Distribution
 
 F-Droid first (source-based review, matching audience), Play Store second.
