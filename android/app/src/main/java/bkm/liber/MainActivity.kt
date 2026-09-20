@@ -1,20 +1,32 @@
 package bkm.liber
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.util.Log
 import android.view.KeyEvent
+import android.view.Menu
+import android.view.MenuItem
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.TextView
+import android.widget.Toast
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.ServerSocket
@@ -27,20 +39,40 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var pendingShare: String? = null
-    private var serverPort: Int = -1
+    private var activeBase: String = ""
+    private var internalHost: String = ""
+    private var lastUrl: String = ""
+    private var loadAttempts: Int = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         web = findViewById(R.id.web)
+        findViewById<Button>(R.id.menu).setOnClickListener { openOptionsMenu() }
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val host = request.url.host ?: return false
-                if (host == "127.0.0.1" || host == "localhost") return false
+                if (host == "127.0.0.1" || host == "localhost" || host == internalHost) return false
                 startActivity(Intent(Intent.ACTION_VIEW, request.url))
                 return true
+            }
+            override fun onReceivedError(
+                view: WebView,
+                request: WebResourceRequest,
+                error: WebResourceError
+            ) {
+                if (!request.isForMainFrame || lastUrl.isEmpty()) return
+                if (loadAttempts < MAX_LOAD_ATTEMPTS) {
+                    loadAttempts++
+                    view.postDelayed({ view.loadUrl(lastUrl) }, LOAD_RETRY_DELAY_MS)
+                } else {
+                    showFatalRetry()
+                }
+            }
+            override fun onPageFinished(view: WebView, url: String) {
+                loadAttempts = 0
             }
         }
         web.setDownloadListener { url, _, contentDisposition, _, _ ->
@@ -86,13 +118,113 @@ class MainActivity : Activity() {
                 }
             }
         }
+        routeStartup()
+    }
+
+    private fun prefs() = getPreferences(MODE_PRIVATE)
+
+    private fun routeStartup() {
+        if (prefs().getString(PREF_MODE, null) == null) {
+            showModeDialog(firstRun = true)
+            return
+        }
+        applyMode()
+    }
+
+    private fun applyMode() {
+        if (prefs().getString(PREF_MODE, MODE_STANDALONE) == MODE_REMOTE) {
+            val base = normalizeBase(prefs().getString(PREF_SERVER_URL, ""))
+            if (base == null) {
+                showModeDialog(firstRun = false)
+                return
+            }
+            stopServer()
+            activeBase = base
+            internalHost = Uri.parse(base).host ?: ""
+            pendingShare = sharedTarget(intent)
+            loadAppUrl(targetUrl(base))
+        } else {
+            startStandalone()
+        }
+    }
+
+    private fun startStandalone() {
+        stopServer()
+        activeBase = ""
+        internalHost = ""
         val port = freePort()
         if (port <= 0 || !startServer(port)) {
             showFatal()
             return
         }
+        val base = "http://127.0.0.1:$port"
+        activeBase = base
+        internalHost = "127.0.0.1"
         pendingShare = sharedTarget(intent)
-        waitReadyThenLoad(port)
+        loadAppUrl(targetUrl(base))
+    }
+
+    private fun stopServer() {
+        try {
+            server?.destroy()
+        } catch (_: Exception) {
+        }
+        server = null
+    }
+
+    private fun normalizeBase(raw: String?): String? {
+        var base = raw?.trim()?.trimEnd('/') ?: return null
+        if (base.isEmpty()) return null
+        if (!base.contains("://")) base = "http://$base"
+        return base
+    }
+
+    private fun showModeDialog(firstRun: Boolean) {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 32, 48, 0)
+        }
+        val group = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+        val standalone = RadioButton(this).apply { text = "Standalone (on this device)" }
+        val remote = RadioButton(this).apply { text = "Connect to a server" }
+        group.addView(standalone)
+        group.addView(remote)
+        val urlField = EditText(this).apply {
+            hint = "Server URL, e.g. http://192.168.1.10:8080"
+            setText(prefs().getString(PREF_SERVER_URL, ""))
+        }
+        layout.addView(group)
+        layout.addView(urlField)
+        if (prefs().getString(PREF_MODE, MODE_STANDALONE) == MODE_REMOTE) {
+            remote.isChecked = true
+        } else {
+            standalone.isChecked = true
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("How should liber run?")
+            .setMessage("Standalone keeps bookmarks on this device. Server mode connects to your desktop over a URL you trust (tunnel or local network only).")
+            .setView(layout)
+            .setCancelable(!firstRun)
+            .setPositiveButton("Save", null)
+            .create()
+        if (!firstRun) {
+            dialog.setButton(AlertDialog.BUTTON_NEGATIVE, "Cancel") { _, _ -> }
+        }
+        dialog.show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val wantRemote = remote.isChecked
+            val url = urlField.text.toString()
+            if (wantRemote && normalizeBase(url) == null) {
+                toast("Enter a server URL.")
+                return@setOnClickListener
+            }
+            prefs().edit()
+                .putString(PREF_MODE, if (wantRemote) MODE_REMOTE else MODE_STANDALONE)
+                .putString(PREF_SERVER_URL, url.trim())
+                .apply()
+            dialog.dismiss()
+            applyMode()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -100,9 +232,9 @@ class MainActivity : Activity() {
         setIntent(intent)
         val shared = sharedTarget(intent) ?: return
         pendingShare = shared
-        val port = serverPort
-        if (port > 0 && ::web.isInitialized) {
-            web.loadUrl(targetUrl(port))
+        val base = activeBase
+        if (base.isNotEmpty() && ::web.isInitialized) {
+            loadAppUrl(targetUrl(base))
         }
     }
 
@@ -120,15 +252,31 @@ class MainActivity : Activity() {
         return match.value.trimEnd('.', ',', ')', '!', '?', '"', '\'').takeIf { it.isNotEmpty() }
     }
 
-    private fun targetUrl(port: Int): String {
+    private fun loadAppUrl(url: String) {
+        lastUrl = url
+        loadAttempts = 0
+        web.loadUrl(url)
+    }
+
+    private fun retryLoad() {
+        loadAttempts = 0
+        val proc = server
+        val remote = prefs().getString(PREF_MODE, MODE_STANDALONE) == MODE_REMOTE
+        if (lastUrl.isNotEmpty() && (remote || (proc != null && proc.isAlive))) {
+            web.loadUrl(lastUrl)
+        } else {
+            routeStartup()
+        }
+    }
+    private fun targetUrl(base: String): String {
         val shared = pendingShare
         pendingShare = null
-        if (shared == null) return "http://127.0.0.1:$port/"
+        if (shared == null) return "$base/"
         val encoded = URLEncoder.encode(shared, "UTF-8")
         return if (shared.startsWith("http")) {
-            "http://127.0.0.1:$port/?prefill=$encoded"
+            "$base/?prefill=$encoded"
         } else {
-            "http://127.0.0.1:$port/?q=$encoded"
+            "$base/?q=$encoded"
         }
     }
 
@@ -166,38 +314,28 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun waitReadyThenLoad(port: Int) {
-        Thread({
-            var ready = false
-            for (i in 1..60) {
-                try {
-                    val c = URL("http://127.0.0.1:$port/").openConnection() as HttpURLConnection
-                    c.connectTimeout = 500
-                    c.readTimeout = 500
-                    if (c.responseCode == 200) {
-                        ready = true
-                        break
-                    }
-                } catch (_: Exception) {
-                }
-                Thread.sleep(500)
-            }
-            runOnUiThread {
-                if (ready) {
-                    serverPort = port
-                    web.loadUrl(targetUrl(port))
-                } else {
-                    showFatal()
-                }
-            }
-        }, "liber-ready").start()
-    }
-
     private fun showFatal() {
         val tv = TextView(this)
         tv.text = getString(R.string.server_failed)
         tv.setPadding(48, 48, 48, 48)
         setContentView(tv)
+    }
+
+    private fun showFatalRetry() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 48, 48, 48)
+        }
+        val tv = TextView(this).apply {
+            text = getString(R.string.server_failed)
+        }
+        val retry = Button(this).apply {
+            text = "Retry"
+            setOnClickListener { retryLoad() }
+        }
+        layout.addView(tv)
+        layout.addView(retry)
+        setContentView(layout)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -208,7 +346,142 @@ class MainActivity : Activity() {
         return super.onKeyDown(keyCode, event)
     }
 
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add(Menu.NONE, MENU_SYNC_FOLDER, Menu.NONE, "Sync folder")
+        menu.add(Menu.NONE, MENU_EXPORT_SYNC, Menu.NONE, "Export to sync folder")
+        menu.add(Menu.NONE, MENU_SERVER_MODE, Menu.NONE, "Server mode")
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            MENU_SYNC_FOLDER -> {
+                try {
+                    startActivityForResult(
+                        Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                        },
+                        TREE_REQUEST
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "sync folder picker: $e")
+                    toast("No folder picker available.")
+                }
+                true
+            }
+            MENU_EXPORT_SYNC -> {
+                exportToSyncFolder()
+                true
+            }
+            MENU_SERVER_MODE -> {
+                showModeDialog(firstRun = false)
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun syncTree(): Uri? {
+        val raw = getPreferences(MODE_PRIVATE).getString(PREF_SYNC_TREE, null) ?: return null
+        return try {
+            Uri.parse(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun toast(msg: String) {
+        runOnUiThread { Toast.makeText(this, msg, Toast.LENGTH_LONG).show() }
+    }
+
+    private fun exportToSyncFolder() {
+        if (prefs().getString(PREF_MODE, MODE_STANDALONE) == MODE_REMOTE) {
+            toast("Export runs on the server; download it from settings instead.")
+            return
+        }
+        val tree = syncTree()
+        if (tree == null) {
+            toast("Pick a sync folder first.")
+            return
+        }
+        val base = activeBase
+        if (base.isEmpty()) {
+            toast("Server not ready yet.")
+            return
+        }
+        Thread({
+            try {
+                val post = URL("$base/settings/export").openConnection() as HttpURLConnection
+                post.requestMethod = "POST"
+                post.connectTimeout = 5000
+                post.readTimeout = 15000
+                post.doOutput = true
+                post.outputStream.use { it.write(ByteArray(0)) }
+                if (post.responseCode != 200) {
+                    toast("Export failed (server ${post.responseCode}).")
+                    return@Thread
+                }
+                val site = File(File(filesDir, "bookmarks"), "site/index.html")
+                if (!site.exists()) {
+                    toast("Export produced no index.html.")
+                    return@Thread
+                }
+                copyIntoTree(tree, site)
+                toast("Export copied to sync folder.")
+            } catch (e: Exception) {
+                Log.e(TAG, "export to sync: $e")
+                toast("Export to sync folder failed.")
+            }
+        }, "liber-export-sync").start()
+    }
+
+    private fun copyIntoTree(tree: Uri, file: File) {
+        val resolver = contentResolver
+        val treeId = DocumentsContract.getTreeDocumentId(tree)
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, treeId)
+        resolver.query(
+            children,
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, OpenableColumns.DISPLAY_NAME),
+            null, null, null
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameCol = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            while (cursor.moveToNext()) {
+                if (cursor.getString(nameCol) == file.name) {
+                    val docId = cursor.getString(idCol)
+                    DocumentsContract.deleteDocument(resolver, DocumentsContract.buildDocumentUriUsingTree(tree, docId))
+                }
+            }
+        }
+        val doc = DocumentsContract.createDocument(resolver, children, "text/html", file.name)
+            ?: throw IllegalStateException("createDocument returned null")
+        resolver.openOutputStream(doc)?.use { out ->
+            file.inputStream().use { it.copyTo(out) }
+        } ?: throw IllegalStateException("openOutputStream returned null")
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == TREE_REQUEST) {
+            if (resultCode == RESULT_OK && data?.data != null) {
+                val tree = data.data!!
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        tree,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
+                    getPreferences(MODE_PRIVATE).edit().putString(PREF_SYNC_TREE, tree.toString()).apply()
+                    toast("Sync folder set.")
+                } catch (e: Exception) {
+                    Log.e(TAG, "persist tree permission: $e")
+                    toast("Could not keep access to that folder.")
+                }
+            } else {
+                toast("Sync folder unchanged.")
+            }
+            return
+        }
         if (requestCode != FILE_CHOOSER_REQUEST) {
             super.onActivityResult(requestCode, resultCode, data)
             return
@@ -259,5 +532,16 @@ class MainActivity : Activity() {
     companion object {
         private const val TAG = "LiberApp"
         private const val FILE_CHOOSER_REQUEST = 1001
+        private const val TREE_REQUEST = 1002
+        private const val MENU_SYNC_FOLDER = 2001
+        private const val MENU_EXPORT_SYNC = 2002
+        private const val MENU_SERVER_MODE = 2003
+        private const val MAX_LOAD_ATTEMPTS = 8
+        private const val LOAD_RETRY_DELAY_MS = 1000L
+        private const val PREF_SYNC_TREE = "sync_tree"
+        private const val PREF_MODE = "mode"
+        private const val PREF_SERVER_URL = "server_url"
+        private const val MODE_STANDALONE = "standalone"
+        private const val MODE_REMOTE = "remote"
     }
 }
