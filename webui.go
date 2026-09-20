@@ -911,6 +911,7 @@ h2 { font-size: 1.1rem; }
 .searchform select { padding: .4rem .6rem; background: var(--surface2); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 4px; }
 .searchform label { font-size: .85rem; color: var(--fg-soft); white-space: nowrap; }
 button { padding: .4rem .8rem; border: 1px solid var(--border-strong); background: var(--surface2); color: var(--fg); border-radius: 4px; cursor: pointer; }
+button.primary { background: var(--link); border-color: var(--link); color: #fbf1c7; font-weight: 600; padding: .5rem 1.2rem; }
 details { margin: 1rem 0; border: 1px solid var(--border); border-radius: 4px; padding: .5rem .75rem; background: var(--surface); }
 summary { cursor: pointer; font-weight: 600; }
 .addform, .editform { display: flex; flex-direction: column; gap: .5rem; margin-top: .75rem; max-width: 480px; }

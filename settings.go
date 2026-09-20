@@ -42,6 +42,7 @@ type settingsPageData struct {
 	Path               string // config file path, displayed to the user
 	DeviceID           string
 	ActiveProfile      string
+	IsAndroid          bool
 	MaintenanceStatus  string
 	ReindexOutput      string
 	SyncOutput         string
@@ -123,10 +124,7 @@ func settingsData(cfg Config, cfgPath string, store *Store, flash string) settin
 		{Key: "attachment_dir", Label: "attachment dir", Value: cfg.AttachmentDir, Detected: cfg.attachmentsDir()},
 	}
 
-	backend := cfg.ArchiveBackend
-	if backend == "" {
-		backend = "auto"
-	}
+	backend := cfg.effectiveArchiveBackend()
 
 	counts := map[int]int{}
 	for _, b := range store.Bookmarks {
@@ -147,6 +145,7 @@ func settingsData(cfg Config, cfgPath string, store *Store, flash string) settin
 		ArchiveBackend: backend, MonolithUseBrowser: cfg.MonolithUseBrowser,
 		Rules: rules, Path: cfgPath, MaintenanceStatus: maintenanceStatus(cfg, store),
 		DeviceID: cfg.DeviceID, ActiveProfile: cfg.ActiveProfile,
+		IsAndroid: runtime.GOOS == "android",
 	}
 }
 
@@ -236,29 +235,38 @@ func handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	cfg.BaseDir = strings.TrimSpace(r.FormValue("base_dir"))
-	cfg.HTMLDir = strings.TrimSpace(r.FormValue("html_dir"))
-	cfg.MarkdownDir = strings.TrimSpace(r.FormValue("markdown_dir"))
-	cfg.ArchiveDir = strings.TrimSpace(r.FormValue("archive_dir"))
-	cfg.AttachmentDir = strings.TrimSpace(r.FormValue("attachment_dir"))
-	cfg.SingleFileCmd = strings.TrimSpace(r.FormValue("singlefile_cmd"))
-	cfg.SingleFileBrowserPath = strings.TrimSpace(r.FormValue("singlefile_browser_path"))
-	cfg.MonolithCmd = strings.TrimSpace(r.FormValue("monolith_cmd"))
-	cfg.MonolithBrowserPath = strings.TrimSpace(r.FormValue("monolith_browser_path"))
-	cfg.BrowserCmd = strings.TrimSpace(r.FormValue("browser_cmd"))
-	cfg.EditorCmd = strings.TrimSpace(r.FormValue("editor_cmd"))
-	cfg.MonolithUseBrowser = r.FormValue("monolith_use_browser") == "on"
+	set := func(key string, dst *string) {
+		if vals, ok := r.Form[key]; ok && len(vals) > 0 {
+			*dst = strings.TrimSpace(vals[0])
+		}
+	}
+	set("base_dir", &cfg.BaseDir)
+	set("html_dir", &cfg.HTMLDir)
+	set("markdown_dir", &cfg.MarkdownDir)
+	set("archive_dir", &cfg.ArchiveDir)
+	set("attachment_dir", &cfg.AttachmentDir)
+	set("singlefile_cmd", &cfg.SingleFileCmd)
+	set("singlefile_browser_path", &cfg.SingleFileBrowserPath)
+	set("monolith_cmd", &cfg.MonolithCmd)
+	set("monolith_browser_path", &cfg.MonolithBrowserPath)
+	set("browser_cmd", &cfg.BrowserCmd)
+	set("editor_cmd", &cfg.EditorCmd)
+	if _, ok := r.Form["monolith_use_browser"]; ok {
+		cfg.MonolithUseBrowser = r.FormValue("monolith_use_browser") == "on"
+	}
 	if v := strings.TrimSpace(r.FormValue("device_id")); v != "" {
 		cfg.DeviceID = sanitizeDevice(v)
 	}
 
-	switch b := strings.TrimSpace(r.FormValue("archive_backend")); b {
-	case "", "auto", "single-file", "monolith", "native":
-		cfg.ArchiveBackend = b
-	default:
-		_, store, _ := loadCfgAndStore()
-		renderSettingsPage(w, cfg, cfgPath, store, fmt.Sprintf("unknown archive_backend %q", b))
-		return
+	if _, ok := r.Form["archive_backend"]; ok {
+		switch b := strings.TrimSpace(r.FormValue("archive_backend")); b {
+		case "", "auto", "single-file", "monolith", "native":
+			cfg.ArchiveBackend = b
+		default:
+			_, store, _ := loadCfgAndStore()
+			renderSettingsPage(w, cfg, cfgPath, store, fmt.Sprintf("unknown archive_backend %q", b))
+			return
+		}
 	}
 
 	if err := SaveConfig(cfg); err != nil {
@@ -547,7 +555,7 @@ func handleSettingsSync(w http.ResponseWriter, r *http.Request) {
 var settingsTmpl = template.Must(template.New("settings").Parse(`
 <p><a href="/">&larr; back to search</a></p>
 <h2>Settings</h2>
-<p class="count">Config file: {{.Path}}</p>
+<p class="count">Config file: {{.Path}}{{if .IsAndroid}} &middot; app-private storage, not directly editable: manage it here{{end}}</p>
 {{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}
 
 <h2>Tools</h2>
@@ -571,6 +579,7 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`
   {{end}}
 
   <h2 style="grid-column: 1 / -1">Archiving</h2>
+  {{if .IsAndroid}}<p class="count" style="grid-column: 1 / -1">On Android only the native snapshot is available: single-file and monolith need binaries that do not exist on-device. Leave the backend empty for the native default.</p>{{end}}
   <label for="archive_backend">archive backend</label>
   <div>
     <select name="archive_backend" id="archive_backend">
@@ -595,7 +604,7 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`
   <div><a href="/profiles">manage profiles</a> <span class="setdetect">switch, create, or delete collections</span></div>
 
   <div></div>
-  <div><button type="submit">Save settings</button></div>
+  <div><button type="submit" class="primary">Save settings</button></div>
 </form>
 
 <h2>Sync</h2>
