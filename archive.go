@@ -15,8 +15,22 @@ import (
 	"time"
 )
 
+func defaultArchiveBackend(goos string) string {
+	if goos == "android" {
+		return "native"
+	}
+	return "auto"
+}
+
+func (c Config) effectiveArchiveBackend() string {
+	if b := strings.TrimSpace(c.ArchiveBackend); b != "" {
+		return b
+	}
+	return defaultArchiveBackend(runtime.GOOS)
+}
+
 func runArchive(cfg Config, url, outPath string) error {
-	switch strings.ToLower(strings.TrimSpace(cfg.ArchiveBackend)) {
+	switch strings.ToLower(cfg.effectiveArchiveBackend()) {
 	case "single-file", "singlefile":
 		fmt.Println("Archiving with single-file ...")
 		return runSingleFile(cfg, url, outPath)
