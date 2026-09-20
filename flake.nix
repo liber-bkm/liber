@@ -33,6 +33,33 @@
           platformVersions = [ "35" ];
           buildToolsVersions = [ "35.0.0" ];
         };
+        # FHS chroot providing the standard /lib64 loader contract, so raw
+        # Google binaries (aapt2, d8, apksigner, …) fetched by Gradle run
+        # unmodified. Entered only via devShells.android-fhs below.
+        androidFhsEnv = pkgsAndroid.buildFHSEnv {
+          name = "liber-android-env";
+          targetPkgs =
+            pkgs:
+            [
+              pkgs.go
+              pkgs.jdk17
+              pkgs.gradle
+              androidSdk.androidsdk
+              androidSdk.platform-tools
+              pkgs.glibc
+              pkgs.zlib
+              pkgs.stdenv.cc.cc.lib
+              pkgs.which
+            ];
+          runScript = pkgs.writeShellScript "enter-liber-android-env" ''
+            export ANDROID_HOME="${androidSdk.androidsdk}/libexec/android-sdk"
+            export ANDROID_SDK_ROOT="$ANDROID_HOME"
+            export PATH="$ANDROID_HOME/platform-tools:$PATH"
+            echo "liber Android FHS shell (standard loader contract; exit leaves nix develop)"
+            echo "Android SDK: $ANDROID_HOME"
+            exec bash
+          '';
+        };
       in
       {
         packages.default = pkgs.buildGoModule {
@@ -109,6 +136,22 @@
           shellHook = ''
             export PATH="$ANDROID_HOME/platform-tools:$PATH"
             echo "Android SDK: $ANDROID_HOME"
+            echo "Note: Gradle assembly needs the FHS shell (nix develop .#android-fhs);"
+            echo "this shell is for Go builds, scripts, and sdkmanager only."
+          '';
+        };
+
+        # Exposed for `nix run` entry and `nix build` verification; the
+        # documented entry remains `nix develop .#android-fhs`.
+        packages.android-fhs = androidFhsEnv;
+
+        # Same toolchain inside an FHS chroot with a standard /lib64 loader,
+        # entered only via this fragment. Exiting the inner bash ends the
+        # whole `nix develop` session by design (exec replaces the shell).
+        devShells.android-fhs = pkgs.mkShell {
+          buildInputs = [ androidFhsEnv ];
+          shellHook = ''
+            exec ${androidFhsEnv}/bin/liber-android-env
           '';
         };
 
