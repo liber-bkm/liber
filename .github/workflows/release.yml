@@ -3,6 +3,9 @@ name: Release
 on:
   release:
     types: [published]
+  # Manual dry run without cutting a release (versioned artifacts fall back
+  # to local defaults; nothing is uploaded).
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -45,6 +48,69 @@ jobs:
           build darwin amd64 liber-darwin-amd64
           build darwin arm64 liber-darwin-arm64
 
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.10.2
+
+      - name: Resolve Android versions
+        id: androidver
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${GITHUB_REF_NAME}"
+            IFS=. read -r MA MI PA <<<"$TAG"
+            echo "name=$TAG" >> "$GITHUB_OUTPUT"
+            echo "code=$((10#$MA*10000 + 10#$MI*100 + 10#$PA))" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=" >> "$GITHUB_OUTPUT"
+            echo "code=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Android wrapper
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME}" sh android/scripts/build-go-lib.sh
+          props=()
+          if [ -n "${{ steps.androidver.outputs.name }}" ]; then
+            props=("-PliberVersionName=${{ steps.androidver.outputs.name }}" "-PliberVersionCode=${{ steps.androidver.outputs.code }}")
+          fi
+          cd android
+          gradle assembleDebug --no-daemon "${props[@]}"
+          cp app/build/outputs/apk/debug/app-debug.apk ../dist/liber-android-debug.apk
+
+      - name: Check for signing secrets
+        id: signing
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build signed Android release
+        if: github.event_name == 'release' && steps.signing.outputs.enabled == 'true'
+        env:
+          LIBER_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          LIBER_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          LIBER_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -e
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > /tmp/liber-release.keystore
+          export LIBER_KEYSTORE_PATH=/tmp/liber-release.keystore
+          cd android
+          gradle assembleRelease --no-daemon "-PliberVersionName=${{ steps.androidver.outputs.name }}" "-PliberVersionCode=${{ steps.androidver.outputs.code }}"
+          cp app/build/outputs/apk/release/app-release.apk ../dist/liber-android.apk
+          rm -f /tmp/liber-release.keystore
+
       - name: Checksums
         run: |
           cd dist && sha256sum * > SHA256SUMS.txt
@@ -60,15 +126,21 @@ jobs:
           bash -n dist/PKGBUILD-git
 
       - name: Upload release assets
+        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${GITHUB_REF_NAME}" \
-            dist/liber \
-            dist/liber-linux-arm64 \
-            dist/liber-darwin-amd64 \
-            dist/liber-darwin-arm64 \
-            dist/SHA256SUMS.txt \
-            dist/PKGBUILD \
-            dist/PKGBUILD-git \
-            --clobber
+          assets=(
+            dist/liber
+            dist/liber-linux-arm64
+            dist/liber-darwin-amd64
+            dist/liber-darwin-arm64
+            dist/liber-android-debug.apk
+            dist/SHA256SUMS.txt
+            dist/PKGBUILD
+            dist/PKGBUILD-git
+          )
+          if [ -f dist/liber-android.apk ]; then
+            assets+=(dist/liber-android.apk)
+          fi
+          gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" --clobber
