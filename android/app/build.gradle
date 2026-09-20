@@ -10,14 +10,34 @@ android {
         applicationId 'bkm.liber'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        // Keep in sync with liber releases (Makefile VERSION / flake version).
-        versionName '0.8.1'
+        // Overridden by CI from the release tag
+        // (-PliberVersionName= -PliberVersionCode=); fallbacks match the
+        // current liber release and are only for local debug builds.
+        versionCode findProperty('liberVersionCode')?.toInteger() ?: 1
+        versionName findProperty('liberVersionName') ?: '0.9.1'
+    }
+
+    signingConfigs {
+        release {
+            def keystorePath = System.getenv('LIBER_KEYSTORE_PATH')
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword System.getenv('LIBER_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('LIBER_KEY_ALIAS')
+                keyPassword System.getenv('LIBER_KEY_PASSWORD')
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            // Signed only when the CI release secrets are present
+            // (LIBER_KEYSTORE_PATH/PASSWORD, LIBER_KEY_ALIAS/PASSWORD).
+            // Otherwise Gradle still assembles an unsigned APK.
+            if (System.getenv('LIBER_KEYSTORE_PATH')) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
