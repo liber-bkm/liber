@@ -55,7 +55,12 @@ jobs:
           java-version: 17
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        # setup-android's hardcoded `sdkmanager tools` default no longer
+        # exists upstream; install the pinned components directly instead.
+        # ubuntu runners preinstall the cmdline-tools and ANDROID_SDK_ROOT.
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
