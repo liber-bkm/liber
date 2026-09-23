@@ -33,18 +33,19 @@ var (
 	nativeNoscriptRe = regexp.MustCompile(`(?is)<noscript\b[^>]*>(.*?)</noscript>`)
 )
 
-func runNativeArchive(url, outPath string) error {
+func runNativeArchive(cfg Config, url, outPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), nativeOverallTimeout)
 	defer cancel()
 
-	page, pageURL, err := nativeFetch(ctx, url, nativeMaxPageBytes)
+	client := &http.Client{Timeout: nativeOverallTimeout, Transport: transportWithDNSFallback(cfg)}
+	page, pageURL, err := nativeFetch(ctx, client, url, nativeMaxPageBytes)
 	if err != nil {
 		return fmt.Errorf("fetching page: %w", err)
 	}
 	html := string(page)
 
 	assets := nativeCollectAssets(html, pageURL)
-	fetched := nativeFetchAll(ctx, assets)
+	fetched := nativeFetchAll(ctx, client, assets)
 	html = nativeInlineAll(html, pageURL, fetched)
 
 	html = nativeScriptRe.ReplaceAllString(html, "")
@@ -110,7 +111,7 @@ func nativeCollectAssets(html string, pageURL *neturl.URL) []string {
 	return urls
 }
 
-func nativeFetchAll(ctx context.Context, urls []string) map[string]nativeResult {
+func nativeFetchAll(ctx context.Context, client *http.Client, urls []string) map[string]nativeResult {
 	results := map[string]nativeResult{}
 	var mu sync.Mutex
 	sem := make(chan struct{}, nativeAssetWorkers)
@@ -136,7 +137,7 @@ func nativeFetchAll(ctx context.Context, urls []string) map[string]nativeResult 
 				return
 			}
 
-			data, mime, err := nativeFetchAsset(ctx, u)
+			data, mime, err := nativeFetchAsset(ctx, client, u)
 			if err != nil {
 				return
 			}
@@ -152,13 +153,13 @@ func nativeFetchAll(ctx context.Context, urls []string) map[string]nativeResult 
 	return results
 }
 
-func nativeFetchAsset(ctx context.Context, u string) ([]byte, string, error) {
+func nativeFetchAsset(ctx context.Context, client *http.Client, u string) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; liber-bookmark-manager/1.0)")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -177,13 +178,12 @@ func nativeFetchAsset(ctx context.Context, u string) ([]byte, string, error) {
 	return data, mime, nil
 }
 
-func nativeFetch(ctx context.Context, u string, limit int64) ([]byte, *neturl.URL, error) {
+func nativeFetch(ctx context.Context, client *http.Client, u string, limit int64) ([]byte, *neturl.URL, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return nil, nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; liber-bookmark-manager/1.0)")
-	client := &http.Client{Timeout: nativeOverallTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, err

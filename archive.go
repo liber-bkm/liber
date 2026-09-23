@@ -39,7 +39,7 @@ func runArchive(cfg Config, url, outPath string) error {
 		return runMonolith(cfg, url, outPath)
 	case "native":
 		fmt.Println("Archiving with native snapshot ...")
-		return runNativeArchive(url, outPath)
+		return runNativeArchive(cfg, url, outPath)
 	case "", "auto":
 		if findCmd(cfg.SingleFileCmd, "single-file") != "" {
 			fmt.Println("Archiving with single-file ...")
@@ -58,7 +58,7 @@ func runArchive(cfg Config, url, outPath string) error {
 			}
 		}
 		fmt.Println("Archiving with native snapshot ...")
-		return runNativeArchive(url, outPath)
+		return runNativeArchive(cfg, url, outPath)
 	default:
 		return fmt.Errorf("unknown archive_backend %q -- expected auto, single-file, monolith, or native", cfg.ArchiveBackend)
 	}
@@ -195,8 +195,8 @@ func runSingleFile(cfg Config, url, outPath string) error {
 
 var titleRe = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
 
-func fetchTitle(rawURL string) string {
-	client := http.Client{Timeout: 10 * time.Second}
+func fetchTitle(cfg Config, rawURL string) string {
+	client := http.Client{Timeout: 10 * time.Second, Transport: transportWithDNSFallback(cfg)}
 	req, err := http.NewRequest("GET", rawURL, nil)
 	if err != nil {
 		return ""

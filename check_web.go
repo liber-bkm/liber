@@ -112,7 +112,7 @@ func handleCheckRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, store, err := loadCfgAndStore()
+	cfg, store, err := loadCfgAndStore()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -129,7 +129,7 @@ func handleCheckRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	moved, dead, uncertain := scanCheckTargets(checkClient(), targets, workers, nil)
+	moved, dead, uncertain := scanCheckTargets(checkClient(cfg), targets, workers, nil)
 	now := time.Now()
 
 	writeMu.Lock()
@@ -243,7 +243,7 @@ func handleCheckApply(w http.ResponseWriter, r *http.Request) {
 			b.URL = normalizeURL(row.Target)
 			b.UpdatedAt = time.Now()
 			syncBookmarkFiles(cfg, b, false)
-			if title := fetchTitle(b.URL); title != "" && title != b.Title {
+			if title := fetchTitle(cfg, b.URL); title != "" && title != b.Title {
 				b.Title = title
 				b.UpdatedAt = time.Now()
 				syncBookmarkFiles(cfg, b, false)

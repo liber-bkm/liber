@@ -203,9 +203,10 @@ func stampCheckTargets(store *Store, ids []int, moved, dead, uncertain []checkRe
 	}
 }
 
-func checkClient() *http.Client {
+func checkClient(cfg Config) *http.Client {
 	return &http.Client{
-		Timeout: 15 * time.Second,
+		Timeout:   15 * time.Second,
+		Transport: transportWithDNSFallback(cfg),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -356,7 +357,7 @@ func runCheck(args []string) error {
 		return nil
 	}
 
-	client := checkClient()
+	client := checkClient(cfg)
 	moved, dead, uncertain := scanCheckTargets(client, targets, workers, func(done, total int) {
 		fmt.Fprintf(os.Stderr, "\rChecking %d/%d...", done, total)
 	})
@@ -394,7 +395,7 @@ func runCheck(args []string) error {
 		syncBookmarkFiles(cfg, r.b, false)
 		updated++
 		fmt.Printf("Updated [%d].\n", r.b.ID)
-		if title := fetchTitle(r.b.URL); title != "" && title != r.b.Title {
+		if title := fetchTitle(cfg, r.b.URL); title != "" && title != r.b.Title {
 			if confirm(fmt.Sprintf("Update [%d] title to %q?", r.b.ID, title), true) {
 				r.b.Title = title
 				r.b.UpdatedAt = time.Now()
