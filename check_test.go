@@ -33,7 +33,7 @@ func checkFixture() *httptest.Server {
 func TestClassifyURL(t *testing.T) {
 	srv := checkFixture()
 	defer srv.Close()
-	client := checkClient()
+	client := checkClient(Config{})
 	cases := []struct {
 		path   string
 		status checkStatus
@@ -57,7 +57,7 @@ func TestClassifyURL(t *testing.T) {
 }
 
 func TestClassifyURLError(t *testing.T) {
-	client := checkClient()
+	client := checkClient(Config{})
 	r := classifyURL(client, "http://127.0.0.1:1/none")
 	if r.status != checkUncertain {
 		t.Errorf("refused connection status = %d, want uncertain", r.status)
