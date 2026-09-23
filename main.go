@@ -334,6 +334,9 @@ func runConfigCmd(args []string) error {
 	if cfg.DeviceID != "" {
 		fmt.Println("device_id     ", cfg.DeviceID)
 	}
+	if cfg.AuthToken != "" {
+		fmt.Println("auth_token     set (value never displayed)")
+	}
 	fmt.Println("\nEdit the JSON file above to change these.")
 	return nil
 }
@@ -455,6 +458,10 @@ Usage:
   liber --serve --addr <host:port>
                                    use a different address (non-loopback prints a warning:
                                    it exposes read/add/edit/delete access, no login)
+  liber --serve --auth-token <tok>
+                                   require a token: browser login at /login,
+                                   API clients send Authorization: Bearer
+                                   (or set LIBER_AUTH_TOKEN instead of the flag)
   liber --export-site [dir]      write a static, browsable index.html of the whole
                                    collection (default <base_dir>/site); links point at
                                    your existing html/markdown/archive/attachment files
