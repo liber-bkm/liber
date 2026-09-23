@@ -12,7 +12,6 @@ import android.provider.OpenableColumns
 import android.util.Log
 import android.view.KeyEvent
 import android.view.Menu
-import android.view.MenuItem
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -21,6 +20,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.PopupMenu
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -48,7 +48,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         web = findViewById(R.id.web)
-        findViewById<Button>(R.id.menu).setOnClickListener { openOptionsMenu() }
+        findViewById<Button>(R.id.menu).setOnClickListener { anchor -> showOverflowMenu(anchor) }
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.webViewClient = object : WebViewClient() {
@@ -346,41 +346,41 @@ class MainActivity : Activity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menu.add(Menu.NONE, MENU_SYNC_FOLDER, Menu.NONE, "Sync folder")
-        menu.add(Menu.NONE, MENU_EXPORT_SYNC, Menu.NONE, "Export to sync folder")
-        menu.add(Menu.NONE, MENU_SERVER_MODE, Menu.NONE, "Server mode")
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            MENU_SYNC_FOLDER -> {
-                try {
-                    startActivityForResult(
-                        Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-                        },
-                        TREE_REQUEST
-                    )
-                } catch (e: Exception) {
-                    Log.e(TAG, "sync folder picker: $e")
-                    toast("No folder picker available.")
+    private fun showOverflowMenu(anchor: android.view.View) {
+        val popup = PopupMenu(this, anchor)
+        popup.menu.add(Menu.NONE, MENU_SYNC_FOLDER, Menu.NONE, "Sync folder")
+        popup.menu.add(Menu.NONE, MENU_EXPORT_SYNC, Menu.NONE, "Export to sync folder")
+        popup.menu.add(Menu.NONE, MENU_SERVER_MODE, Menu.NONE, "Server mode")
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                MENU_SYNC_FOLDER -> {
+                    try {
+                        startActivityForResult(
+                            Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                            },
+                            TREE_REQUEST
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "sync folder picker: $e")
+                        toast("No folder picker available.")
+                    }
+                    true
                 }
-                true
+                MENU_EXPORT_SYNC -> {
+                    exportToSyncFolder()
+                    true
+                }
+                MENU_SERVER_MODE -> {
+                    showModeDialog(firstRun = false)
+                    true
+                }
+                else -> false
             }
-            MENU_EXPORT_SYNC -> {
-                exportToSyncFolder()
-                true
-            }
-            MENU_SERVER_MODE -> {
-                showModeDialog(firstRun = false)
-                true
-            }
-            else -> super.onOptionsItemSelected(item)
         }
+        popup.show()
     }
 
     private fun syncTree(): Uri? {
