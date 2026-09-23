@@ -57,10 +57,12 @@ jobs:
       - name: Set up Android SDK
         # setup-android's hardcoded `sdkmanager tools` default no longer
         # exists upstream; install the pinned components directly instead.
-        # ubuntu runners preinstall the cmdline-tools and ANDROID_SDK_ROOT.
+        # sdkmanager lives under the SDK root, not on PATH.
         run: |
-          yes | sdkmanager --licenses > /dev/null
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          SDKMANAGER="sdkmanager"
+          command -v sdkmanager >/dev/null || SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
