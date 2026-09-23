@@ -61,8 +61,20 @@ class ApiParsingTest {
     }
 
     @Test
+    fun updatePayloadOmitsAbsentFields() {
+        val partial = LiberApi.updatePayload("T", null, null, null, null)
+        assertTrue(partial.contains("\"title\":\"T\""))
+        assertTrue(!partial.contains("\"url\""))
+        assertTrue(!partial.contains("\"tags\""))
+        val full = LiberApi.updatePayload("T", "https://e.com", "d", listOf("a", "b"), "f")
+        assertTrue(full.contains("\"url\":\"https://e.com\""))
+        assertTrue(full.contains("\"description\":\"d\""))
+        assertTrue(full.contains("\"folder\":\"f\""))
+        assertTrue(full.contains("\"tags\":[\"a\",\"b\"]"))
+    }
+
+    @Test
     fun listUrlParams() {
-}
         val api = LiberApi("http://127.0.0.1:8080/", "s3cret")
         val url = api.listUrl("hello world", "nt", deep = true, sort = "newest", page = 2)
         assertTrue(url.startsWith("http://127.0.0.1:8080/api/v1/bookmarks?"))

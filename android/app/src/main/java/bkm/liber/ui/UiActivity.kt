@@ -65,6 +65,7 @@ private sealed interface Screen {
     data object List : Screen
     data class Detail(val id: Int) : Screen
     data object Add : Screen
+    data class Edit(val id: Int) : Screen
 }
 
 @Composable
@@ -83,11 +84,18 @@ fun LiberNav(api: LiberApi) {
             api = api,
             id = top.id,
             onBack = { pop() },
+            onOpenEdit = { push(Screen.Edit(top.id)) },
         )
         is Screen.Add -> AddScreen(
             api = api,
             onBack = { pop() },
             onAdded = { pop() },
+        )
+        is Screen.Edit -> EditScreen(
+            api = api,
+            id = top.id,
+            onBack = { pop() },
+            onSaved = { pop() },
         )
     }
 }
@@ -191,7 +199,7 @@ fun SearchScreen(
 }
 
 @Composable
-fun DetailScreen(api: LiberApi, id: Int, onBack: () -> Unit) {
+fun DetailScreen(api: LiberApi, id: Int, onBack: () -> Unit, onOpenEdit: () -> Unit) {
     val context = LocalContext.current
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -246,19 +254,27 @@ fun DetailScreen(api: LiberApi, id: Int, onBack: () -> Unit) {
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(top = 8.dp),
                 )
-                Button(
-                    onClick = {
-                        runApi(main, { api.open(id) }) { res ->
-                            res.onSuccess { url ->
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                            }.onFailure {
-                                error = it.message ?: "open failed"
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            runApi(main, { api.open(id) }) { res ->
+                                res.onSuccess { url ->
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                }.onFailure {
+                                    error = it.message ?: "open failed"
+                                }
                             }
-                        }
-                    },
-                    modifier = Modifier.padding(top = 8.dp),
-                ) {
-                    Text("Open")
+                        },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        Text("Open")
+                    }
+                    Button(
+                        onClick = onOpenEdit,
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        Text("Edit")
+                    }
                 }
             }
         }
@@ -346,5 +362,125 @@ fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
                 }
             },
         )
+    }
+}
+
+@Composable
+fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) {
+    var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
+    var title by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var tags by remember { mutableStateOf("") }
+    var folder by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    val main = Handler(Looper.getMainLooper())
+
+    fun load() {
+        loading = true
+        loadError = null
+        runApi(main, { api.get(id) }) { res ->
+            loading = false
+            res.onSuccess { b ->
+                title = b.title
+                url = b.url
+                description = b.description
+                tags = b.tags.joinToString(", ")
+                folder = b.folder
+            }.onFailure {
+                loadError = it.message ?: "request failed"
+            }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(id) { load() }
+
+    fun submit() {
+        saving = true
+        error = null
+        val t = title
+        val u = url
+        val d = description
+        val f = folder
+        val tagList = tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        runApi(main, { api.update(id, t, u, d, tagList, f) }) { res ->
+            saving = false
+            res.onSuccess { onSaved() }.onFailure {
+                error = it.message ?: "save failed"
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack) {
+                Text("Back")
+            }
+        }
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            loadError != null -> {
+                Text(
+                    text = loadError ?: "",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Retry")
+                }
+            }
+            else -> {
+                TextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    placeholder = { Text("Title") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                TextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    placeholder = { Text("https://example.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                TextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    placeholder = { Text("Description (optional)") },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                TextField(
+                    value = tags,
+                    onValueChange = { tags = it },
+                    placeholder = { Text("Tags, comma separated (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                TextField(
+                    value = folder,
+                    onValueChange = { folder = it },
+                    placeholder = { Text("Folder (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                if (error != null) {
+                    Text(
+                        text = error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                Button(
+                    onClick = { submit() },
+                    enabled = !saving && title.isNotBlank() && url.isNotBlank(),
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Text(if (saving) "Saving..." else "Save")
+                }
+            }
+        }
     }
 }

@@ -3,6 +3,9 @@ package bkm.liber.api
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -52,6 +55,22 @@ class LiberApi(baseUrl: String, token: String) {
     private val json = Json { ignoreUnknownKeys = true }
 
     companion object {
+        fun updatePayload(
+            title: String?,
+            url: String?,
+            description: String?,
+            tags: List<String>?,
+            folder: String?,
+        ): String {
+            return buildJsonObject {
+                if (title != null) put("title", JsonPrimitive(title))
+                if (url != null) put("url", JsonPrimitive(url))
+                if (description != null) put("description", JsonPrimitive(description))
+                if (tags != null) put("tags", JsonArray(tags.map { JsonPrimitive(it) }))
+                if (folder != null) put("folder", JsonPrimitive(folder))
+            }.toString()
+        }
+
         fun bearerValue(token: String): String {
             if (token.isEmpty()) return ""
             val mac = javax.crypto.Mac.getInstance("HmacSHA256")
@@ -125,6 +144,27 @@ class LiberApi(baseUrl: String, token: String) {
             if (resp.code == 409) {
                 throw Duplicate(duplicateOf(body), "possible duplicate")
             }
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiBookmark.serializer(), body)
+        }
+    }
+
+    fun update(
+        id: Int,
+        title: String?,
+        url: String?,
+        description: String?,
+        tags: List<String>?,
+        folder: String?,
+    ): ApiBookmark {
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/bookmarks/$id")
+                .put(updatePayload(title, url, description, tags, folder).toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no such bookmark")
             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
             return json.decodeFromString(ApiBookmark.serializer(), body)
         }
