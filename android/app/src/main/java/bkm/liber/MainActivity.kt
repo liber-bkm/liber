@@ -9,9 +9,11 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import android.text.InputType
 import android.util.Log
 import android.view.KeyEvent
 import android.view.Menu
+import android.webkit.CookieManager
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -142,7 +144,7 @@ class MainActivity : Activity() {
             activeBase = base
             internalHost = Uri.parse(base).host ?: ""
             pendingShare = sharedTarget(intent)
-            loadAppUrl(targetUrl(base))
+            loginRemoteThenLoad(base)
         } else {
             startStandalone()
         }
@@ -193,8 +195,14 @@ class MainActivity : Activity() {
             hint = "Server URL, e.g. http://192.168.1.10:8080"
             setText(prefs().getString(PREF_SERVER_URL, ""))
         }
+        val tokenField = EditText(this).apply {
+            hint = "Auth token (only if the server requires one)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(prefs().getString(PREF_SERVER_TOKEN, ""))
+        }
         layout.addView(group)
         layout.addView(urlField)
+        layout.addView(tokenField)
         if (prefs().getString(PREF_MODE, MODE_STANDALONE) == MODE_REMOTE) {
             remote.isChecked = true
         } else {
@@ -221,10 +229,52 @@ class MainActivity : Activity() {
             prefs().edit()
                 .putString(PREF_MODE, if (wantRemote) MODE_REMOTE else MODE_STANDALONE)
                 .putString(PREF_SERVER_URL, url.trim())
+                .putString(PREF_SERVER_TOKEN, tokenField.text.toString().trim())
                 .apply()
             dialog.dismiss()
             applyMode()
         }
+    }
+
+    private fun loginRemoteThenLoad(base: String) {
+        val token = prefs().getString(PREF_SERVER_TOKEN, "") ?: ""
+        if (token.isEmpty()) {
+            loadAppUrl(targetUrl(base))
+            return
+        }
+        Thread({
+            var cookies: List<String>? = null
+            try {
+                val c = URL(base + "/login").openConnection() as HttpURLConnection
+                c.requestMethod = "POST"
+                c.doOutput = true
+                c.connectTimeout = 8000
+                c.readTimeout = 8000
+                c.instanceFollowRedirects = false
+                c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                val body = "token=" + URLEncoder.encode(token, "UTF-8") +
+                    "&next=" + URLEncoder.encode("/", "UTF-8")
+                c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                if (c.responseCode == HttpURLConnection.HTTP_SEE_OTHER) {
+                    cookies = c.headerFields["Set-Cookie"] ?: emptyList()
+                } else {
+                    Log.e(TAG, "remote login rejected (HTTP ${c.responseCode})")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "remote login: $e")
+            }
+            runOnUiThread {
+                if (cookies != null) {
+                    val cm = CookieManager.getInstance()
+                    cm.setAcceptCookie(true)
+                    for (h in cookies!!) {
+                        cm.setCookie(base, h)
+                    }
+                    cm.flush()
+                }
+                loadAppUrl(targetUrl(base))
+            }
+        }, "liber-login").start()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -541,6 +591,7 @@ class MainActivity : Activity() {
         private const val PREF_SYNC_TREE = "sync_tree"
         private const val PREF_MODE = "mode"
         private const val PREF_SERVER_URL = "server_url"
+        private const val PREF_SERVER_TOKEN = "server_token"
         private const val MODE_STANDALONE = "standalone"
         private const val MODE_REMOTE = "remote"
     }

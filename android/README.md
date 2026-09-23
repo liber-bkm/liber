@@ -102,6 +102,7 @@ File inputs in the WebView only work through the `WebChromeClient` bridge in
 10. With an export present, use Export to sync folder, confirm index.html appears in the picked folder (re-run replaces, never duplicates).
 11. Fresh install shows the mode dialog; pick standalone, confirm the local UI loads.
 12. From the ⋮ menu open Server mode, enter a LAN URL, confirm the remote UI loads and loopback links stay in-app.
+13. Against an authed server: save the token in Server mode, confirm the UI loads without a manual login; wrong token falls back to the server login page (logcat notes the rejection).
 13. Switch back to standalone, confirm the local UI returns and no second server lingers (logcat shows one liber startup).
 14. Cold start loads the page without manual retry; killing the server mid-run shows the error view whose Retry recovers without changing ports.
 15. Full backup loop: settings, Library, Download browser export, confirm `liber-bookmarks.html` in Downloads; reinstall the app; settings, Library, import the file; confirm every bookmark, tag, and folder is back.
