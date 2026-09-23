@@ -222,3 +222,30 @@ func TestAPIMethodAndAuth(t *testing.T) {
 		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestAPIOpen(t *testing.T) {
+	base := apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/bookmarks/1/open", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	out := apiDecode(t, w)
+	if out["url"] != "https://a.com/1" {
+		t.Fatalf("out = %v", out)
+	}
+	b := loadTestStore(t, base).Find(1)
+	if b.OpenCount != 1 || b.LastOpenedAt == nil {
+		t.Fatalf("history not recorded: %+v", b)
+	}
+
+	w = apiDo(t, h, "GET", "/api/v1/bookmarks/1/open", "")
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/bookmarks/99/open", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+}

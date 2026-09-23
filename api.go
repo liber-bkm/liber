@@ -67,6 +67,47 @@ func decodeAPIBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+func apiOpenID(r *http.Request) (int, bool) {
+	rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/bookmarks/")
+	if !ok {
+		return 0, false
+	}
+	idStr, sub, _ := strings.Cut(rest, "/")
+	if sub != "open" {
+		return 0, false
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id < 1 {
+		return 0, false
+	}
+	return id, true
+}
+
+func handleAPIOpen(w http.ResponseWriter, r *http.Request, id int) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	b := store.Find(id)
+	if b == nil {
+		writeAPIError(w, http.StatusNotFound, "no such bookmark")
+		return
+	}
+	recordOpen(b)
+	if err := store.Save(); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeAPIJSON(w, http.StatusOK, map[string]any{"url": b.URL})
+}
+
 func apiBookmarkID(r *http.Request) (int, bool) {
 	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/api/v1/bookmarks/"))
 	if err != nil || id < 1 {
@@ -175,6 +216,10 @@ func handleAPIBookmarks(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAPIBookmark(w http.ResponseWriter, r *http.Request) {
+	if id, ok := apiOpenID(r); ok {
+		handleAPIOpen(w, r, id)
+		return
+	}
 	id, ok := apiBookmarkID(r)
 	if !ok {
 		writeAPIError(w, http.StatusNotFound, "no such bookmark")
