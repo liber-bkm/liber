@@ -233,6 +233,8 @@ liber -r --merge --all         same, merging every .liber json candidate
 liber -r --prune-journal       delete applied journal files older than 90 days
 liber --import <path>          import a browser bookmark export (see "Import" below)
 liber --import <path> -md -a   same, also generating markdown/archives for each (slow)
+liber --export-bookmarks <path>
+                               write the collection as a re-importable export
 liber --tags / --folders       list tags/folders with counts (see "Tag and folder hygiene")
 liber --tags rename <a> <b>    rename a tag everywhere (merges if <b> already exists)
 liber --tags delete <tag>      remove a tag from every bookmark that has it
@@ -537,6 +539,18 @@ to reindex the bookmarks list. Plain `liber -r` adopts bookmark files found on d
 
 Anything that normalizes to a URL you already have is skipped automatically (no per-item prompt, unlike adding one bookmark at a time). So re-running `--import` on a refreshed export from your browser won't pile up duplicates. Entries with no `HREF` are skipped too. Both counts are reported at the end.
 
+### Exporting Bookmarks
+
+`liber --export-bookmarks <path>` writes the whole collection as a browser
+bookmark export in the same Netscape HTML format `--import` reads: folders
+become nested folders, tags become `TAGS`, descriptions become `<DD>` notes.
+Re-importing an export restores every URL, title, tag, folder, and the first
+line of each description; bookmark ids are reassigned, so an export preserves
+content, not identity. The same file is one click away in the web UI
+(settings, Library section) and is the recommended portable backup: download
+it, and a fresh liber anywhere (including a reinstalled Android app) restores
+everything through `--import` or the web upload.
+
 ### Sync
 
 `liber --sync` looks for a `.jj` or `.git` directory at or above `base_dir` and, if it finds one, commits the current state of your collection there (`liber --sync -p` also pushes afterward). It never initializes a repo itself. If there isn't one, it tells you and stops, since creating one unasked would be a strange thing for a bookmark tool to do. If `base_dir` is nested inside a larger repo (e.g. a dotfiles checkout), it still finds the right root.
@@ -604,7 +618,7 @@ The gear button (top right) opens `/settings`, a settings page for your collecti
 
 The clock button (top right) opens `/history`, the same list as `liber --history`. Opening a bookmark from the web (`/open/<id>`, used by title and visit-original links) records the visit exactly like the CLI open action, so history and `visited` sort stay in sync. `/pick?q=...` returns a matching URL as plain text, the web equivalent of `liber pick`.
 
-The settings page also covers library and sync tasks: import a browser bookmark export (file upload, same duplicate skipping as `--import`), export the static site (same as `--export-site`, default `<base_dir>/site`), commit the collection with jj or git (same as `--sync`, with optional push), and check link health (`/check`, same moved/dead/uncertain buckets and per-item update/delete/quarantine as `--check`). `/profiles` lists, switches, creates, and deletes profiles, the same things `liber --profile` does on the command line.
+The settings page also covers library and sync tasks: import a browser bookmark export (file upload, same duplicate skipping as `--import`), download a portable bookmark export (same Netscape format as `--export-bookmarks`), export the static site (same as `--export-site`, default `<base_dir>/site`), commit the collection with jj or git (same as `--sync`, with optional push), and check link health (`/check`, same moved/dead/uncertain buckets and per-item update/delete/quarantine as `--check`). `/profiles` lists, switches, creates, and deletes profiles, the same things `liber --profile` does on the command line.
 
 The add form accepts an optional title (otherwise fetched like the CLI), the edit form removes attachments by name as well as by checkbox, and search rows have checkboxes for bulk delete (with confirm), bulk tag set, and bulk folder move. The tags page tunes the host-rule threshold and creates all suggestions at once; each automation rule has its own apply button next to delete.
 

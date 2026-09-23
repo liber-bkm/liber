@@ -103,6 +103,17 @@ File inputs in the WebView only work through the `WebChromeClient` bridge in
 12. From the ⋮ menu open Server mode, enter a LAN URL, confirm the remote UI loads and loopback links stay in-app.
 13. Switch back to standalone, confirm the local UI returns and no second server lingers (logcat shows one liber startup).
 14. Cold start loads the page without manual retry; killing the server mid-run shows the error view whose Retry recovers without changing ports.
+15. Full backup loop: settings, Library, Download browser export, confirm `liber-bookmarks.html` in Downloads; reinstall the app; settings, Library, import the file; confirm every bookmark, tag, and folder is back.
+
+## Backup and reinstall (standalone mode)
+
+The collection lives in app-private storage, which Android deletes with the
+app. Before uninstalling or wiping, download a portable backup from settings,
+Library, Download browser export (`liber-bookmarks.html`, Netscape format).
+After reinstalling, restore it through settings, Library, import. Reimport
+assigns fresh ids but keeps every URL, title, tag, folder, and description
+(first line); nothing else is needed, since a fresh install has nothing to
+conflict with.
 
 ## ABIs
 
