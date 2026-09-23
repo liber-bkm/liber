@@ -98,6 +98,7 @@ File inputs in the WebView only work through the `WebChromeClient` bridge in
 7. Share while the app is already open, confirm it navigates without losing history.
 8. Export the static site from settings, tap the download, confirm it lands in Downloads/liber with a completion notice.
 9. Open the ⋮ menu, pick a sync folder, confirm the toast, restart the app, confirm the folder is remembered.
+10. Open the ⋮ menu and dismiss it without choosing (back button, then again via tap-outside), reopen both times and confirm it appears every time.
 10. With an export present, use Export to sync folder, confirm index.html appears in the picked folder (re-run replaces, never duplicates).
 11. Fresh install shows the mode dialog; pick standalone, confirm the local UI loads.
 12. From the ⋮ menu open Server mode, enter a LAN URL, confirm the remote UI loads and loopback links stay in-app.
