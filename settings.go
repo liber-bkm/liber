@@ -627,7 +627,10 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`
   <input type="text" name="dir" placeholder="output dir (default <base_dir>/site)" size="40">
   <button type="submit">Export site</button>
 </form>
-<p class="count"><a href="/export-bookmarks">Download browser export</a> <span class="setdetect">Netscape HTML, re-importable anywhere including a fresh liber</span></p>
+<form method="get" action="/export-bookmarks" class="stry">
+  <button type="submit">Export liber</button>
+  <span class="count">Export all the contents of liber as a portable file, in the same format browsers use for bookmark exports. Import it into any browser or a fresh liber install to restore everything.</span>
+</form>
 {{if .LibraryOutput}}<pre class="reindexout">{{.LibraryOutput}}</pre>{{end}}
 
 <h2>Maintenance</h2>
