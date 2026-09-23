@@ -63,6 +63,7 @@ func runServe(args []string) error {
 	mux.HandleFunc("/settings/reindex", handleSettingsReindex)
 	mux.HandleFunc("/settings/import", handleSettingsImport)
 	mux.HandleFunc("/settings/export", handleSettingsExport)
+	mux.HandleFunc("/export-bookmarks", handleExportBookmarks)
 	mux.HandleFunc("/settings/sync", handleSettingsSync)
 	mux.HandleFunc("/profiles", handleProfiles)
 	mux.HandleFunc("/profiles/switch", handleProfileSwitch)
