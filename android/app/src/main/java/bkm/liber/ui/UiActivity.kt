@@ -1,0 +1,350 @@
+package bkm.liber.ui
+
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import bkm.liber.api.ApiBookmark
+import bkm.liber.api.LiberApi
+import kotlin.concurrent.thread
+
+class UiActivity : ComponentActivity() {
+
+    companion object {
+        const val EXTRA_BASE = "base"
+        const val EXTRA_TOKEN = "token"
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val base = intent.getStringExtra(EXTRA_BASE).orEmpty()
+        val token = intent.getStringExtra(EXTRA_TOKEN).orEmpty()
+        if (base.isEmpty()) {
+            Toast.makeText(this, "No server connected.", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+        setContent {
+            MaterialTheme {
+                LiberNav(api = LiberApi(base, token))
+            }
+        }
+    }
+}
+
+private sealed interface Screen {
+    data object List : Screen
+    data class Detail(val id: Int) : Screen
+    data object Add : Screen
+}
+
+@Composable
+fun LiberNav(api: LiberApi) {
+    var stack by remember { mutableStateOf(listOf<Screen>(Screen.List)) }
+    val push = { s: Screen -> stack = stack + s }
+    val pop = { if (stack.size > 1) stack = stack.dropLast(1) }
+    BackHandler(enabled = stack.size > 1) { pop() }
+    when (val top = stack.last()) {
+        is Screen.List -> SearchScreen(
+            api = api,
+            onOpenDetail = { push(Screen.Detail(it)) },
+            onOpenAdd = { push(Screen.Add) },
+        )
+        is Screen.Detail -> DetailScreen(
+            api = api,
+            id = top.id,
+            onBack = { pop() },
+        )
+        is Screen.Add -> AddScreen(
+            api = api,
+            onBack = { pop() },
+            onAdded = { pop() },
+        )
+    }
+}
+
+private fun <T> runApi(main: Handler, call: () -> T, done: (Result<T>) -> Unit) {
+    thread {
+        val result = try {
+            Result.success(call())
+        } catch (e: Exception) {
+            Result.failure<T>(e)
+        }
+        main.post { done(result) }
+    }
+}
+
+@Composable
+fun SearchScreen(
+    api: LiberApi,
+    onOpenDetail: (Int) -> Unit,
+    onOpenAdd: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var total by remember { mutableStateOf(0) }
+    var results by remember { mutableStateOf(listOf<ApiBookmark>()) }
+    val main = Handler(Looper.getMainLooper())
+
+    fun runSearch() {
+        val q = query
+        loading = true
+        error = null
+        runApi(main, { api.list(q, scope = "", deep = false, sort = "", page = 1) }) { res ->
+            loading = false
+            res.onSuccess {
+                total = it.total
+                results = it.bookmarks
+            }.onFailure {
+                error = it.message ?: "request failed"
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Search...") },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            Button(onClick = { runSearch() }) {
+                Text("Go")
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onOpenAdd) {
+                Text("Add")
+            }
+        }
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            error != null -> Text(
+                text = error ?: "",
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            else -> {
+                Text(
+                    text = "$total bookmark(s)",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                )
+                if (results.isEmpty()) {
+                    Text("No results yet. Search above.")
+                }
+                LazyColumn {
+                    items(results, key = { it.id }) { b ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenDetail(b.id) }
+                                .padding(vertical = 8.dp),
+                        ) {
+                            Text(b.title, style = MaterialTheme.typography.titleMedium)
+                            Text(b.url, style = MaterialTheme.typography.bodySmall)
+                            if (b.folder.isNotEmpty() || b.tags.isNotEmpty()) {
+                                Text(
+                                    (listOf(b.folder) + b.tags).filter { it.isNotEmpty() }
+                                        .joinToString(" · "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DetailScreen(api: LiberApi, id: Int, onBack: () -> Unit) {
+    val context = LocalContext.current
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var bookmark by remember { mutableStateOf<ApiBookmark?>(null) }
+    val main = Handler(Looper.getMainLooper())
+
+    fun load() {
+        loading = true
+        error = null
+        runApi(main, { api.get(id) }) { res ->
+            loading = false
+            res.onSuccess { bookmark = it }
+                .onFailure { error = it.message ?: "request failed" }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(id) { load() }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack) {
+                Text("Back")
+            }
+        }
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            error != null -> {
+                Text(
+                    text = error ?: "",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Retry")
+                }
+            }
+            else -> bookmark?.let { b ->
+                Text(b.title, style = MaterialTheme.typography.headlineSmall)
+                Text(b.url, style = MaterialTheme.typography.bodyMedium)
+                if (b.description.isNotEmpty()) {
+                    Text(b.description, modifier = Modifier.padding(top = 8.dp))
+                }
+                if (b.folder.isNotEmpty()) {
+                    Text("Folder: ${b.folder}", style = MaterialTheme.typography.labelMedium)
+                }
+                if (b.tags.isNotEmpty()) {
+                    Text("Tags: ${b.tags.joinToString(", ")}", style = MaterialTheme.typography.labelMedium)
+                }
+                Text(
+                    "md: ${if (b.hasMarkdown) "yes" else "no"} · archive: ${if (b.hasArchive) "yes" else "no"}" +
+                        " · opened ${b.openCount}x",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Button(
+                    onClick = {
+                        runApi(main, { api.open(id) }) { res ->
+                            res.onSuccess { url ->
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                            }.onFailure {
+                                error = it.message ?: "open failed"
+                            }
+                        }
+                    },
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Text("Open")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
+    var url by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    var pendingDup by remember { mutableStateOf<ApiBookmark?>(null) }
+    var pendingTitle by remember { mutableStateOf("") }
+    val main = Handler(Looper.getMainLooper())
+
+    fun submit(confirmed: Boolean) {
+        saving = true
+        error = null
+        val u = url
+        val t = title
+        runApi(main, { api.add(u, t, confirmed) }) { res ->
+            saving = false
+            res.onSuccess { onAdded() }.onFailure { e ->
+                val dup = (e as? LiberApi.Duplicate)?.existing
+                if (dup != null && !confirmed) {
+                    pendingDup = dup
+                    pendingTitle = t
+                } else {
+                    error = e.message ?: "add failed"
+                }
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack) {
+                Text("Back")
+            }
+        }
+        TextField(
+            value = url,
+            onValueChange = { url = it },
+            placeholder = { Text("https://example.com") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+        TextField(
+            value = title,
+            onValueChange = { title = it },
+            placeholder = { Text("Title (optional)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+        if (error != null) {
+            Text(
+                text = error ?: "",
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        Button(
+            onClick = { submit(confirmed = false) },
+            enabled = !saving && url.isNotBlank(),
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
+            Text(if (saving) "Saving..." else "Add")
+        }
+    }
+
+    pendingDup?.let { dup ->
+        AlertDialog(
+            onDismissRequest = { pendingDup = null },
+            title = { Text("Possible duplicate") },
+            text = { Text("Already bookmarked as \"${dup.title}\" (${dup.url}). Add anyway?") },
+            confirmButton = {
+                TextButton(onClick = { pendingDup = null; submit(confirmed = true) }) {
+                    Text("Add anyway")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDup = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
