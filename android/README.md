@@ -16,7 +16,7 @@ nix develop .#android-fhs   # FHS chroot: same toolchain plus a standard
                             # (aapt2, d8, apksigner) run unmodified.
                             # Exiting the inner bash ends the session.
 sh android/scripts/build-go-lib.sh
-cd android && gradle assembleDebug --no-daemon
+cd android && ./gradlew assembleDebug --no-daemon
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -50,7 +50,9 @@ in `flake.nix` must match `compileSdk`/`buildToolsVersion` in
 
 ## Build
 
-Prereqs: JDK 17, Gradle 8.x, Android SDK with platform-35 and build-tools.
+Prereqs: JDK 17, Android SDK with platform-35 and build-tools. Gradle itself
+comes from the committed wrapper (`./gradlew`, pinned to 8.10.2), so no
+system Gradle is needed.
 With nix (primary tool source): `nix develop .#android` provides Go, JDK 17,
 Gradle, and the SDK with `ANDROID_HOME`/`ANDROID_SDK_ROOT` preset (fast shell
 for Go builds and scripts). Gradle assembly itself must run inside
@@ -65,7 +67,7 @@ sh android/scripts/build-go-lib.sh
 #    android/app/src/main/jniLibs/arm64-v8a/libliber.so
 
 # 2. Assemble the debug APK:
-cd android && gradle assembleDebug
+cd android && ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 

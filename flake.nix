@@ -16,7 +16,7 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        version = "0.9.1";
+        version = "0.9.2";
         # Scoped package set for Android tooling. The SDK is proprietary, so
         # license acceptance and unfree permission live here only; the default
         # shell and packages stay fully free.
@@ -38,19 +38,17 @@
         # unmodified. Entered only via devShells.android-fhs below.
         androidFhsEnv = pkgsAndroid.buildFHSEnv {
           name = "liber-android-env";
-          targetPkgs =
-            pkgs:
-            [
-              pkgs.go
-              pkgs.jdk17
-              pkgs.gradle
-              androidSdk.androidsdk
-              androidSdk.platform-tools
-              pkgs.glibc
-              pkgs.zlib
-              pkgs.stdenv.cc.cc.lib
-              pkgs.which
-            ];
+          targetPkgs = pkgs: [
+            pkgs.go
+            pkgs.jdk17
+            pkgs.gradle
+            androidSdk.androidsdk
+            androidSdk.platform-tools
+            pkgs.glibc
+            pkgs.zlib
+            pkgs.stdenv.cc.cc.lib
+            pkgs.which
+          ];
           runScript = pkgs.writeShellScript "enter-liber-android-env" ''
             export ANDROID_HOME="${androidSdk.androidsdk}/libexec/android-sdk"
             export ANDROID_SDK_ROOT="$ANDROID_HOME"

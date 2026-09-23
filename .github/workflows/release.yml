@@ -84,8 +84,15 @@ jobs:
             props=("-PliberVersionName=${{ steps.androidver.outputs.name }}" "-PliberVersionCode=${{ steps.androidver.outputs.code }}")
           fi
           cd android
-          gradle assembleDebug --no-daemon "${props[@]}"
+          ./gradlew assembleDebug --no-daemon "${props[@]}"
           cp app/build/outputs/apk/debug/app-debug.apk ../dist/liber-android-debug.apk
+
+      - name: Upload debug APK artifact
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: liber-android-debug
+          path: dist/liber-android-debug.apk
 
       - name: Check for signing secrets
         id: signing
@@ -107,7 +114,7 @@ jobs:
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > /tmp/liber-release.keystore
           export LIBER_KEYSTORE_PATH=/tmp/liber-release.keystore
           cd android
-          gradle assembleRelease --no-daemon "-PliberVersionName=${{ steps.androidver.outputs.name }}" "-PliberVersionCode=${{ steps.androidver.outputs.code }}"
+          ./gradlew assembleRelease --no-daemon "-PliberVersionName=${{ steps.androidver.outputs.name }}" "-PliberVersionCode=${{ steps.androidver.outputs.code }}"
           cp app/build/outputs/apk/release/app-release.apk ../dist/liber-android.apk
           rm -f /tmp/liber-release.keystore
 
