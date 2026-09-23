@@ -29,5 +29,9 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+        <activity
+            android:name="bkm.liber.ui.UiActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|density|layoutDirection" />
     </application>
 </manifest>
