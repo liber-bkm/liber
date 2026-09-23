@@ -29,6 +29,7 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
+import bkm.liber.ui.UiActivity
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.ServerSocket
@@ -126,7 +127,7 @@ class MainActivity : Activity() {
     private fun prefs() = getPreferences(MODE_PRIVATE)
 
     private fun routeStartup() {
-        if (prefs().getString(PREF_MODE, null) == null) {
+        if (prefs().getString(Prefs.MODE, null) == null) {
             showModeDialog(firstRun = true)
             return
         }
@@ -134,8 +135,8 @@ class MainActivity : Activity() {
     }
 
     private fun applyMode() {
-        if (prefs().getString(PREF_MODE, MODE_STANDALONE) == MODE_REMOTE) {
-            val base = normalizeBase(prefs().getString(PREF_SERVER_URL, ""))
+        if (prefs().getString(Prefs.MODE, Prefs.STANDALONE) == Prefs.REMOTE) {
+            val base = normalizeBase(prefs().getString(Prefs.SERVER_URL, ""))
             if (base == null) {
                 showModeDialog(firstRun = false)
                 return
@@ -193,17 +194,17 @@ class MainActivity : Activity() {
         group.addView(remote)
         val urlField = EditText(this).apply {
             hint = "Server URL, e.g. http://192.168.1.10:8080"
-            setText(prefs().getString(PREF_SERVER_URL, ""))
+            setText(prefs().getString(Prefs.SERVER_URL, ""))
         }
         val tokenField = EditText(this).apply {
             hint = "Auth token (only if the server requires one)"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(prefs().getString(PREF_SERVER_TOKEN, ""))
+            setText(prefs().getString(Prefs.SERVER_TOKEN, ""))
         }
         layout.addView(group)
         layout.addView(urlField)
         layout.addView(tokenField)
-        if (prefs().getString(PREF_MODE, MODE_STANDALONE) == MODE_REMOTE) {
+        if (prefs().getString(Prefs.MODE, Prefs.STANDALONE) == Prefs.REMOTE) {
             remote.isChecked = true
         } else {
             standalone.isChecked = true
@@ -227,9 +228,9 @@ class MainActivity : Activity() {
                 return@setOnClickListener
             }
             prefs().edit()
-                .putString(PREF_MODE, if (wantRemote) MODE_REMOTE else MODE_STANDALONE)
-                .putString(PREF_SERVER_URL, url.trim())
-                .putString(PREF_SERVER_TOKEN, tokenField.text.toString().trim())
+                .putString(Prefs.MODE, if (wantRemote) Prefs.REMOTE else Prefs.STANDALONE)
+                .putString(Prefs.SERVER_URL, url.trim())
+                .putString(Prefs.SERVER_TOKEN, tokenField.text.toString().trim())
                 .apply()
             dialog.dismiss()
             applyMode()
@@ -237,7 +238,7 @@ class MainActivity : Activity() {
     }
 
     private fun loginRemoteThenLoad(base: String) {
-        val token = prefs().getString(PREF_SERVER_TOKEN, "") ?: ""
+        val token = prefs().getString(Prefs.SERVER_TOKEN, "") ?: ""
         if (token.isEmpty()) {
             loadAppUrl(targetUrl(base))
             return
@@ -311,7 +312,7 @@ class MainActivity : Activity() {
     private fun retryLoad() {
         loadAttempts = 0
         val proc = server
-        val remote = prefs().getString(PREF_MODE, MODE_STANDALONE) == MODE_REMOTE
+        val remote = prefs().getString(Prefs.MODE, Prefs.STANDALONE) == Prefs.REMOTE
         if (lastUrl.isNotEmpty() && (remote || (proc != null && proc.isAlive))) {
             web.loadUrl(lastUrl)
         } else {
@@ -401,6 +402,7 @@ class MainActivity : Activity() {
         popup.menu.add(Menu.NONE, MENU_SYNC_FOLDER, Menu.NONE, "Sync folder")
         popup.menu.add(Menu.NONE, MENU_EXPORT_SYNC, Menu.NONE, "Export to sync folder")
         popup.menu.add(Menu.NONE, MENU_SERVER_MODE, Menu.NONE, "Server mode")
+        popup.menu.add(Menu.NONE, MENU_NATIVE_UI, Menu.NONE, "Native UI (beta)")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_SYNC_FOLDER -> {
@@ -427,6 +429,20 @@ class MainActivity : Activity() {
                     showModeDialog(firstRun = false)
                     true
                 }
+                MENU_NATIVE_UI -> {
+                    val base = activeBase
+                    if (base.isEmpty()) {
+                        toast("Server not ready yet.")
+                    } else {
+                        startActivity(
+                            Intent(this, UiActivity::class.java).apply {
+                                putExtra(UiActivity.EXTRA_BASE, base)
+                                putExtra(UiActivity.EXTRA_TOKEN, prefs().getString(Prefs.SERVER_TOKEN, ""))
+                            },
+                        )
+                    }
+                    true
+                }
                 else -> false
             }
         }
@@ -434,7 +450,7 @@ class MainActivity : Activity() {
     }
 
     private fun syncTree(): Uri? {
-        val raw = getPreferences(MODE_PRIVATE).getString(PREF_SYNC_TREE, null) ?: return null
+        val raw = getPreferences(MODE_PRIVATE).getString(Prefs.SYNC_TREE, null) ?: return null
         return try {
             Uri.parse(raw)
         } catch (_: Exception) {
@@ -447,7 +463,7 @@ class MainActivity : Activity() {
     }
 
     private fun exportToSyncFolder() {
-        if (prefs().getString(PREF_MODE, MODE_STANDALONE) == MODE_REMOTE) {
+        if (prefs().getString(Prefs.MODE, Prefs.STANDALONE) == Prefs.REMOTE) {
             toast("Export runs on the server; download it from settings instead.")
             return
         }
@@ -521,7 +537,7 @@ class MainActivity : Activity() {
                         tree,
                         Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                     )
-                    getPreferences(MODE_PRIVATE).edit().putString(PREF_SYNC_TREE, tree.toString()).apply()
+                    getPreferences(MODE_PRIVATE).edit().putString(Prefs.SYNC_TREE, tree.toString()).apply()
                     toast("Sync folder set.")
                 } catch (e: Exception) {
                     Log.e(TAG, "persist tree permission: $e")
@@ -586,13 +602,8 @@ class MainActivity : Activity() {
         private const val MENU_SYNC_FOLDER = 2001
         private const val MENU_EXPORT_SYNC = 2002
         private const val MENU_SERVER_MODE = 2003
+        private const val MENU_NATIVE_UI = 2004
         private const val MAX_LOAD_ATTEMPTS = 8
         private const val LOAD_RETRY_DELAY_MS = 1000L
-        private const val PREF_SYNC_TREE = "sync_tree"
-        private const val PREF_MODE = "mode"
-        private const val PREF_SERVER_URL = "server_url"
-        private const val PREF_SERVER_TOKEN = "server_token"
-        private const val MODE_STANDALONE = "standalone"
-        private const val MODE_REMOTE = "remote"
     }
 }

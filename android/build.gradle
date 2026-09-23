@@ -3,4 +3,6 @@ plugins {
     // Without this, .kt sources are silently ignored and the APK ships
     // with no compiled code (ClassNotFoundException at launch).
     id 'org.jetbrains.kotlin.android' version '2.0.21' apply false
+    id 'org.jetbrains.kotlin.plugin.compose' version '2.0.21' apply false
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.0.21' apply false
 }
