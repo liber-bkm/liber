@@ -150,6 +150,14 @@ func run(args []string) error {
 			return err
 		}
 		return runImport(args[1], impOpt)
+	case "--export-bookmarks":
+		if len(args) < 2 {
+			return fmt.Errorf("--export-bookmarks requires a path, e.g. liber --export-bookmarks bookmarks.html")
+		}
+		if len(args) > 2 {
+			return fmt.Errorf("--export-bookmarks takes exactly one path")
+		}
+		return runExportBookmarks(args[1])
 	case "--tags":
 		if len(args) == 1 {
 			return runTagsList()
@@ -398,6 +406,9 @@ Usage:
                                    (see "Sync")
   liber --import <path>          import a browser bookmark export (Netscape HTML format)
   liber --import <path> -md -a   same, also generating markdown/archives for each (slow)
+  liber --export-bookmarks <path>
+                                 write the collection as a browser bookmark export
+                                 (Netscape HTML format, re-importable)
   liber --tags                   list all tags with counts
   liber --tags rename <a> <b>    rename a tag everywhere (renaming onto an existing
                                   tag merges into it -- no separate merge command)

@@ -616,7 +616,7 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`
 {{if .SyncOutput}}<pre class="reindexout">{{.SyncOutput}}</pre>{{end}}
 
 <h2>Library</h2>
-<p class="count">Import a browser bookmark export, write a static site of the whole collection, or <a href="/check">check link health</a>.</p>
+<p class="count">Import a browser bookmark export, write a static site of the whole collection, download a portable bookmark export, or <a href="/check">check link health</a>.</p>
 <form method="post" action="/settings/import" class="stry" enctype="multipart/form-data">
   <input type="file" name="bookmark_file" required>
   <label class="stry"><input type="checkbox" name="markdown"> markdown</label>
@@ -627,6 +627,7 @@ var settingsTmpl = template.Must(template.New("settings").Parse(`
   <input type="text" name="dir" placeholder="output dir (default <base_dir>/site)" size="40">
   <button type="submit">Export site</button>
 </form>
+<p class="count"><a href="/export-bookmarks">Download browser export</a> <span class="setdetect">Netscape HTML, re-importable anywhere including a fresh liber</span></p>
 {{if .LibraryOutput}}<pre class="reindexout">{{.LibraryOutput}}</pre>{{end}}
 
 <h2>Maintenance</h2>
