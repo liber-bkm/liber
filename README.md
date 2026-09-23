@@ -502,6 +502,16 @@ By default liber stores bookmarks in a folder named `Bookmarks` created inside y
   ```
   This opens a web UI to manage bookmarks. It allows editing, searching, and adding bookmarks in a browser window. By default it uses port `8080` of `localhost`.
 
+- **Securing the web UI:**
+
+  ```sh
+  liber --serve --auth-token <secret>   # require a token (browser login at /login)
+  LIBER_AUTH_TOKEN=<secret> liber --serve --addr 0.0.0.0:8080
+  liber config set auth_token <secret>  # same, stored in config.json (file is owner-only)
+  ```
+
+  Without a token, anyone who can reach the server has full read/add/edit/delete access, which is why loopback is the default and other addresses print a warning. With a token, browsers log in once at `/login` (cookie + origin-checked POSTs, `/logout` to leave) and scripts send `Authorization: Bearer <token>` (compute it as HMAC-SHA256 of your token over the string `liber-bearer-v1`, hex-encoded; e.g. with Python: `hmac.new(b'<secret>', b'liber-bearer-v1', hashlib.sha256).hexdigest()`). The active token resolves flag, then env, then the `auth_token` config key; the config file is owner-only and `liber config` never prints the value. Locked out? Remove the flag/env/key (or the `auth_token` line) with file access and restart on loopback. Prefer a reverse proxy with TLS or a VPN in front for anything beyond a trusted LAN, since the token travels in the clear over plain HTTP.
+
 - **Static site export**
 ```sh
 liber --export-site            # writes <base_dir>/site/index.html
