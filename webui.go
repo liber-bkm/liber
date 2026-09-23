@@ -452,7 +452,7 @@ func handleAdd(w http.ResponseWriter, r *http.Request) {
 	tags := splitWebTags(tagsRaw)
 	folder := sanitizeFolder(folderIn)
 
-	fetched := fetchTitle(normalizedURL)
+	fetched := fetchTitle(cfg, normalizedURL)
 	if strings.TrimSpace(fetched) == "" {
 		fetched = normalizedURL
 	}

@@ -33,6 +33,8 @@ type Config struct {
 
 	EditorCmd string `json:"editor_cmd,omitempty"`
 
+	DNSFallback string `json:"dns_fallback,omitempty"`
+
 	DeviceID string `json:"device_id,omitempty"`
 
 	ActiveProfile string   `json:"active_profile,omitempty"`
@@ -153,7 +155,7 @@ var settableKeys = []string{
 	"base_dir", "html_dir", "markdown_dir", "archive_dir", "attachment_dir",
 	"singlefile_cmd", "singlefile_browser_path", "archive_backend",
 	"monolith_cmd", "monolith_browser_path", "monolith_use_browser",
-	"browser_cmd", "editor_cmd", "device_id",
+	"browser_cmd", "editor_cmd", "device_id", "dns_fallback",
 }
 
 func runConfigSet(args []string) error {
@@ -206,6 +208,13 @@ func runConfigSet(args []string) error {
 		cfg.EditorCmd = val
 	case "device_id":
 		cfg.DeviceID = sanitizeDevice(val)
+	case "dns_fallback":
+		switch val {
+		case "auto", "off":
+			cfg.DNSFallback = val
+		default:
+			return fmt.Errorf("invalid dns_fallback %q (expected auto or off)", val)
+		}
 	default:
 		return fmt.Errorf("unknown key %q (keys: %s)", key, strings.Join(settableKeys, ", "))
 	}
