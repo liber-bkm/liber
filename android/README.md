@@ -99,13 +99,17 @@ File inputs in the WebView only work through the `WebChromeClient` bridge in
 8. Export the static site from settings, tap the download, confirm it lands in Downloads/liber with a completion notice.
 9. Open the ⋮ menu, pick a sync folder, confirm the toast, restart the app, confirm the folder is remembered.
 10. Open the ⋮ menu and dismiss it without choosing (back button, then again via tap-outside), reopen both times and confirm it appears every time.
-10. With an export present, use Export to sync folder, confirm index.html appears in the picked folder (re-run replaces, never duplicates).
-11. Fresh install shows the mode dialog; pick standalone, confirm the local UI loads.
-12. From the ⋮ menu open Server mode, enter a LAN URL, confirm the remote UI loads and loopback links stay in-app.
-13. Against an authed server: save the token in Server mode, confirm the UI loads without a manual login; wrong token falls back to the server login page (logcat notes the rejection).
-13. Switch back to standalone, confirm the local UI returns and no second server lingers (logcat shows one liber startup).
-14. Cold start loads the page without manual retry; killing the server mid-run shows the error view whose Retry recovers without changing ports.
-15. Full backup loop: settings, Library, Download browser export, confirm `liber-bookmarks.html` in Downloads; reinstall the app; settings, Library, import the file; confirm every bookmark, tag, and folder is back.
+11. With an export present, use Export to sync folder, confirm index.html appears in the picked folder (re-run replaces, never duplicates).
+12. Fresh install shows the mode dialog; pick standalone, confirm the local UI loads.
+13. From the ⋮ menu open Server mode, enter a LAN URL, confirm the remote UI loads and loopback links stay in-app.
+14. Against an authed server: save the token in Server mode, confirm the UI loads without a manual login; wrong token falls back to the server login page (logcat notes the rejection).
+15. Switch back to standalone, confirm the local UI returns and no second server lingers (logcat shows one liber startup).
+16. Cold start loads the page without manual retry; killing the server mid-run shows the error view whose Retry recovers without changing ports.
+17. Full backup loop: settings, Library, Download browser export, confirm `liber-bookmarks.html` in Downloads; reinstall the app; settings, Library, import the file; confirm every bookmark, tag, and folder is back.
+18. ⋮ menu, Native UI (beta): list loads the same bookmarks as the WebView view; a search narrows them; tapping one opens it externally; airplane-mode error shows instead of a hang.
+19. Native detail: tapping a result shows full fields with working Open (history count increments, visible in WebView history); missing id shows retryable error.
+20. Native add: new URL saves and appears in both views; duplicate URL shows the already-bookmarked dialog with working Add-anyway.
+21. Native edit: from detail open Edit, change title/tags, save, confirm the change shows in both views; blank title/URL blocks saving; missing id shows retryable error.
 
 ## Backup and reinstall (standalone mode)
 
