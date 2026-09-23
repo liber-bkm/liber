@@ -553,7 +553,7 @@ func handleSettingsSync(w http.ResponseWriter, r *http.Request) {
 }
 
 var settingsTmpl = template.Must(template.New("settings").Parse(`
-<p><a href="/">&larr; back to search</a></p>
+<p><a href="/">&larr; back to search</a> &middot; <a href="/logout">log out</a></p>
 <h2>Settings</h2>
 <p class="count">Config file: {{.Path}}{{if .IsAndroid}} &middot; app-private storage, not directly editable: manage it here{{end}}</p>
 {{if .Flash}}<p class="flash">{{.Flash}}</p>{{end}}

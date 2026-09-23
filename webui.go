@@ -19,33 +19,38 @@ var writeMu sync.Mutex
 
 const webPageSize = 500
 
-func parseServeFlags(args []string) (addr string, err error) {
-	addr = "127.0.0.1:8080"
+type serveOptions struct {
+	addr  string
+	token string
+}
+
+func parseServeFlags(args []string) (serveOptions, error) {
+	opt := serveOptions{addr: "127.0.0.1:8080"}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--addr":
 			if i+1 >= len(args) {
-				return "", fmt.Errorf("--addr requires a value, e.g. 127.0.0.1:9000")
+				return opt, fmt.Errorf("--addr requires a value, e.g. 127.0.0.1:9000")
 			}
-			addr = args[i+1]
+			opt.addr = args[i+1]
+			i++
+		case "--auth-token":
+			if i+1 >= len(args) {
+				return opt, fmt.Errorf("--auth-token requires a value")
+			}
+			opt.token = args[i+1]
 			i++
 		default:
-			return "", fmt.Errorf("unknown flag for --serve: %s", args[i])
+			return opt, fmt.Errorf("unknown flag for --serve: %s", args[i])
 		}
 	}
-	return addr, nil
+	return opt, nil
 }
 
-func runServe(args []string) error {
-	addr, err := parseServeFlags(args)
-	if err != nil {
-		return err
-	}
-	if !strings.HasPrefix(addr, "127.0.0.1:") && !strings.HasPrefix(addr, "localhost:") {
-		fmt.Println("warning: binding to a non-loopback address exposes your whole bookmark collection -- read, add, edit AND delete access -- to anyone who can reach it, with no login. Only do this on a network you trust.")
-	}
-
+func newWebMux(token string) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/login", handleLogin(token))
+	mux.HandleFunc("/logout", handleLogout)
 	mux.HandleFunc("/", handleSearch)
 	mux.HandleFunc("/add", handleAdd)
 	mux.HandleFunc("/edit/", handleEdit)
@@ -74,8 +79,29 @@ func runServe(args []string) error {
 	mux.HandleFunc("/check/run", handleCheckRun)
 	mux.HandleFunc("/check/apply", handleCheckApply)
 
-	fmt.Printf("liber web UI: http://%s (Ctrl+C to stop)\n", addr)
-	return http.ListenAndServe(addr, mux)
+	return withAuth(token, mux)
+}
+
+func runServe(args []string) error {
+	opt, err := parseServeFlags(args)
+	if err != nil {
+		return err
+	}
+	cfg, _, err := LoadConfig()
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+	opt.token = resolveAuthToken(opt.token, cfg)
+	if opt.token == "" {
+		if !strings.HasPrefix(opt.addr, "127.0.0.1:") && !strings.HasPrefix(opt.addr, "localhost:") {
+			fmt.Println("warning: binding to a non-loopback address exposes your whole bookmark collection -- read, add, edit AND delete access -- to anyone who can reach it, with no login. Only do this on a network you trust.")
+		}
+	} else {
+		fmt.Println("auth token enabled: browser login at /login, API clients use Authorization: Bearer.")
+	}
+
+	fmt.Printf("liber web UI: http://%s (Ctrl+C to stop)\n", opt.addr)
+	return http.ListenAndServe(opt.addr, newWebMux(opt.token))
 }
 
 func scopeFromParams(vals []string) SearchFields {

@@ -37,6 +37,8 @@ type Config struct {
 
 	DeviceID string `json:"device_id,omitempty"`
 
+	AuthToken string `json:"auth_token,omitempty"`
+
 	ActiveProfile string   `json:"active_profile,omitempty"`
 	Profiles      []string `json:"profiles,omitempty"`
 }
@@ -108,7 +110,13 @@ func SaveConfig(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	// Owner-only: the file may hold the auth token.
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	// Tighten pre-existing files that were written world-readable.
+	_ = os.Chmod(path, 0o600)
+	return nil
 }
 
 func (c Config) effectiveBaseDir() string {
@@ -151,11 +159,22 @@ func (c Config) indexPath() string {
 	return filepath.Join(c.effectiveBaseDir(), ".liber", "index.json")
 }
 
+// resolveAuthToken picks the active token: flag beats env beats config file.
+func resolveAuthToken(flagVal string, cfg Config) string {
+	if flagVal != "" {
+		return flagVal
+	}
+	if env := strings.TrimSpace(os.Getenv("LIBER_AUTH_TOKEN")); env != "" {
+		return env
+	}
+	return cfg.AuthToken
+}
+
 var settableKeys = []string{
 	"base_dir", "html_dir", "markdown_dir", "archive_dir", "attachment_dir",
 	"singlefile_cmd", "singlefile_browser_path", "archive_backend",
 	"monolith_cmd", "monolith_browser_path", "monolith_use_browser",
-	"browser_cmd", "editor_cmd", "device_id", "dns_fallback",
+	"browser_cmd", "editor_cmd", "device_id", "dns_fallback", "auth_token",
 }
 
 func runConfigSet(args []string) error {
@@ -208,6 +227,8 @@ func runConfigSet(args []string) error {
 		cfg.EditorCmd = val
 	case "device_id":
 		cfg.DeviceID = sanitizeDevice(val)
+	case "auth_token":
+		cfg.AuthToken = val
 	case "dns_fallback":
 		switch val {
 		case "auto", "off":
