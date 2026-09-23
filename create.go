@@ -35,7 +35,7 @@ func runCreate(rawURL string, opt CreateOptions) error {
 	}
 
 	fmt.Printf("Fetching title for %s ...\n", url)
-	title := fetchTitle(url)
+	title := fetchTitle(cfg, url)
 	if strings.TrimSpace(title) == "" {
 		title = url
 	}
