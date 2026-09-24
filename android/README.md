@@ -113,6 +113,8 @@ File inputs in the WebView only work through the `WebChromeClient` bridge in
 22. Native tags: list matches the WebView tags page counts; rename updates every bookmark (renaming onto an existing tag merges); delete asks with the affected count and updates both views; offline shows a retryable error.
 23. Native folders: reached from the tags screen, counts match the WebView page; rename moves the subtree (merging onto an existing folder); delete moves the subtree back to root after a count confirm; root has no actions; offline shows a retryable error.
 24. Native rules: reached from the tags screen, list matches `--auto list` with applied counts; add with folder/tags backfills; suggestions preview with min, create-all, and apply-all work; delete confirms and leaves classified bookmarks as-is; offline shows a retryable error.
+25. Native check: Check button on the list, spec/stale scan matches the WebView buckets; moved rows update URL with optional title refresh; dead/uncertain rows delete (with confirm) or quarantine and drop from the list; offline or bad spec shows a retryable error.
+26. Native settings: counts, base dir, and maintenance status match the WebView settings page; backend selector persists and reloads; offline shows a retryable error.
 
 ## Backup and reinstall (standalone mode)
 
