@@ -38,6 +38,17 @@ data class ApiBookmark(
 )
 
 @Serializable
+data class ApiTag(
+    val name: String = "",
+    val count: Int = 0,
+)
+
+@Serializable
+data class ApiTagsResponse(
+    val tags: List<ApiTag> = emptyList(),
+)
+
+@Serializable
 data class ApiListResponse(
     val total: Int = 0,
     val page: Int = 1,
@@ -186,6 +197,60 @@ class LiberApi(baseUrl: String, token: String) {
         }
     }
 
+    fun tags(): List<ApiTag> {
+        val req = authed(Request.Builder().url("$base/api/v1/tags")).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiTagsResponse.serializer(), body).tags
+        }
+    }
+
+    fun renameTag(old: String, new: String): Int {
+        val payload = buildJsonObject {
+            put("old", JsonPrimitive(old))
+            put("new", JsonPrimitive(new))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/tags/rename")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no bookmarks have that tag")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.parseToJsonElement(body).jsonObject["renamed"]
+                ?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                ?: throw IOException("bad rename response")
+        }
+    }
+
+    fun deleteTag(tag: String, confirmed: Boolean): Int {
+        val payload = buildJsonObject {
+            put("tag", JsonPrimitive(tag))
+            put("confirm", JsonPrimitive(confirmed))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/tags/delete")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no bookmarks have that tag")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            val obj = json.parseToJsonElement(body).jsonObject
+            if (obj["confirm_required"]?.jsonPrimitive?.contentOrNull == "true") {
+                throw ConfirmRequired(
+                    obj["count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0,
+                )
+            }
+            return obj["deleted"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                ?: throw IOException("bad delete response")
+        }
+    }
+
     private fun authed(b: Request.Builder): Request.Builder {
         if (auth.isNotEmpty()) b.header("Authorization", "Bearer $auth")
         return b
@@ -201,4 +266,8 @@ class LiberApi(baseUrl: String, token: String) {
     }
 
     class Duplicate(val existing: ApiBookmark?, message: String) : IOException(message)
+
+    class ConfirmRequired(val count: Int) : IOException("confirm required") {
+        constructor() : this(0)
+    }
 }
