@@ -80,6 +80,8 @@ func newWebMux(token string) http.Handler {
 	mux.HandleFunc("/check/apply", handleCheckApply)
 	mux.HandleFunc("/api/v1/bookmarks", handleAPIBookmarks)
 	mux.HandleFunc("/api/v1/bookmarks/", handleAPIBookmark)
+	mux.HandleFunc("/api/v1/tags", handleAPITags)
+	mux.HandleFunc("/api/v1/tags/", handleAPITagAction)
 
 	return withAuth(token, mux)
 }
