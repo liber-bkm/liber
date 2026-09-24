@@ -74,6 +74,19 @@ class ApiParsingTest {
     }
 
     @Test
+    fun parsesTagsResponse() {
+        val out = json.decodeFromString(
+            ApiTagsResponse.serializer(),
+            """{"tags":[{"name":"x","count":3},{"name":"y","count":1}],"extra":true}""",
+        )
+        assertEquals(2, out.tags.size)
+        assertEquals(ApiTag("x", 3), out.tags[0])
+        assertEquals(ApiTag("y", 1), out.tags[1])
+        val empty = json.decodeFromString(ApiTagsResponse.serializer(), """{"tags":[]}""")
+        assertEquals(0, empty.tags.size)
+    }
+
+    @Test
     fun listUrlParams() {
         val api = LiberApi("http://127.0.0.1:8080/", "s3cret")
         val url = api.listUrl("hello world", "nt", deep = true, sort = "newest", page = 2)

@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import bkm.liber.api.ApiBookmark
+import bkm.liber.api.ApiTag
 import bkm.liber.api.LiberApi
 import kotlin.concurrent.thread
 
@@ -66,6 +67,7 @@ private sealed interface Screen {
     data class Detail(val id: Int) : Screen
     data object Add : Screen
     data class Edit(val id: Int) : Screen
+    data object Tags : Screen
 }
 
 @Composable
@@ -79,6 +81,7 @@ fun LiberNav(api: LiberApi) {
             api = api,
             onOpenDetail = { push(Screen.Detail(it)) },
             onOpenAdd = { push(Screen.Add) },
+            onOpenTags = { push(Screen.Tags) },
         )
         is Screen.Detail -> DetailScreen(
             api = api,
@@ -96,6 +99,10 @@ fun LiberNav(api: LiberApi) {
             id = top.id,
             onBack = { pop() },
             onSaved = { pop() },
+        )
+        is Screen.Tags -> TagsScreen(
+            api = api,
+            onBack = { pop() },
         )
     }
 }
@@ -116,6 +123,7 @@ fun SearchScreen(
     api: LiberApi,
     onOpenDetail: (Int) -> Unit,
     onOpenAdd: () -> Unit,
+    onOpenTags: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
@@ -155,6 +163,9 @@ fun SearchScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onOpenAdd) {
                 Text("Add")
+            }
+            Button(onClick = onOpenTags) {
+                Text("Tags")
             }
         }
         when {
@@ -482,5 +493,186 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
                 }
             }
         }
+    }
+}
+
+@Composable
+fun TagsScreen(api: LiberApi, onBack: () -> Unit) {
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var tags by remember { mutableStateOf(listOf<ApiTag>()) }
+    var mutating by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<ApiTag?>(null) }
+    var renameValue by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<ApiTag?>(null) }
+    var deleteCount by remember { mutableStateOf(0) }
+    val main = Handler(Looper.getMainLooper())
+
+    fun load() {
+        loading = true
+        error = null
+        runApi(main, { api.tags() }) { res ->
+            loading = false
+            res.onSuccess { tags = it }
+                .onFailure { error = it.message ?: "request failed" }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) { load() }
+
+    fun submitRename() {
+        val target = renameTarget ?: return
+        val new = renameValue
+        mutating = true
+        error = null
+        runApi(main, { api.renameTag(target.name, new) }) { res ->
+            mutating = false
+            res.onSuccess {
+                renameTarget = null
+                load()
+            }.onFailure {
+                error = it.message ?: "rename failed"
+            }
+        }
+    }
+
+    fun submitDelete(confirmed: Boolean) {
+        val target = deleteTarget ?: return
+        mutating = true
+        error = null
+        runApi(main, { api.deleteTag(target.name, confirmed) }) { res ->
+            mutating = false
+            res.onSuccess {
+                deleteTarget = null
+                load()
+            }.onFailure { e ->
+                val needed = e as? LiberApi.ConfirmRequired
+                if (needed != null && !confirmed) {
+                    deleteCount = needed.count
+                } else {
+                    error = e.message ?: "delete failed"
+                }
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack) {
+                Text("Back")
+            }
+        }
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            error != null && tags.isEmpty() -> {
+                Text(
+                    text = error ?: "",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Retry")
+                }
+            }
+            else -> {
+                if (error != null) {
+                    Text(
+                        text = error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                Text(
+                    text = "${tags.size} tag(s)",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                )
+                if (tags.isEmpty()) {
+                    Text("No tags yet.")
+                }
+                LazyColumn {
+                    items(tags, key = { it.name }) { t ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(t.name, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "${t.count} bookmark(s)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    renameTarget = t
+                                    renameValue = t.name
+                                },
+                                enabled = !mutating,
+                            ) {
+                                Text("Rename")
+                            }
+                            TextButton(
+                                onClick = {
+                                    deleteTarget = t
+                                    deleteCount = t.count
+                                    submitDelete(confirmed = false)
+                                },
+                                enabled = !mutating,
+                            ) {
+                                Text("Delete")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    renameTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename tag") },
+            text = {
+                TextField(
+                    value = renameValue,
+                    onValueChange = { renameValue = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { submitRename() },
+                    enabled = !mutating && renameValue.isNotBlank() &&
+                        !renameValue.equals(target.name, ignoreCase = true),
+                ) {
+                    Text(if (mutating) "Saving..." else "Rename")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete tag?") },
+            text = { Text("Remove \"${target.name}\" from $deleteCount bookmark(s)?") },
+            confirmButton = {
+                TextButton(onClick = { submitDelete(confirmed = true) }, enabled = !mutating) {
+                    Text(if (mutating) "Deleting..." else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }
