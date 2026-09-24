@@ -199,6 +199,101 @@ func TestAPIDelete(t *testing.T) {
 	}
 }
 
+func TestAPITagsList(t *testing.T) {
+	_ = apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "GET", "/api/v1/tags", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	tags := out["tags"].([]any)
+	if len(tags) != 1 {
+		t.Fatalf("tags = %v", tags)
+	}
+	first := tags[0].(map[string]any)
+	if first["name"] != "x" || first["count"].(float64) != 1 {
+		t.Fatalf("first = %v", first)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/tags", "")
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", w.Code)
+	}
+}
+
+func TestAPITagsRename(t *testing.T) {
+	base := apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/tags/rename", `{"old":"x","new":"y"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if apiDecode(t, w)["renamed"].(float64) != 1 {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+	b := loadTestStore(t, base).Find(1)
+	if len(b.Tags) != 1 || b.Tags[0] != "y" {
+		t.Fatalf("tags = %v", b.Tags)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/tags/rename", `{"old":"missing","new":"y"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/tags/rename", `{"old":"y","new":"y"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/tags/rename", `not json`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+}
+
+func TestAPITagsDelete(t *testing.T) {
+	base := apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/tags/delete", `{"tag":"x"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	if out["confirm_required"] != true || out["count"].(float64) != 1 {
+		t.Fatalf("out = %v", out)
+	}
+	if len(loadTestStore(t, base).Find(1).Tags) != 1 {
+		t.Fatalf("deleted without confirm")
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/tags/delete", `{"tag":"x","confirm":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if apiDecode(t, w)["deleted"].(float64) != 1 {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+	if len(loadTestStore(t, base).Find(1).Tags) != 0 {
+		t.Fatalf("not deleted")
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/tags/delete", `{"tag":"missing","confirm":true}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/tags/delete", `{"tag":""}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/tags/bogus", `{"tag":"x"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+}
+
 func TestAPIMethodAndAuth(t *testing.T) {
 	_ = apiTestSetup(t)
 	h := newWebMux("")
