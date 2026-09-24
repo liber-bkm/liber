@@ -46,6 +46,120 @@ func toAPIBookmark(b *Bookmark) apiBookmark {
 	return out
 }
 
+type apiTag struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+func handleAPITags(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows := sortedTaxRows(tagCounts(store))
+	out := make([]apiTag, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, apiTag{Name: row.Name, Count: row.Count})
+	}
+	writeAPIJSON(w, http.StatusOK, map[string]any{"tags": out})
+}
+
+func handleAPITagAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	switch strings.TrimPrefix(r.URL.Path, "/api/v1/tags/") {
+	case "rename":
+		var in struct {
+			Old string `json:"old"`
+			New string `json:"new"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		changed, err := renameTag(cfg, store, in.Old, in.New)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if len(changed) == 0 {
+			writeAPIError(w, http.StatusNotFound, "no bookmarks have that tag")
+			return
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(changed)); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"renamed": len(changed)})
+	case "delete":
+		var in struct {
+			Tag     string `json:"tag"`
+			Confirm bool   `json:"confirm"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		if strings.TrimSpace(in.Tag) == "" {
+			writeAPIError(w, http.StatusBadRequest, "tag is required")
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !in.Confirm {
+			count := 0
+			for _, b := range store.Bookmarks {
+				if indexOfFold(b.Tags, strings.TrimSpace(in.Tag)) != -1 {
+					count++
+				}
+			}
+			if count == 0 {
+				writeAPIError(w, http.StatusNotFound, "no bookmarks have that tag")
+				return
+			}
+			writeAPIJSON(w, http.StatusOK, map[string]any{
+				"confirm_required": true,
+				"count":            count,
+				"hint":             "repeat with confirm true to delete",
+			})
+			return
+		}
+		changed, err := deleteTag(cfg, store, in.Tag)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if len(changed) == 0 {
+			writeAPIError(w, http.StatusNotFound, "no bookmarks have that tag")
+			return
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(changed)); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"deleted": len(changed)})
+	default:
+		writeAPIError(w, http.StatusNotFound, "no such endpoint")
+	}
+}
+
 func writeAPIError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
