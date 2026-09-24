@@ -49,6 +49,18 @@ data class ApiTagsResponse(
 )
 
 @Serializable
+data class ApiFolder(
+    val name: String = "",
+    val display: String = "",
+    val count: Int = 0,
+)
+
+@Serializable
+data class ApiFoldersResponse(
+    val folders: List<ApiFolder> = emptyList(),
+)
+
+@Serializable
 data class ApiListResponse(
     val total: Int = 0,
     val page: Int = 1,
@@ -247,6 +259,60 @@ class LiberApi(baseUrl: String, token: String) {
                 )
             }
             return obj["deleted"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                ?: throw IOException("bad delete response")
+        }
+    }
+
+    fun folders(): List<ApiFolder> {
+        val req = authed(Request.Builder().url("$base/api/v1/folders")).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiFoldersResponse.serializer(), body).folders
+        }
+    }
+
+    fun renameFolder(old: String, new: String): Int {
+        val payload = buildJsonObject {
+            put("old", JsonPrimitive(old))
+            put("new", JsonPrimitive(new))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/folders/rename")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no bookmarks in that folder")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.parseToJsonElement(body).jsonObject["moved"]
+                ?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                ?: throw IOException("bad rename response")
+        }
+    }
+
+    fun deleteFolder(folder: String, confirmed: Boolean): Int {
+        val payload = buildJsonObject {
+            put("folder", JsonPrimitive(folder))
+            put("confirm", JsonPrimitive(confirmed))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/folders/delete")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no bookmarks in that folder")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            val obj = json.parseToJsonElement(body).jsonObject
+            if (obj["confirm_required"]?.jsonPrimitive?.contentOrNull == "true") {
+                throw ConfirmRequired(
+                    obj["count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0,
+                )
+            }
+            return obj["moved"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
                 ?: throw IOException("bad delete response")
         }
     }

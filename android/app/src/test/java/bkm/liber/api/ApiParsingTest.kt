@@ -87,6 +87,17 @@ class ApiParsingTest {
     }
 
     @Test
+    fun parsesFoldersResponse() {
+        val out = json.decodeFromString(
+            ApiFoldersResponse.serializer(),
+            """{"folders":[{"name":"docs","display":"docs","count":3},{"name":"","display":"/","count":1}]}""",
+        )
+        assertEquals(2, out.folders.size)
+        assertEquals(ApiFolder("docs", "docs", 3), out.folders[0])
+        assertEquals(ApiFolder("", "/", 1), out.folders[1])
+    }
+
+    @Test
     fun listUrlParams() {
         val api = LiberApi("http://127.0.0.1:8080/", "s3cret")
         val url = api.listUrl("hello world", "nt", deep = true, sort = "newest", page = 2)

@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import bkm.liber.api.ApiBookmark
+import bkm.liber.api.ApiFolder
 import bkm.liber.api.ApiTag
 import bkm.liber.api.LiberApi
 import kotlin.concurrent.thread
@@ -68,6 +69,7 @@ private sealed interface Screen {
     data object Add : Screen
     data class Edit(val id: Int) : Screen
     data object Tags : Screen
+    data object Folders : Screen
 }
 
 @Composable
@@ -101,6 +103,11 @@ fun LiberNav(api: LiberApi) {
             onSaved = { pop() },
         )
         is Screen.Tags -> TagsScreen(
+            api = api,
+            onBack = { pop() },
+            onOpenFolders = { push(Screen.Folders) },
+        )
+        is Screen.Folders -> FoldersScreen(
             api = api,
             onBack = { pop() },
         )
@@ -497,7 +504,7 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
 }
 
 @Composable
-fun TagsScreen(api: LiberApi, onBack: () -> Unit) {
+fun TagsScreen(api: LiberApi, onBack: () -> Unit, onOpenFolders: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var tags by remember { mutableStateOf(listOf<ApiTag>()) }
@@ -560,6 +567,9 @@ fun TagsScreen(api: LiberApi, onBack: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onBack) {
                 Text("Back")
+            }
+            Button(onClick = onOpenFolders) {
+                Text("Folders")
             }
         }
         when {
@@ -666,6 +676,189 @@ fun TagsScreen(api: LiberApi, onBack: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = { submitDelete(confirmed = true) }, enabled = !mutating) {
                     Text(if (mutating) "Deleting..." else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+fun FoldersScreen(api: LiberApi, onBack: () -> Unit) {
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var folders by remember { mutableStateOf(listOf<ApiFolder>()) }
+    var mutating by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<ApiFolder?>(null) }
+    var renameValue by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<ApiFolder?>(null) }
+    var deleteCount by remember { mutableStateOf(0) }
+    val main = Handler(Looper.getMainLooper())
+
+    fun load() {
+        loading = true
+        error = null
+        runApi(main, { api.folders() }) { res ->
+            loading = false
+            res.onSuccess { folders = it }
+                .onFailure { error = it.message ?: "request failed" }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) { load() }
+
+    fun submitRename() {
+        val target = renameTarget ?: return
+        val new = renameValue
+        mutating = true
+        error = null
+        runApi(main, { api.renameFolder(target.name, new) }) { res ->
+            mutating = false
+            res.onSuccess {
+                renameTarget = null
+                load()
+            }.onFailure {
+                error = it.message ?: "rename failed"
+            }
+        }
+    }
+
+    fun submitDelete(confirmed: Boolean) {
+        val target = deleteTarget ?: return
+        mutating = true
+        error = null
+        runApi(main, { api.deleteFolder(target.name, confirmed) }) { res ->
+            mutating = false
+            res.onSuccess {
+                deleteTarget = null
+                load()
+            }.onFailure { e ->
+                val needed = e as? LiberApi.ConfirmRequired
+                if (needed != null && !confirmed) {
+                    deleteCount = needed.count
+                } else {
+                    error = e.message ?: "delete failed"
+                }
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack) {
+                Text("Back")
+            }
+        }
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            error != null && folders.isEmpty() -> {
+                Text(
+                    text = error ?: "",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Retry")
+                }
+            }
+            else -> {
+                if (error != null) {
+                    Text(
+                        text = error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                Text(
+                    text = "${folders.size} folder(s)",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                )
+                if (folders.isEmpty()) {
+                    Text("Everything is at the root.")
+                }
+                LazyColumn {
+                    items(folders, key = { it.name }) { f ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    f.display.ifEmpty { "/" },
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    "${f.count} bookmark(s)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    renameTarget = f
+                                    renameValue = f.name
+                                },
+                                enabled = !mutating && f.name.isNotEmpty(),
+                            ) {
+                                Text("Rename")
+                            }
+                            TextButton(
+                                onClick = {
+                                    deleteTarget = f
+                                    deleteCount = f.count
+                                    submitDelete(confirmed = false)
+                                },
+                                enabled = !mutating && f.name.isNotEmpty(),
+                            ) {
+                                Text("Delete")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    renameTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename folder") },
+            text = {
+                TextField(
+                    value = renameValue,
+                    onValueChange = { renameValue = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { submitRename() },
+                    enabled = !mutating && renameValue.isNotBlank() && renameValue != target.name,
+                ) {
+                    Text(if (mutating) "Saving..." else "Rename")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete folder?") },
+            text = { Text("Move $deleteCount bookmark(s) from \"${target.display}\" back to the root?") },
+            confirmButton = {
+                TextButton(onClick = { submitDelete(confirmed = true) }, enabled = !mutating) {
+                    Text(if (mutating) "Deleting..." else "Move to root")
                 }
             },
             dismissButton = {
