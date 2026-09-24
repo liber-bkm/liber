@@ -98,6 +98,22 @@ class ApiParsingTest {
     }
 
     @Test
+    fun parsesRulesResponse() {
+        val out = json.decodeFromString(
+            ApiRulesResponse.serializer(),
+            """{"rules":[{"id":1,"match":"host:h.com","folder":"docs","tags":["x"],"applied_count":3}]}""",
+        )
+        assertEquals(1, out.rules.size)
+        assertEquals(ApiRule(1, "host:h.com", "docs", listOf("x"), 3), out.rules[0])
+        val sugs = json.decodeFromString(
+            ApiSuggestionsResponse.serializer(),
+            """{"min":2,"suggestions":[{"host":"h.com","folder":"docs","count":3}]}""",
+        )
+        assertEquals(2, sugs.min)
+        assertEquals(ApiSuggestion("h.com", "docs", 3), sugs.suggestions[0])
+    }
+
+    @Test
     fun listUrlParams() {
         val api = LiberApi("http://127.0.0.1:8080/", "s3cret")
         val url = api.listUrl("hello world", "nt", deep = true, sort = "newest", page = 2)

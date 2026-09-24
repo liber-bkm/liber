@@ -35,6 +35,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import bkm.liber.api.ApiBookmark
 import bkm.liber.api.ApiFolder
+import bkm.liber.api.ApiRule
+import bkm.liber.api.ApiSuggestion
 import bkm.liber.api.ApiTag
 import bkm.liber.api.LiberApi
 import kotlin.concurrent.thread
@@ -70,6 +72,7 @@ private sealed interface Screen {
     data class Edit(val id: Int) : Screen
     data object Tags : Screen
     data object Folders : Screen
+    data object Rules : Screen
 }
 
 @Composable
@@ -106,8 +109,13 @@ fun LiberNav(api: LiberApi) {
             api = api,
             onBack = { pop() },
             onOpenFolders = { push(Screen.Folders) },
+            onOpenRules = { push(Screen.Rules) },
         )
         is Screen.Folders -> FoldersScreen(
+            api = api,
+            onBack = { pop() },
+        )
+        is Screen.Rules -> RulesScreen(
             api = api,
             onBack = { pop() },
         )
@@ -504,7 +512,7 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
 }
 
 @Composable
-fun TagsScreen(api: LiberApi, onBack: () -> Unit, onOpenFolders: () -> Unit) {
+fun TagsScreen(api: LiberApi, onBack: () -> Unit, onOpenFolders: () -> Unit, onOpenRules: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var tags by remember { mutableStateOf(listOf<ApiTag>()) }
@@ -570,6 +578,9 @@ fun TagsScreen(api: LiberApi, onBack: () -> Unit, onOpenFolders: () -> Unit) {
             }
             Button(onClick = onOpenFolders) {
                 Text("Folders")
+            }
+            Button(onClick = onOpenRules) {
+                Text("Rules")
             }
         }
         when {
@@ -859,6 +870,287 @@ fun FoldersScreen(api: LiberApi, onBack: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = { submitDelete(confirmed = true) }, enabled = !mutating) {
                     Text(if (mutating) "Deleting..." else "Move to root")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var rules by remember { mutableStateOf(listOf<ApiRule>()) }
+    var mutating by remember { mutableStateOf(false) }
+    var match by remember { mutableStateOf("") }
+    var folder by remember { mutableStateOf("") }
+    var tags by remember { mutableStateOf("") }
+    var learnMin by remember { mutableStateOf("3") }
+    var suggestions by remember { mutableStateOf(listOf<ApiSuggestion>()) }
+    var learnResult by remember { mutableStateOf<String?>(null) }
+    var deleteTarget by remember { mutableStateOf<ApiRule?>(null) }
+    var deleteCount by remember { mutableStateOf(0) }
+    val main = Handler(Looper.getMainLooper())
+
+    fun load() {
+        loading = true
+        error = null
+        runApi(main, { api.rules() }) { res ->
+            loading = false
+            res.onSuccess { rules = it }
+                .onFailure { error = it.message ?: "request failed" }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) { load() }
+
+    fun submitAdd() {
+        val m = match
+        val f = folder
+        val tagList = tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        mutating = true
+        error = null
+        runApi(main, { api.createRule(m, f, tagList) }) { res ->
+            mutating = false
+            res.onSuccess {
+                match = ""
+                folder = ""
+                tags = ""
+                load()
+            }.onFailure {
+                error = it.message ?: "add failed"
+            }
+        }
+    }
+
+    fun submitApply(id: Int?) {
+        mutating = true
+        error = null
+        learnResult = null
+        runApi(main, { api.applyRules(id) }) { res ->
+            mutating = false
+            res.onSuccess { n ->
+                learnResult = if (id == null) {
+                    "Applied to $n bookmark(s)."
+                } else {
+                    "Rule applied to $n bookmark(s)."
+                }
+                load()
+            }.onFailure {
+                error = it.message ?: "apply failed"
+            }
+        }
+    }
+
+    fun submitSuggest() {
+        val min = learnMin.toIntOrNull() ?: 0
+        mutating = true
+        error = null
+        runApi(main, { api.suggestions(min) }) { res ->
+            mutating = false
+            res.onSuccess { suggestions = it }
+                .onFailure { error = it.message ?: "suggest failed" }
+        }
+    }
+
+    fun submitLearnAll() {
+        val min = learnMin.toIntOrNull() ?: 0
+        mutating = true
+        error = null
+        runApi(main, { api.learnAll(min) }) { res ->
+            mutating = false
+            res.onSuccess { n ->
+                learnResult = "Created $n rule(s)."
+                load()
+            }.onFailure {
+                error = it.message ?: "learn failed"
+            }
+        }
+    }
+
+    fun submitDelete(confirmed: Boolean) {
+        val target = deleteTarget ?: return
+        mutating = true
+        error = null
+        runApi(main, { api.deleteRule(target.id, confirmed) }) { res ->
+            mutating = false
+            res.onSuccess {
+                deleteTarget = null
+                load()
+            }.onFailure { e ->
+                val needed = e as? LiberApi.ConfirmRequired
+                if (needed != null && !confirmed) {
+                    deleteCount = needed.count
+                } else {
+                    error = e.message ?: "delete failed"
+                }
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack) {
+                Text("Back")
+            }
+        }
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            error != null && rules.isEmpty() -> {
+                Text(
+                    text = error ?: "",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Retry")
+                }
+            }
+            else -> {
+                if (error != null) {
+                    Text(
+                        text = error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                Text(
+                    text = "${rules.size} rule(s)",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                )
+                if (rules.isEmpty()) {
+                    Text("No rules yet.")
+                }
+                LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                    items(rules, key = { it.id }) { r ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(r.match, style = MaterialTheme.typography.titleMedium)
+                                val detail = (listOf(r.folder) + r.tags)
+                                    .filter { it.isNotEmpty() }.joinToString(" · ")
+                                if (detail.isNotEmpty()) {
+                                    Text(detail, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Text(
+                                    "applied to ${r.appliedCount} bookmark(s)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                            TextButton(
+                                onClick = { submitApply(r.id) },
+                                enabled = !mutating,
+                            ) {
+                                Text("Apply")
+                            }
+                            TextButton(
+                                onClick = {
+                                    deleteTarget = r
+                                    deleteCount = r.appliedCount
+                                    submitDelete(confirmed = false)
+                                },
+                                enabled = !mutating,
+                            ) {
+                                Text("Delete")
+                            }
+                        }
+                    }
+                }
+                Text(
+                    text = "Add rule",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                TextField(
+                    value = match,
+                    onValueChange = { match = it },
+                    placeholder = { Text("Match, e.g. host:example.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                )
+                TextField(
+                    value = folder,
+                    onValueChange = { folder = it },
+                    placeholder = { Text("Folder (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                )
+                TextField(
+                    value = tags,
+                    onValueChange = { tags = it },
+                    placeholder = { Text("Tags, comma separated (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                )
+                Button(
+                    onClick = { submitAdd() },
+                    enabled = !mutating && match.isNotBlank() &&
+                        (folder.isNotBlank() || tags.split(",").any { it.isNotBlank() }),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Text(if (mutating) "Saving..." else "Add")
+                }
+                Text(
+                    text = "Learn from collection",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextField(
+                        value = learnMin,
+                        onValueChange = { learnMin = it },
+                        placeholder = { Text("Min") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(onClick = { submitSuggest() }, enabled = !mutating) {
+                        Text("Suggest")
+                    }
+                }
+                if (suggestions.isNotEmpty()) {
+                    Text(
+                        suggestions.joinToString("\n") {
+                            "${it.count}x ${it.host} -> ${it.folder}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { submitLearnAll() }, enabled = !mutating) {
+                            Text("Create all")
+                        }
+                        Button(onClick = { submitApply(null) }, enabled = !mutating) {
+                            Text("Apply all")
+                        }
+                    }
+                }
+                if (learnResult != null) {
+                    Text(
+                        text = learnResult ?: "",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        }
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete rule?") },
+            text = { Text("Delete \"${target.match}\" (applied to $deleteCount bookmark(s))? Classified bookmarks stay as-is.") },
+            confirmButton = {
+                TextButton(onClick = { submitDelete(confirmed = true) }, enabled = !mutating) {
+                    Text(if (mutating) "Deleting..." else "Delete")
                 }
             },
             dismissButton = {

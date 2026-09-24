@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -392,6 +393,151 @@ func TestAPIFoldersDelete(t *testing.T) {
 		t.Fatalf("code = %d, want 400", w.Code)
 	}
 	w = apiDo(t, h, "POST", "/api/v1/folders/bogus", `{"folder":"docs"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+}
+
+func apiRulesSetup(t *testing.T) string {
+	t.Helper()
+	entries := []*Bookmark{
+		{ID: 1, URL: "https://h.com/1", Title: "one", Folder: "docs", HTMLFile: "docs/0001-one.html"},
+		{ID: 2, URL: "https://h.com/2", Title: "two", Folder: "docs", HTMLFile: "docs/0002-two.html"},
+		{ID: 3, URL: "https://h.com/3", Title: "three", Folder: "docs", HTMLFile: "docs/0003-three.html"},
+	}
+	_, base := setupReindexTest(t, entries)
+	for _, e := range entries {
+		writeHTMLFile(t, base, e.HTMLFile, e.URL, e.Title)
+	}
+	return base
+}
+
+func TestAPIRulesListCreate(t *testing.T) {
+	_ = apiRulesSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "GET", "/api/v1/rules", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	if len(apiDecode(t, w)["rules"].([]any)) != 0 {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/rules", `{"match":"host:h.com","folder":"docs"}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	out := apiDecode(t, w)
+	if out["match"] != "host:h.com" || out["applied_count"].(float64) != 3 {
+		t.Fatalf("out = %v (backfill records the ledger on all three)", out)
+	}
+	id := out["id"].(float64)
+
+	w = apiDo(t, h, "GET", "/api/v1/rules", "")
+	rules := apiDecode(t, w)["rules"].([]any)
+	if len(rules) != 1 || rules[0].(map[string]any)["id"].(float64) != id {
+		t.Fatalf("rules = %v", rules)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/rules", `{"folder":"docs"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/rules", `{"match":"x"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "PUT", "/api/v1/rules", `{"match":"x"}`)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", w.Code)
+	}
+}
+
+func TestAPIRulesSuggestLearn(t *testing.T) {
+	_ = apiRulesSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "GET", "/api/v1/rules/suggestions?min=2", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	sugs := out["suggestions"].([]any)
+	if len(sugs) != 1 {
+		t.Fatalf("suggestions = %v", sugs)
+	}
+	s := sugs[0].(map[string]any)
+	if s["host"] != "h.com" || s["folder"] != "docs" || s["count"].(float64) != 3 {
+		t.Fatalf("suggestion = %v", s)
+	}
+
+	w = apiDo(t, h, "GET", "/api/v1/rules/suggestions?min=1", "")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/rules/learn", `{"min":2}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	out = apiDecode(t, w)
+	if len(out["created"].([]any)) != 1 {
+		t.Fatalf("out = %v", out)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/rules/learn", `{"min":2}`)
+	if len(apiDecode(t, w)["created"].([]any)) != 0 {
+		t.Fatalf("second learn should create nothing: %s", w.Body.String())
+	}
+}
+
+func TestAPIRulesApplyDelete(t *testing.T) {
+	base := apiRulesSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/rules", `{"match":"nomatch-xyz","folder":"auto"}`)
+	ruleID := int(apiDecode(t, w)["id"].(float64))
+
+	w = apiDo(t, h, "PUT", "/api/v1/bookmarks/1", `{"url":"https://nomatch-xyz.com/1"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	w = apiDo(t, h, "POST", "/api/v1/rules/apply", `{"id":999}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/rules/apply", fmt.Sprintf(`{"id":%d}`, ruleID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if apiDecode(t, w)["applied"].(float64) != 1 {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+	if b := loadTestStore(t, base).Find(1); b.Folder == "auto" {
+		t.Fatalf("folder overwritten by apply despite existing folder: %+v", b)
+	}
+
+	w = apiDo(t, h, "DELETE", fmt.Sprintf("/api/v1/rules/%d", ruleID), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	if out["confirm_required"] != true || out["rule"] == nil {
+		t.Fatalf("out = %v", out)
+	}
+	w = apiDo(t, h, "DELETE", fmt.Sprintf("/api/v1/rules/%d?confirm=true", ruleID), "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	if apiDecode(t, w)["deleted"].(float64) != 1 {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+	w = apiDo(t, h, "DELETE", "/api/v1/rules/1?confirm=true", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "DELETE", "/api/v1/rules/abc?confirm=true", "")
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("code = %d, want 404", w.Code)
 	}

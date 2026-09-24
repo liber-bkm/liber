@@ -279,6 +279,222 @@ func handleAPIFolderAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type apiRule struct {
+	ID           int      `json:"id"`
+	Match        string   `json:"match"`
+	Folder       string   `json:"folder,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
+	AppliedCount int      `json:"applied_count"`
+}
+
+func toAPIRule(r *AutoRule, applied int) apiRule {
+	return apiRule{
+		ID: r.ID, Match: r.Match, Folder: r.Folder,
+		Tags: append([]string{}, r.Tags...), AppliedCount: applied,
+	}
+}
+
+func ruleAppliedCounts(store *Store) map[int]int {
+	counts := map[int]int{}
+	for _, b := range store.Bookmarks {
+		for _, id := range ruleIDsOf(b.AppliedRules) {
+			counts[id]++
+		}
+	}
+	return counts
+}
+
+func handleAPIRules(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		_, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		counts := ruleAppliedCounts(store)
+		out := make([]apiRule, 0, len(store.AutoRules))
+		for _, rule := range store.AutoRules {
+			out = append(out, toAPIRule(rule, counts[rule.ID]))
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"rules": out})
+	case http.MethodPost:
+		var in struct {
+			Match  string   `json:"match"`
+			Folder string   `json:"folder"`
+			Tags   []string `json:"tags"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		rule, changed, err := createRule(cfg, store, in.Match, in.Folder, in.Tags)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(changed).merge(journalRules([]*AutoRule{rule}))); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out := toAPIRule(rule, len(changed))
+		writeAPIJSON(w, http.StatusCreated, out)
+	default:
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+type apiSuggestion struct {
+	Host   string `json:"host"`
+	Folder string `json:"folder"`
+	Count  int    `json:"count"`
+}
+
+func apiLearnMin(r *http.Request, bodyMin int) (int, bool) {
+	min := bodyMin
+	if min == 0 {
+		min = 3
+		if n, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("min"))); err == nil {
+			min = n
+		}
+	}
+	if min < 2 {
+		return 0, false
+	}
+	return min, true
+}
+
+func handleAPIRulesSub(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/rules/")
+	name, sub, _ := strings.Cut(rest, "/")
+	switch {
+	case name == "suggestions" && sub == "" && r.Method == http.MethodGet:
+		_, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		min, ok := apiLearnMin(r, 0)
+		if !ok {
+			writeAPIError(w, http.StatusBadRequest, "min must be 2 or more")
+			return
+		}
+		raw := suggestRules(store, min)
+		out := make([]apiSuggestion, 0, len(raw))
+		for _, s := range raw {
+			out = append(out, apiSuggestion{Host: s.host, Folder: s.folder, Count: s.count})
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"min": min, "suggestions": out})
+	case name == "learn" && sub == "" && r.Method == http.MethodPost:
+		var in struct {
+			Min int `json:"min"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		min, ok := apiLearnMin(r, in.Min)
+		if !ok {
+			writeAPIError(w, http.StatusBadRequest, "min must be 2 or more")
+			return
+		}
+		learned := &JournalEntry{}
+		created := []apiRule{}
+		applied := 0
+		for _, s := range suggestRules(store, min) {
+			rule, changed, err := createRule(cfg, store, "host:"+s.host, s.folder, nil)
+			if err != nil {
+				continue
+			}
+			learned = learned.merge(journalUpserts(changed).merge(journalRules([]*AutoRule{rule})))
+			created = append(created, toAPIRule(rule, len(changed)))
+			applied += len(changed)
+		}
+		if len(created) > 0 {
+			if err := saveWithJournal(cfg, store, learned); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"created": created, "applied": applied})
+	case name == "apply" && sub == "" && r.Method == http.MethodPost:
+		var in struct {
+			ID int `json:"id"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		changed, err := applyRules(cfg, store, in.ID)
+		if err != nil {
+			if in.ID != 0 {
+				writeAPIError(w, http.StatusNotFound, err.Error())
+			} else {
+				writeAPIError(w, http.StatusBadRequest, err.Error())
+			}
+			return
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(changed)); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"applied": len(changed)})
+	case sub == "" && r.Method == http.MethodDelete:
+		id, err := strconv.Atoi(name)
+		if err != nil || id < 1 {
+			writeAPIError(w, http.StatusNotFound, "no such rule")
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		del := store.FindAutoRule(id)
+		if del == nil {
+			writeAPIError(w, http.StatusNotFound, "no such rule")
+			return
+		}
+		if r.URL.Query().Get("confirm") != "true" {
+			writeAPIJSON(w, http.StatusOK, map[string]any{
+				"confirm_required": true,
+				"rule":             toAPIRule(del, ruleAppliedCounts(store)[id]),
+				"hint":             "repeat with ?confirm=true to delete",
+			})
+			return
+		}
+		tomb := journalRuleDeletes([]*AutoRule{del})
+		store.DeleteAutoRule(id)
+		if err := saveWithJournal(cfg, store, tomb); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"deleted": id})
+	default:
+		writeAPIError(w, http.StatusNotFound, "no such endpoint")
+	}
+}
+
 func writeAPIError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)

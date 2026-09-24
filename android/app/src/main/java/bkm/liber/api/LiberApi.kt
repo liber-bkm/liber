@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -58,6 +59,33 @@ data class ApiFolder(
 @Serializable
 data class ApiFoldersResponse(
     val folders: List<ApiFolder> = emptyList(),
+)
+
+@Serializable
+data class ApiRule(
+    val id: Int = 0,
+    val match: String = "",
+    val folder: String = "",
+    val tags: List<String> = emptyList(),
+    @SerialName("applied_count") val appliedCount: Int = 0,
+)
+
+@Serializable
+data class ApiRulesResponse(
+    val rules: List<ApiRule> = emptyList(),
+)
+
+@Serializable
+data class ApiSuggestion(
+    val host: String = "",
+    val folder: String = "",
+    val count: Int = 0,
+)
+
+@Serializable
+data class ApiSuggestionsResponse(
+    val min: Int = 3,
+    val suggestions: List<ApiSuggestion> = emptyList(),
 )
 
 @Serializable
@@ -314,6 +342,102 @@ class LiberApi(baseUrl: String, token: String) {
             }
             return obj["moved"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
                 ?: throw IOException("bad delete response")
+        }
+    }
+
+    fun rules(): List<ApiRule> {
+        val req = authed(Request.Builder().url("$base/api/v1/rules")).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiRulesResponse.serializer(), body).rules
+        }
+    }
+
+    fun createRule(match: String, folder: String, tags: List<String>): ApiRule {
+        val payload = buildJsonObject {
+            put("match", JsonPrimitive(match))
+            put("folder", JsonPrimitive(folder))
+            put("tags", JsonArray(tags.map { JsonPrimitive(it) }))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/rules")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiRule.serializer(), body)
+        }
+    }
+
+    fun deleteRule(id: Int, confirmed: Boolean): ApiRule? {
+        val url = "$base/api/v1/rules/$id" +
+            if (confirmed) "?confirm=true" else ""
+        val req = authed(Request.Builder().url(url).delete()).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no such rule")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            val obj = json.parseToJsonElement(body).jsonObject
+            if (obj["confirm_required"]?.jsonPrimitive?.contentOrNull == "true") {
+                throw ConfirmRequired(
+                    obj["rule"]?.jsonObject?.get("applied_count")
+                        ?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0,
+                )
+            }
+            obj["deleted"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                ?: throw IOException("bad delete response")
+            return null
+        }
+    }
+
+    fun applyRules(id: Int?): Int {
+        val payload = buildJsonObject {
+            if (id != null) put("id", JsonPrimitive(id))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/rules/apply")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no such rule")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.parseToJsonElement(body).jsonObject["applied"]
+                ?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                ?: throw IOException("bad apply response")
+        }
+    }
+
+    fun suggestions(min: Int): List<ApiSuggestion> {
+        val req = authed(
+            Request.Builder().url("$base/api/v1/rules/suggestions?min=$min"),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiSuggestionsResponse.serializer(), body).suggestions
+        }
+    }
+
+    fun learnAll(min: Int): Int {
+        val payload = buildJsonObject {
+            put("min", JsonPrimitive(min))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/rules/learn")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.parseToJsonElement(body).jsonObject["created"]
+                ?.jsonArray?.size
+                ?: throw IOException("bad learn response")
         }
     }
 
