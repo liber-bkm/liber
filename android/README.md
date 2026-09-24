@@ -111,6 +111,7 @@ File inputs in the WebView only work through the `WebChromeClient` bridge in
 20. Native add: new URL saves and appears in both views; duplicate URL shows the already-bookmarked dialog with working Add-anyway.
 21. Native edit: from detail open Edit, change title/tags, save, confirm the change shows in both views; blank title/URL blocks saving; missing id shows retryable error.
 22. Native tags: list matches the WebView tags page counts; rename updates every bookmark (renaming onto an existing tag merges); delete asks with the affected count and updates both views; offline shows a retryable error.
+23. Native folders: reached from the tags screen, counts match the WebView page; rename moves the subtree (merging onto an existing folder); delete moves the subtree back to root after a count confirm; root has no actions; offline shows a retryable error.
 
 ## Backup and reinstall (standalone mode)
 
