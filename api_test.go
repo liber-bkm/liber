@@ -543,6 +543,144 @@ func TestAPIRulesApplyDelete(t *testing.T) {
 	}
 }
 
+func TestAPICheckRun(t *testing.T) {
+	srv := checkFixture()
+	defer srv.Close()
+	base := checkWebSetup(t, srv)
+	_ = base
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/check/run", `{"workers":2}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	out := apiDecode(t, w)
+	if out["ok"].(float64) != 1 || out["checked"].(float64) != 3 {
+		t.Fatalf("out = %v", out)
+	}
+	if len(out["moved"].([]any)) != 1 || len(out["dead"].([]any)) != 1 || len(out["uncertain"].([]any)) != 0 {
+		t.Fatalf("buckets = %v", out)
+	}
+	moved := out["moved"].([]any)[0].(map[string]any)
+	for _, k := range []string{"id", "title", "url", "detail", "target", "status"} {
+		if _, ok := moved[k]; !ok {
+			t.Fatalf("missing key %q in %v", k, moved)
+		}
+	}
+	if moved["status"] != "moved" {
+		t.Fatalf("moved = %v", moved)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/check/run", `{"workers":0,"stale":"bogus"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/check/run", `{"spec":"abc"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "GET", "/api/v1/check/run", "")
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", w.Code)
+	}
+}
+
+func TestAPICheckApply(t *testing.T) {
+	srv := checkFixture()
+	defer srv.Close()
+	base := checkWebSetup(t, srv)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/check/apply",
+		`{"id":3,"action":"update","target":"`+srv.URL+`/ok"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if got := loadTestStore(t, base).Find(3).URL; got != srv.URL+"/ok" {
+		t.Fatalf("url = %q", got)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/check/apply", `{"id":2,"action":"delete"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	if out["confirm_required"] != true {
+		t.Fatalf("out = %v", out)
+	}
+	if loadTestStore(t, base).Find(2) == nil {
+		t.Fatalf("deleted without confirm")
+	}
+	w = apiDo(t, h, "POST", "/api/v1/check/apply", `{"id":2,"action":"delete","confirm":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if loadTestStore(t, base).Find(2) != nil {
+		t.Fatalf("not deleted")
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/check/apply", `{"id":1,"action":"quarantine"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if loadTestStore(t, base).Find(1).Folder != "quarantine" {
+		t.Fatalf("not quarantined")
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/check/apply", `{"id":99,"action":"delete","confirm":true}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/check/apply", `{"id":1,"action":"bogus"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/check/apply", `{"id":1,"action":"update"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+}
+
+func TestAPISettings(t *testing.T) {
+	_ = apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "GET", "/api/v1/settings", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	for _, k := range []string{"base_dir", "active_profile", "archive_backend", "bookmarks", "tags", "folders", "rules", "maintenance_status"} {
+		if _, ok := out[k]; !ok {
+			t.Fatalf("missing key %q in %v", k, out)
+		}
+	}
+	if out["bookmarks"].(float64) != 2 || out["tags"].(float64) != 1 {
+		t.Fatalf("out = %v", out)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/settings", `{"archive_backend":"native"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if apiDecode(t, w)["archive_backend"] != "native" {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+	w = apiDo(t, h, "GET", "/api/v1/settings", "")
+	if apiDecode(t, w)["archive_backend"] != "native" {
+		t.Fatalf("not persisted: %s", w.Body.String())
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/settings", `{"archive_backend":"bogus"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "PUT", "/api/v1/settings", `{}`)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", w.Code)
+	}
+}
+
 func TestAPIMethodAndAuth(t *testing.T) {
 	_ = apiTestSetup(t)
 	h := newWebMux("")
