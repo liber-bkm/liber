@@ -294,6 +294,109 @@ func TestAPITagsDelete(t *testing.T) {
 	}
 }
 
+func TestAPIFoldersList(t *testing.T) {
+	_ = apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "GET", "/api/v1/folders", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	folders := out["folders"].([]any)
+	if len(folders) != 2 {
+		t.Fatalf("folders = %v", folders)
+	}
+	seen := map[string]float64{}
+	displays := map[string]string{}
+	for _, f := range folders {
+		m := f.(map[string]any)
+		seen[m["name"].(string)] = m["count"].(float64)
+		displays[m["name"].(string)] = m["display"].(string)
+	}
+	if seen["docs"] != 1 || seen[""] != 1 {
+		t.Fatalf("seen = %v", seen)
+	}
+	if displays[""] != "/" || displays["docs"] != "docs" {
+		t.Fatalf("displays = %v", displays)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/folders", "")
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", w.Code)
+	}
+}
+
+func TestAPIFoldersRename(t *testing.T) {
+	base := apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/folders/rename", `{"old":"docs","new":"work"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if apiDecode(t, w)["moved"].(float64) != 1 {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+	if b := loadTestStore(t, base).Find(1); b.Folder != "work" {
+		t.Fatalf("folder = %q", b.Folder)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/folders/rename", `{"old":"missing","new":"work"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/folders/rename", `{"old":"","new":"work"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/folders/rename", `{"old":"work","new":"work"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+}
+
+func TestAPIFoldersDelete(t *testing.T) {
+	base := apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/folders/delete", `{"folder":"docs"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	if out["confirm_required"] != true || out["count"].(float64) != 1 {
+		t.Fatalf("out = %v", out)
+	}
+	if loadTestStore(t, base).Find(1).Folder != "docs" {
+		t.Fatalf("moved without confirm")
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/folders/delete", `{"folder":"docs","confirm":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if apiDecode(t, w)["moved"].(float64) != 1 {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+	if loadTestStore(t, base).Find(1).Folder != "" {
+		t.Fatalf("not moved to root")
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/folders/delete", `{"folder":"missing","confirm":true}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/folders/delete", `{"folder":""}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/folders/bogus", `{"folder":"docs"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+}
+
 func TestAPIMethodAndAuth(t *testing.T) {
 	_ = apiTestSetup(t)
 	h := newWebMux("")

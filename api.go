@@ -160,6 +160,125 @@ func handleAPITagAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type apiFolder struct {
+	Name    string `json:"name"`
+	Display string `json:"display"`
+	Count   int    `json:"count"`
+}
+
+func handleAPIFolders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows := sortedTaxRows(folderCounts(store))
+	out := make([]apiFolder, 0, len(rows))
+	for _, row := range rows {
+		name := row.Name
+		if name == "/" {
+			name = ""
+		}
+		out = append(out, apiFolder{Name: name, Display: displayFolder(name), Count: row.Count})
+	}
+	writeAPIJSON(w, http.StatusOK, map[string]any{"folders": out})
+}
+
+func handleAPIFolderAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	switch strings.TrimPrefix(r.URL.Path, "/api/v1/folders/") {
+	case "rename":
+		var in struct {
+			Old string `json:"old"`
+			New string `json:"new"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		changed, err := renameFolder(cfg, store, in.Old, in.New)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if len(changed) == 0 {
+			writeAPIError(w, http.StatusNotFound, "no bookmarks in that folder")
+			return
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(changed)); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"moved": len(changed)})
+	case "delete":
+		var in struct {
+			Folder  string `json:"folder"`
+			Confirm bool   `json:"confirm"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		if sanitizeFolder(in.Folder) == "" {
+			writeAPIError(w, http.StatusBadRequest, "folder is required")
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !in.Confirm {
+			count := 0
+			for _, b := range store.Bookmarks {
+				if folderMatchesOrIsChild(b.Folder, sanitizeFolder(in.Folder)) {
+					count++
+				}
+			}
+			if count == 0 {
+				writeAPIError(w, http.StatusNotFound, "no bookmarks in that folder")
+				return
+			}
+			writeAPIJSON(w, http.StatusOK, map[string]any{
+				"confirm_required": true,
+				"count":            count,
+				"hint":             "repeat with confirm true to move to root",
+			})
+			return
+		}
+		changed, err := renameFolder(cfg, store, in.Folder, "")
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if len(changed) == 0 {
+			writeAPIError(w, http.StatusNotFound, "no bookmarks in that folder")
+			return
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(changed)); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"moved": len(changed)})
+	default:
+		writeAPIError(w, http.StatusNotFound, "no such endpoint")
+	}
+}
+
 func writeAPIError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
