@@ -34,7 +34,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import bkm.liber.api.ApiBookmark
+import bkm.liber.api.ApiCheckRow
 import bkm.liber.api.ApiFolder
+import bkm.liber.api.ApiSettings
 import bkm.liber.api.ApiRule
 import bkm.liber.api.ApiSuggestion
 import bkm.liber.api.ApiTag
@@ -73,6 +75,8 @@ private sealed interface Screen {
     data object Tags : Screen
     data object Folders : Screen
     data object Rules : Screen
+    data object Check : Screen
+    data object Settings : Screen
 }
 
 @Composable
@@ -87,6 +91,8 @@ fun LiberNav(api: LiberApi) {
             onOpenDetail = { push(Screen.Detail(it)) },
             onOpenAdd = { push(Screen.Add) },
             onOpenTags = { push(Screen.Tags) },
+            onOpenCheck = { push(Screen.Check) },
+            onOpenSettings = { push(Screen.Settings) },
         )
         is Screen.Detail -> DetailScreen(
             api = api,
@@ -119,6 +125,14 @@ fun LiberNav(api: LiberApi) {
             api = api,
             onBack = { pop() },
         )
+        is Screen.Check -> CheckScreen(
+            api = api,
+            onBack = { pop() },
+        )
+        is Screen.Settings -> SettingsScreen(
+            api = api,
+            onBack = { pop() },
+        )
     }
 }
 
@@ -139,6 +153,8 @@ fun SearchScreen(
     onOpenDetail: (Int) -> Unit,
     onOpenAdd: () -> Unit,
     onOpenTags: () -> Unit,
+    onOpenCheck: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
@@ -181,6 +197,12 @@ fun SearchScreen(
             }
             Button(onClick = onOpenTags) {
                 Text("Tags")
+            }
+            Button(onClick = onOpenCheck) {
+                Text("Check")
+            }
+            Button(onClick = onOpenSettings) {
+                Text("Settings")
             }
         }
         when {
@@ -1159,5 +1181,342 @@ fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
                 }
             },
         )
+    }
+}
+
+@Composable
+fun CheckScreen(api: LiberApi, onBack: () -> Unit) {
+    var spec by remember { mutableStateOf("") }
+    var stale by remember { mutableStateOf("") }
+    var scanning by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var flash by remember { mutableStateOf<String?>(null) }
+    var summary by remember { mutableStateOf<String?>(null) }
+    var moved by remember { mutableStateOf(listOf<ApiCheckRow>()) }
+    var dead by remember { mutableStateOf(listOf<ApiCheckRow>()) }
+    var uncertain by remember { mutableStateOf(listOf<ApiCheckRow>()) }
+    var mutating by remember { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<ApiCheckRow?>(null) }
+    val main = Handler(Looper.getMainLooper())
+
+    fun runScan() {
+        val s = spec
+        val st = stale
+        scanning = true
+        error = null
+        flash = null
+        summary = null
+        moved = emptyList()
+        dead = emptyList()
+        uncertain = emptyList()
+        runApi(main, { api.checkRun(s, 0, st) }) { res ->
+            scanning = false
+            res.onSuccess { out ->
+                summary = "${out.ok} ok, ${out.moved.size} moved, " +
+                    "${out.dead.size} dead, ${out.uncertain.size} uncertain " +
+                    "(of ${out.checked} checked)"
+                moved = out.moved
+                dead = out.dead
+                uncertain = out.uncertain
+            }.onFailure {
+                error = it.message ?: "scan failed"
+            }
+        }
+    }
+
+    fun dropRow(id: Int) {
+        moved = moved.filterNot { it.id == id }
+        dead = dead.filterNot { it.id == id }
+        uncertain = uncertain.filterNot { it.id == id }
+    }
+
+    fun submitApply(row: ApiCheckRow, action: String, confirmed: Boolean) {
+        mutating = true
+        error = null
+        runApi(main, { api.checkApply(row.id, action, row.target, confirmed) }) { res ->
+            mutating = false
+            res.onSuccess { msg ->
+                flash = msg
+                dropRow(row.id)
+            }.onFailure { e ->
+                if (e is LiberApi.ConfirmRequired && !confirmed) {
+                    deleteTarget = row
+                } else {
+                    error = e.message ?: "apply failed"
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun CheckRowView(row: ApiCheckRow, actions: @Composable () -> Unit) {
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Text("[${row.id}] ${row.title}", style = MaterialTheme.typography.titleMedium)
+            Text(row.url, style = MaterialTheme.typography.bodySmall)
+            val extra = listOf(row.detail, row.target).filter { it.isNotEmpty() }
+                .joinToString(" -> ")
+            if (extra.isNotEmpty()) {
+                Text(extra, style = MaterialTheme.typography.labelSmall)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                actions()
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack) {
+                Text("Back")
+            }
+        }
+        TextField(
+            value = spec,
+            onValueChange = { spec = it },
+            placeholder = { Text("ids like 1-100 (empty = all)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+        TextField(
+            value = stale,
+            onValueChange = { stale = it },
+            placeholder = { Text("only stale, e.g. 720h (empty = all)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+        Button(
+            onClick = { runScan() },
+            enabled = !scanning && !mutating,
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
+            Text(if (scanning) "Scanning..." else "Run check")
+        }
+        if (scanning) {
+            Text(
+                "Scanning can take a while on large collections.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        if (error != null) {
+            Text(
+                text = error ?: "",
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        if (flash != null) {
+            Text(
+                text = flash ?: "",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        if (summary != null) {
+            Text(
+                text = summary ?: "",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+            )
+            LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                if (moved.isNotEmpty()) {
+                    item {
+                        Text("Moved", style = MaterialTheme.typography.titleMedium)
+                    }
+                    items(moved, key = { it.id }) { row ->
+                        CheckRowView(row) {
+                            TextButton(
+                                onClick = { submitApply(row, "update", confirmed = true) },
+                                enabled = !mutating,
+                            ) {
+                                Text("Update URL")
+                            }
+                            TextButton(
+                                onClick = { submitApply(row, "retitle", confirmed = true) },
+                                enabled = !mutating,
+                            ) {
+                                Text("URL + title")
+                            }
+                        }
+                    }
+                }
+                if (dead.isNotEmpty()) {
+                    item {
+                        Text("Dead", style = MaterialTheme.typography.titleMedium)
+                    }
+                    items(dead, key = { it.id }) { row ->
+                        CheckRowView(row) {
+                            TextButton(
+                                onClick = { submitApply(row, "delete", confirmed = false) },
+                                enabled = !mutating,
+                            ) {
+                                Text("Delete")
+                            }
+                            TextButton(
+                                onClick = { submitApply(row, "quarantine", confirmed = true) },
+                                enabled = !mutating,
+                            ) {
+                                Text("Quarantine")
+                            }
+                        }
+                    }
+                }
+                if (uncertain.isNotEmpty()) {
+                    item {
+                        Text("Uncertain", style = MaterialTheme.typography.titleMedium)
+                    }
+                    items(uncertain, key = { it.id }) { row ->
+                        CheckRowView(row) {
+                            TextButton(
+                                onClick = { submitApply(row, "delete", confirmed = false) },
+                                enabled = !mutating,
+                            ) {
+                                Text("Delete")
+                            }
+                            TextButton(
+                                onClick = { submitApply(row, "quarantine", confirmed = true) },
+                                enabled = !mutating,
+                            ) {
+                                Text("Quarantine")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete bookmark?") },
+            text = { Text("Delete [${target.id}] \"${target.title}\"?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteTarget = null
+                        submitApply(target, "delete", confirmed = true)
+                    },
+                    enabled = !mutating,
+                ) {
+                    Text(if (mutating) "Deleting..." else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+fun SettingsScreen(api: LiberApi, onBack: () -> Unit) {
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var settings by remember { mutableStateOf<ApiSettings?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    val main = Handler(Looper.getMainLooper())
+    val backends = listOf("auto", "single-file", "monolith", "native")
+
+    fun load() {
+        loading = true
+        error = null
+        runApi(main, { api.settings() }) { res ->
+            loading = false
+            res.onSuccess { settings = it }
+                .onFailure { error = it.message ?: "request failed" }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) { load() }
+
+    fun selectBackend(backend: String) {
+        saving = true
+        error = null
+        runApi(main, { api.setBackend(backend) }) { res ->
+            saving = false
+            res.onSuccess { load() }
+                .onFailure { error = it.message ?: "save failed" }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onBack) {
+                Text("Back")
+            }
+        }
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            error != null && settings == null -> {
+                Text(
+                    text = error ?: "",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Retry")
+                }
+            }
+            else -> settings?.let { s ->
+                if (error != null) {
+                    Text(
+                        text = error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                Text("Collection", style = MaterialTheme.typography.titleMedium)
+                Text(s.baseDir, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "${s.bookmarks} bookmark(s) · ${s.tags} tag(s) · " +
+                        "${s.folders} folder(s) · ${s.rules} rule(s)",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                if (s.activeProfile.isNotEmpty()) {
+                    Text(
+                        "Profile: ${s.activeProfile}",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+                Text(
+                    s.maintenanceStatus,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                Text(
+                    "Archive backend",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                Text(
+                    "On Android only the native snapshot is available; " +
+                        "empty resolves to the native default.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Column(modifier = Modifier.padding(top = 4.dp)) {
+                    backends.forEach { b ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                onClick = { selectBackend(b) },
+                                enabled = !saving && s.archiveBackend != b,
+                            ) {
+                                Text(if (s.archiveBackend == b) "● $b" else b)
+                            }
+                        }
+                    }
+                }
+                if (saving) {
+                    Text(
+                        "Saving...",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+        }
     }
 }

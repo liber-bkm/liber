@@ -89,6 +89,39 @@ data class ApiSuggestionsResponse(
 )
 
 @Serializable
+data class ApiCheckRow(
+    val id: Int = 0,
+    val title: String = "",
+    val url: String = "",
+    val detail: String = "",
+    val target: String = "",
+    val status: String = "",
+)
+
+@Serializable
+data class ApiCheckResult(
+    val ok: Int = 0,
+    val checked: Int = 0,
+    val fresh: Int = 0,
+    val missing: List<Int> = emptyList(),
+    val moved: List<ApiCheckRow> = emptyList(),
+    val dead: List<ApiCheckRow> = emptyList(),
+    val uncertain: List<ApiCheckRow> = emptyList(),
+)
+
+@Serializable
+data class ApiSettings(
+    @SerialName("base_dir") val baseDir: String = "",
+    @SerialName("active_profile") val activeProfile: String = "",
+    @SerialName("archive_backend") val archiveBackend: String = "",
+    val bookmarks: Int = 0,
+    val tags: Int = 0,
+    val folders: Int = 0,
+    val rules: Int = 0,
+    @SerialName("maintenance_status") val maintenanceStatus: String = "",
+)
+
+@Serializable
 data class ApiListResponse(
     val total: Int = 0,
     val page: Int = 1,
@@ -438,6 +471,83 @@ class LiberApi(baseUrl: String, token: String) {
             return json.parseToJsonElement(body).jsonObject["created"]
                 ?.jsonArray?.size
                 ?: throw IOException("bad learn response")
+        }
+    }
+
+    private val slowClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.MINUTES)
+        .build()
+
+    fun checkRun(spec: String, workers: Int, stale: String): ApiCheckResult {
+        val payload = buildJsonObject {
+            put("spec", JsonPrimitive(spec))
+            if (workers > 0) put("workers", JsonPrimitive(workers))
+            put("stale", JsonPrimitive(stale))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/check/run")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        slowClient.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiCheckResult.serializer(), body)
+        }
+    }
+
+    fun checkApply(id: Int, action: String, target: String, confirmed: Boolean): String {
+        val payload = buildJsonObject {
+            put("id", JsonPrimitive(id))
+            put("action", JsonPrimitive(action))
+            put("target", JsonPrimitive(target))
+            put("confirm", JsonPrimitive(confirmed))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/check/apply")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("bookmark already gone")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            val obj = json.parseToJsonElement(body).jsonObject
+            if (obj["confirm_required"]?.jsonPrimitive?.contentOrNull == "true") {
+                throw ConfirmRequired(
+                    obj["count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0,
+                )
+            }
+            return obj["result"]?.jsonPrimitive?.contentOrNull
+                ?: throw IOException("bad apply response")
+        }
+    }
+
+    fun settings(): ApiSettings {
+        val req = authed(Request.Builder().url("$base/api/v1/settings")).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiSettings.serializer(), body)
+        }
+    }
+
+    fun setBackend(backend: String): String {
+        val payload = buildJsonObject {
+            put("archive_backend", JsonPrimitive(backend))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/settings")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.parseToJsonElement(body).jsonObject["archive_backend"]
+                ?.jsonPrimitive?.contentOrNull
+                ?: throw IOException("bad settings response")
         }
     }
 

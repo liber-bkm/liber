@@ -114,6 +114,32 @@ class ApiParsingTest {
     }
 
     @Test
+    fun parsesCheckResult() {
+        val out = json.decodeFromString(
+            ApiCheckResult.serializer(),
+            """{"ok":1,"checked":3,"fresh":0,"missing":[],"moved":[{"id":3,"title":"m","url":"https://a/m","detail":"301","target":"https://a/ok","status":"moved"}],"dead":[{"id":2,"title":"g","url":"https://a/gone","detail":"404","status":"dead"}],"uncertain":[]}""",
+        )
+        assertEquals(1, out.ok)
+        assertEquals(3, out.checked)
+        assertEquals(1, out.moved.size)
+        assertEquals(ApiCheckRow(3, "m", "https://a/m", "301", "https://a/ok", "moved"), out.moved[0])
+        assertEquals("dead", out.dead[0].status)
+        assertEquals(0, out.uncertain.size)
+    }
+
+    @Test
+    fun parsesSettings() {
+        val out = json.decodeFromString(
+            ApiSettings.serializer(),
+            """{"base_dir":"/data/bm","active_profile":"","archive_backend":"native","bookmarks":2,"tags":1,"folders":2,"rules":0,"maintenance_status":"ok"}""",
+        )
+        assertEquals("/data/bm", out.baseDir)
+        assertEquals("native", out.archiveBackend)
+        assertEquals(2, out.bookmarks)
+        assertEquals("ok", out.maintenanceStatus)
+    }
+
+    @Test
     fun listUrlParams() {
         val api = LiberApi("http://127.0.0.1:8080/", "s3cret")
         val url = api.listUrl("hello world", "nt", deep = true, sort = "newest", page = 2)
