@@ -495,6 +495,229 @@ func handleAPIRulesSub(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type apiCheckRow struct {
+	ID     int    `json:"id"`
+	Title  string `json:"title"`
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"`
+	Target string `json:"target,omitempty"`
+	Status string `json:"status"`
+}
+
+func toAPICheckRows(in []checkResult, status string) []apiCheckRow {
+	out := make([]apiCheckRow, 0, len(in))
+	for _, r := range in {
+		out = append(out, apiCheckRow{
+			ID: r.b.ID, Title: r.b.Title, URL: r.b.URL,
+			Detail: r.detail, Target: r.target, Status: status,
+		})
+	}
+	return out
+}
+
+func handleAPICheckRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct {
+		Spec    string `json:"spec"`
+		Workers int    `json:"workers"`
+		Stale   string `json:"stale"`
+	}
+	if !decodeAPIBody(w, r, &in) {
+		return
+	}
+	workers := ""
+	if in.Workers != 0 {
+		workers = strconv.Itoa(in.Workers)
+	}
+	spec, workersN, stale, _, err := parseCheckArgs(checkArgsFromForm(in.Spec, workers, in.Stale))
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	targets, missing, fresh, err := resolveCheckTargets(store, spec, stale)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(targets) == 0 {
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"ok": 0, "checked": 0, "fresh": fresh, "missing": missing,
+			"moved": []apiCheckRow{}, "dead": []apiCheckRow{}, "uncertain": []apiCheckRow{},
+		})
+		return
+	}
+	moved, dead, uncertain := scanCheckTargets(checkClient(cfg), targets, workersN, nil)
+	now := time.Now()
+	writeMu.Lock()
+	_, freshStore, err := loadCfgAndStore()
+	if err != nil {
+		writeMu.Unlock()
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	stampCheckTargets(freshStore, targetIDs(targets), moved, dead, uncertain, now)
+	if err := freshStore.Save(); err != nil {
+		writeMu.Unlock()
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeMu.Unlock()
+	writeAPIJSON(w, http.StatusOK, map[string]any{
+		"ok":      len(targets) - len(moved) - len(dead) - len(uncertain),
+		"checked": len(targets), "fresh": fresh, "missing": missing,
+		"moved":     toAPICheckRows(moved, "moved"),
+		"dead":      toAPICheckRows(dead, "dead"),
+		"uncertain": toAPICheckRows(uncertain, "uncertain"),
+	})
+}
+
+func handleAPICheckApply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct {
+		ID      int    `json:"id"`
+		Action  string `json:"action"`
+		Target  string `json:"target"`
+		Confirm bool   `json:"confirm"`
+	}
+	if !decodeAPIBody(w, r, &in) {
+		return
+	}
+	action := strings.TrimSpace(in.Action)
+	if action != "update" && action != "retitle" && action != "delete" && action != "quarantine" {
+		writeAPIError(w, http.StatusBadRequest, "unknown action")
+		return
+	}
+	if (action == "update" || action == "retitle") && strings.TrimSpace(in.Target) == "" {
+		writeAPIError(w, http.StatusBadRequest, "target is required")
+		return
+	}
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	b := store.Find(in.ID)
+	if b == nil {
+		writeAPIError(w, http.StatusNotFound, "bookmark already gone")
+		return
+	}
+	if action == "delete" && !in.Confirm {
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"confirm_required": true,
+			"count":            1,
+			"hint":             "repeat with confirm true to delete",
+		})
+		return
+	}
+	jent := &JournalEntry{}
+	msg := ""
+	switch action {
+	case "update":
+		b.URL = normalizeURL(in.Target)
+		b.UpdatedAt = time.Now()
+		syncBookmarkFiles(cfg, b, false)
+		jent = jent.merge(journalUpserts([]*Bookmark{b}))
+		msg = fmt.Sprintf("Updated [%d].", b.ID)
+	case "retitle":
+		b.URL = normalizeURL(in.Target)
+		b.UpdatedAt = time.Now()
+		syncBookmarkFiles(cfg, b, false)
+		if title := fetchTitle(cfg, b.URL); title != "" && title != b.Title {
+			b.Title = title
+			b.UpdatedAt = time.Now()
+			syncBookmarkFiles(cfg, b, false)
+			msg = fmt.Sprintf("Updated [%d] and refreshed title.", b.ID)
+		} else {
+			msg = fmt.Sprintf("Updated [%d] (title unchanged).", b.ID)
+		}
+		jent = jent.merge(journalUpserts([]*Bookmark{b}))
+	case "delete":
+		jent = jent.merge(journalDeletes([]*Bookmark{b}))
+		deleteBookmarkFiles(cfg, b)
+		store.Delete(b.ID)
+		msg = fmt.Sprintf("Deleted [%d].", b.ID)
+	case "quarantine":
+		quarantineBookmark(cfg, b)
+		jent = jent.merge(journalUpserts([]*Bookmark{b}))
+		msg = fmt.Sprintf("Quarantined [%d].", b.ID)
+	}
+	if err := saveWithJournal(cfg, store, jent); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeAPIJSON(w, http.StatusOK, map[string]any{"result": msg})
+}
+
+func handleAPISettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		tags := map[string]bool{}
+		folders := map[string]bool{}
+		for _, b := range store.Bookmarks {
+			for _, t := range b.Tags {
+				tags[t] = true
+			}
+			folders[b.Folder] = true
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"base_dir":           cfg.effectiveBaseDir(),
+			"active_profile":     cfg.ActiveProfile,
+			"archive_backend":    cfg.effectiveArchiveBackend(),
+			"bookmarks":          len(store.Bookmarks),
+			"tags":               len(tags),
+			"folders":            len(folders),
+			"rules":              len(store.AutoRules),
+			"maintenance_status": maintenanceStatus(cfg, store),
+		})
+	case http.MethodPost:
+		var in struct {
+			ArchiveBackend string `json:"archive_backend"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, _, err := LoadConfig()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		switch b := strings.TrimSpace(in.ArchiveBackend); b {
+		case "", "auto", "single-file", "monolith", "native":
+			cfg.ArchiveBackend = b
+		default:
+			writeAPIError(w, http.StatusBadRequest, fmt.Sprintf("unknown archive_backend %q", b))
+			return
+		}
+		if err := SaveConfig(cfg); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"archive_backend": cfg.effectiveArchiveBackend()})
+	default:
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 func writeAPIError(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
