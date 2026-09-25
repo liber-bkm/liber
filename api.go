@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -840,6 +841,272 @@ func handleAPIProfilesSub(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeAPIError(w, http.StatusNotFound, "no such endpoint")
 	}
+}
+
+type apiHistoryRow struct {
+	ID         int        `json:"id"`
+	Title      string     `json:"title"`
+	URL        string     `json:"url"`
+	OpenCount  int        `json:"open_count"`
+	LastOpened *time.Time `json:"last_opened_at,omitempty"`
+}
+
+func handleAPIHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	_, store, err := loadCfgAndStore()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	rows := historyRows(store)
+	out := make([]apiHistoryRow, 0, len(rows))
+	for _, b := range rows {
+		out = append(out, apiHistoryRow{
+			ID: b.ID, Title: b.Title, URL: b.URL,
+			OpenCount: b.OpenCount, LastOpened: b.LastOpenedAt,
+		})
+	}
+	writeAPIJSON(w, http.StatusOK, map[string]any{"history": out})
+}
+
+func handleAPIBulk(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct {
+		IDs     []int    `json:"ids"`
+		Action  string   `json:"action"`
+		Tags    []string `json:"tags"`
+		Folder  *string  `json:"folder"`
+		Confirm bool     `json:"confirm"`
+	}
+	if !decodeAPIBody(w, r, &in) {
+		return
+	}
+	action := strings.TrimSpace(in.Action)
+	if action != "delete" && action != "tags" && action != "folder" {
+		writeAPIError(w, http.StatusBadRequest, "unknown action")
+		return
+	}
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	seen := map[int]bool{}
+	var targets []*Bookmark
+	for _, id := range in.IDs {
+		if id < 1 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if b := store.Find(id); b != nil {
+			targets = append(targets, b)
+		}
+	}
+	if len(targets) == 0 {
+		writeAPIError(w, http.StatusNotFound, "no matching bookmarks")
+		return
+	}
+	if action == "delete" && !in.Confirm {
+		titles := make([]string, 0, len(targets))
+		for _, b := range targets {
+			titles = append(titles, b.Title)
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"confirm_required": true,
+			"count":            len(targets),
+			"titles":           titles,
+			"hint":             "repeat with confirm true to delete",
+		})
+		return
+	}
+	msg := ""
+	switch action {
+	case "delete":
+		tomb := journalDeletes(targets)
+		for _, b := range targets {
+			deleteBookmarkFiles(cfg, b)
+			store.Delete(b.ID)
+		}
+		if err := saveWithJournal(cfg, store, tomb); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		msg = fmt.Sprintf("Deleted %d bookmark(s).", len(targets))
+	case "tags":
+		tags := dedupe(in.Tags)
+		for _, b := range targets {
+			b.Tags = tags
+			b.UpdatedAt = time.Now()
+			syncBookmarkFiles(cfg, b, false)
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(targets)); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		msg = fmt.Sprintf("Updated tags on %d bookmark(s).", len(targets))
+	case "folder":
+		newFolder := ""
+		if in.Folder != nil {
+			newFolder = sanitizeFolder(*in.Folder)
+		}
+		for _, b := range targets {
+			folderChanged := newFolder != b.Folder
+			b.Folder = newFolder
+			b.UpdatedAt = time.Now()
+			syncBookmarkFiles(cfg, b, folderChanged)
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(targets)); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		msg = fmt.Sprintf("Moved %d bookmark(s).", len(targets))
+	}
+	writeAPIJSON(w, http.StatusOK, map[string]any{"result": msg, "count": len(targets)})
+}
+
+func handleAPILibrary(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/library/")
+	switch {
+	case rest == "export" && r.Method == http.MethodGet:
+		_, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		var buf bytes.Buffer
+		if err := writeNetscapeExport(&buf, store); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="liber-bookmarks.html"`)
+		w.Write(buf.Bytes())
+	case rest == "import" && r.Method == http.MethodPost:
+		var in struct {
+			Content  string `json:"content"`
+			Markdown bool   `json:"markdown"`
+			Archive  bool   `json:"archive"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		if strings.TrimSpace(in.Content) == "" {
+			writeAPIError(w, http.StatusBadRequest, "content is required")
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		added, skippedDup, skippedBad, warnings := importData(cfg, store, []byte(in.Content), importOptions{Markdown: in.Markdown, Archive: in.Archive})
+		if len(added) == 0 && skippedDup == 0 && skippedBad == 0 {
+			writeAPIError(w, http.StatusBadRequest, "no bookmarks found -- is it a browser bookmark export?")
+			return
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(added)); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"imported": len(added), "skipped_dup": skippedDup,
+			"skipped_bad": skippedBad, "warnings": warnings,
+		})
+	case rest == "site" && r.Method == http.MethodPost:
+		var in struct {
+			Dir string `json:"dir"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		outDir := strings.TrimSpace(in.Dir)
+		if outDir == "" {
+			outDir = filepath.Join(cfg.effectiveBaseDir(), "site")
+		}
+		out, err := doExportSite(cfg, store, expandTilde(outDir))
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"path": out, "count": len(store.Bookmarks)})
+	default:
+		writeAPIError(w, http.StatusNotFound, "no such endpoint")
+	}
+}
+
+func handleAPISync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct {
+		Push bool `json:"push"`
+	}
+	if !decodeAPIBody(w, r, &in) {
+		return
+	}
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	var buf strings.Builder
+	if err := runSyncTo(&buf, in.Push); err != nil {
+		writeAPIJSON(w, http.StatusOK, map[string]any{"output": buf.String(), "error": err.Error()})
+		return
+	}
+	writeAPIJSON(w, http.StatusOK, map[string]any{"output": buf.String()})
+}
+
+func handleAPIReindex(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var in struct {
+		Merge        bool `json:"merge"`
+		All          bool `json:"all"`
+		Prune        bool `json:"prune"`
+		Compact      bool `json:"compact"`
+		PruneJournal bool `json:"prune_journal"`
+	}
+	if !decodeAPIBody(w, r, &in) {
+		return
+	}
+	if in.All && !in.Merge {
+		writeAPIError(w, http.StatusBadRequest, "--all requires --merge")
+		return
+	}
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var buf strings.Builder
+	if err := runReindexWith(&buf, cfg, store, reindexFlags{
+		merge: in.Merge, all: in.All, prune: in.Prune,
+		compact: in.Compact, pruneJournal: in.PruneJournal,
+	}); err != nil {
+		writeAPIJSON(w, http.StatusOK, map[string]any{"output": buf.String(), "error": err.Error()})
+		return
+	}
+	writeAPIJSON(w, http.StatusOK, map[string]any{"output": buf.String()})
 }
 
 func writeAPIError(w http.ResponseWriter, code int, msg string) {

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -853,6 +854,176 @@ func TestAPIProfiles(t *testing.T) {
 	w = apiDo(t, h, "POST", "/api/v1/profiles/bogus", `{}`)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("code = %d, want 404", w.Code)
+	}
+}
+
+func TestAPIHistory(t *testing.T) {
+	_ = apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "GET", "/api/v1/history", "")
+	if len(apiDecode(t, w)["history"].([]any)) != 0 {
+		t.Fatalf("history should start empty: %s", w.Body.String())
+	}
+
+	apiDo(t, h, "POST", "/api/v1/bookmarks/2/open", "")
+	apiDo(t, h, "POST", "/api/v1/bookmarks/1/open", "")
+	w = apiDo(t, h, "GET", "/api/v1/history", "")
+	rows := apiDecode(t, w)["history"].([]any)
+	if len(rows) != 2 {
+		t.Fatalf("history = %v", rows)
+	}
+	if rows[0].(map[string]any)["id"].(float64) != 1 || rows[1].(map[string]any)["id"].(float64) != 2 {
+		t.Fatalf("order = %v, want most recent first", rows)
+	}
+	first := rows[0].(map[string]any)
+	for _, k := range []string{"id", "title", "url", "open_count", "last_opened_at"} {
+		if _, ok := first[k]; !ok {
+			t.Fatalf("missing key %q in %v", k, first)
+		}
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/history", "")
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", w.Code)
+	}
+}
+
+func TestAPIBulk(t *testing.T) {
+	base := apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/bulk", `{"ids":[1,2],"action":"tags","tags":["z"]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	for _, id := range []int{1, 2} {
+		if tags := loadTestStore(t, base).Find(id).Tags; len(tags) != 1 || tags[0] != "z" {
+			t.Fatalf("[%d] tags = %v", id, tags)
+		}
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/bulk", `{"ids":[1,2],"action":"folder","folder":"bulk"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if f := loadTestStore(t, base).Find(2).Folder; f != "bulk" {
+		t.Fatalf("folder = %q", f)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/bulk", `{"ids":[1,2],"action":"delete"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	if out["confirm_required"] != true || out["count"].(float64) != 2 || len(out["titles"].([]any)) != 2 {
+		t.Fatalf("out = %v", out)
+	}
+	if loadTestStore(t, base).Find(1) == nil {
+		t.Fatalf("deleted without confirm")
+	}
+	w = apiDo(t, h, "POST", "/api/v1/bulk", `{"ids":[1,2],"action":"delete","confirm":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if apiDecode(t, w)["count"].(float64) != 2 {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+	if s := loadTestStore(t, base); s.Find(1) != nil || s.Find(2) != nil {
+		t.Fatalf("not deleted")
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/bulk", `{"ids":[99],"action":"tags","tags":["z"]}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/bulk", `{"ids":[1],"action":"bogus"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "GET", "/api/v1/bulk", "")
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", w.Code)
+	}
+}
+
+func TestAPILibraryImportExport(t *testing.T) {
+	base := apiTestSetup(t)
+	h := newWebMux("")
+	doc := `<!DOCTYPE NETSCAPE-Bookmark-file-1><DL><p><DT><A HREF="https://n.com/1" TAGS="imp">New One</A></DL><p>`
+	payload := `{"content":` + strconv.Quote(doc) + `}`
+
+	w := apiDo(t, h, "POST", "/api/v1/library/import", payload)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	out := apiDecode(t, w)
+	if out["imported"].(float64) != 1 {
+		t.Fatalf("out = %v", out)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/library/import", `{"content":"no bookmarks here"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/library/import", `{"content":""}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+
+	w = apiDo(t, h, "GET", "/api/v1/library/export", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "New One") || !strings.Contains(body, "alpha one") {
+		t.Fatalf("export missing entries")
+	}
+	if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, "liber-bookmarks.html") {
+		t.Fatalf("content-disposition = %q", cd)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/library/site", `{}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if !fileExists(filepath.Join(base, "site", "index.html")) {
+		t.Fatalf("site not written")
+	}
+
+	w = apiDo(t, h, "GET", "/api/v1/library/bogus", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+}
+
+func TestAPISyncReindex(t *testing.T) {
+	_ = apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/sync", `{}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	if _, ok := out["output"]; !ok {
+		t.Fatalf("out = %v", out)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/reindex", `{"merge":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if _, ok := apiDecode(t, w)["output"]; !ok {
+		t.Fatalf("no output: %s", w.Body.String())
+	}
+	w = apiDo(t, h, "POST", "/api/v1/reindex", `{"all":true}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "GET", "/api/v1/sync", "")
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", w.Code)
 	}
 }
 
