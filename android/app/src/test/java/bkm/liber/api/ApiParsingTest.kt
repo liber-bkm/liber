@@ -140,6 +140,17 @@ class ApiParsingTest {
     }
 
     @Test
+    fun parsesProfilesResponse() {
+        val out = json.decodeFromString(
+            ApiProfilesResponse.serializer(),
+            """{"active":"work","profiles":[{"name":"default","path":"/b","active":false,"default":true},{"name":"work","path":"/b/work","active":true,"default":false}]}""",
+        )
+        assertEquals("work", out.active)
+        assertEquals(2, out.profiles.size)
+        assertEquals(ApiProfile("work", "/b/work", true, false), out.profiles[1])
+    }
+
+    @Test
     fun listUrlParams() {
         val api = LiberApi("http://127.0.0.1:8080/", "s3cret")
         val url = api.listUrl("hello world", "nt", deep = true, sort = "newest", page = 2)

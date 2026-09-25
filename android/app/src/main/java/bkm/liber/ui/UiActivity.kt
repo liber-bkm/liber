@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import bkm.liber.api.ApiBookmark
 import bkm.liber.api.ApiCheckRow
 import bkm.liber.api.ApiFolder
+import bkm.liber.api.ApiProfile
 import bkm.liber.api.ApiSettings
 import bkm.liber.api.ApiRule
 import bkm.liber.api.ApiSuggestion
@@ -104,6 +106,7 @@ private sealed interface Screen {
     data object Check : Screen
     data object Settings : Screen
     data class Saved(val id: Int, val kind: String, val label: String) : Screen
+    data object Profiles : Screen
 }
 
 @Composable
@@ -111,6 +114,7 @@ fun LiberNav(api: LiberApi) {
     var stack by remember { mutableStateOf(listOf<Screen>(Screen.List)) }
     val push = { s: Screen -> stack = stack + s }
     val pop = { if (stack.size > 1) stack = stack.dropLast(1) }
+    val popToList = { stack = listOf<Screen>(Screen.List) }
     BackHandler(enabled = stack.size > 1) { pop() }
     when (val top = stack.last()) {
         is Screen.List -> SearchScreen(
@@ -161,6 +165,12 @@ fun LiberNav(api: LiberApi) {
         is Screen.Settings -> SettingsScreen(
             api = api,
             onBack = { pop() },
+            onOpenProfiles = { push(Screen.Profiles) },
+        )
+        is Screen.Profiles -> ProfilesScreen(
+            api = api,
+            onBack = { pop() },
+            onSwitched = { popToList() },
         )
         is Screen.Saved -> SavedScreen(
             api = api,
@@ -1161,6 +1171,11 @@ fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
     var learnResult by remember { mutableStateOf<String?>(null) }
     var deleteTarget by remember { mutableStateOf<ApiRule?>(null) }
     var deleteCount by remember { mutableStateOf(0) }
+    var editTarget by remember { mutableStateOf<ApiRule?>(null) }
+    var editMatch by remember { mutableStateOf("") }
+    var editFolder by remember { mutableStateOf("") }
+    var editTags by remember { mutableStateOf("") }
+    var editReapply by remember { mutableStateOf(false) }
     val main = Handler(Looper.getMainLooper())
 
     fun load() {
@@ -1190,6 +1205,30 @@ fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
                 load()
             }.onFailure {
                 error = it.message ?: "add failed"
+            }
+        }
+    }
+
+    fun submitEdit() {
+        val target = editTarget ?: return
+        val m = editMatch
+        val f = editFolder
+        val tagList = editTags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val reapply = editReapply
+        mutating = true
+        error = null
+        runApi(main, { api.editRule(target.id, m, f, tagList, reapply) }) { res ->
+            mutating = false
+            res.onSuccess { (_, n) ->
+                editTarget = null
+                learnResult = if (reapply) {
+                    "Rule saved (reapplied to $n bookmark(s))."
+                } else {
+                    "Rule saved."
+                }
+                load()
+            }.onFailure {
+                error = it.message ?: "save failed"
             }
         }
     }
@@ -1308,6 +1347,18 @@ fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
                                 }
                                 IconButton(
                                     onClick = {
+                                        editTarget = r
+                                        editMatch = r.match
+                                        editFolder = r.folder
+                                        editTags = r.tags.joinToString(", ")
+                                        editReapply = false
+                                    },
+                                    enabled = !mutating,
+                                ) {
+                                    Icon(Icons.Filled.Edit, contentDescription = "Edit")
+                                }
+                                IconButton(
+                                    onClick = {
                                         deleteTarget = r
                                         deleteCount = r.appliedCount
                                         submitDelete(confirmed = false)
@@ -1412,6 +1463,65 @@ fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { deleteTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    editTarget?.let {
+        AlertDialog(
+            onDismissRequest = { editTarget = null },
+            title = { Text("Edit rule") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = editMatch,
+                        onValueChange = { editMatch = it },
+                        label = { Text("Match") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = editFolder,
+                        onValueChange = { editFolder = it },
+                        label = { Text("Folder") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                    OutlinedTextField(
+                        value = editTags,
+                        onValueChange = { editTags = it },
+                        label = { Text("Tags, comma separated") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        Checkbox(
+                            checked = editReapply,
+                            onCheckedChange = { editReapply = it },
+                        )
+                        Text(
+                            "Reapply to classified bookmarks",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { submitEdit() },
+                    enabled = !mutating && editMatch.isNotBlank(),
+                ) {
+                    Text(if (mutating) "Saving..." else "Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editTarget = null }) {
                     Text("Cancel")
                 }
             },
@@ -1665,7 +1775,7 @@ fun CheckScreen(api: LiberApi, onBack: () -> Unit) {
 }
 
 @Composable
-fun SettingsScreen(api: LiberApi, onBack: () -> Unit) {
+fun SettingsScreen(api: LiberApi, onBack: () -> Unit, onOpenProfiles: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var settings by remember { mutableStateOf<ApiSettings?>(null) }
@@ -1721,6 +1831,12 @@ fun SettingsScreen(api: LiberApi, onBack: () -> Unit) {
                         )
                         if (s.activeProfile.isNotEmpty()) {
                             CountChip("Profile: ${s.activeProfile}")
+                        }
+                        OutlinedButton(
+                            onClick = onOpenProfiles,
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) {
+                            Text("Profiles")
                         }
                         Text(
                             s.maintenanceStatus,
@@ -1806,5 +1922,164 @@ fun SavedScreen(api: LiberApi, id: Int, kind: String, label: String, onBack: () 
                 modifier = Modifier.fillMaxSize(),
             )
         }
+    }
+}
+
+@Composable
+fun ProfilesScreen(api: LiberApi, onBack: () -> Unit, onSwitched: () -> Unit) {
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var profiles by remember { mutableStateOf(listOf<ApiProfile>()) }
+    var mutating by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<ApiProfile?>(null) }
+    val main = Handler(Looper.getMainLooper())
+
+    fun load() {
+        loading = true
+        error = null
+        runApi(main, { api.profiles() }) { res ->
+            loading = false
+            res.onSuccess { profiles = it.profiles }
+                .onFailure { error = it.message ?: "request failed" }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) { load() }
+
+    fun submitSwitch(target: ApiProfile) {
+        mutating = true
+        error = null
+        runApi(main, { api.switchProfile(target.name) }) { res ->
+            mutating = false
+            res.onSuccess { onSwitched() }
+                .onFailure { error = it.message ?: "switch failed" }
+        }
+    }
+
+    fun submitCreate() {
+        val n = name
+        mutating = true
+        error = null
+        runApi(main, { api.switchProfile(n) }) { res ->
+            mutating = false
+            res.onSuccess {
+                name = ""
+                load()
+            }.onFailure {
+                error = it.message ?: "create failed"
+            }
+        }
+    }
+
+    fun submitDelete() {
+        val target = deleteTarget ?: return
+        mutating = true
+        error = null
+        runApi(main, { api.deleteProfile(target.name) }) { res ->
+            mutating = false
+            res.onSuccess {
+                deleteTarget = null
+                load()
+            }.onFailure {
+                deleteTarget = null
+                error = it.message ?: "delete failed"
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "Profiles", onBack = onBack)
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            error != null && profiles.isEmpty() -> ErrorBlock(error = error ?: "", onRetry = { load() })
+            else -> {
+                if (error != null) {
+                    Text(
+                        text = error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                Text(
+                    "Switching changes the active collection everywhere.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(profiles, key = { it.name }) { p ->
+                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        (if (p.active) "● " else "") + p.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                    Text(p.path, style = MaterialTheme.typography.bodySmall)
+                                }
+                                if (!p.active) {
+                                    TextButton(
+                                        onClick = { submitSwitch(p) },
+                                        enabled = !mutating,
+                                    ) {
+                                        Text("Switch")
+                                    }
+                                    if (!p.default) {
+                                        IconButton(
+                                            onClick = { deleteTarget = p },
+                                            enabled = !mutating,
+                                        ) {
+                                            Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "New profile",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = { Text("Name (switches to it)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                )
+                Button(
+                    onClick = { submitCreate() },
+                    enabled = !mutating && name.isNotBlank(),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Text(if (mutating) "Saving..." else "Create and switch")
+                }
+            }
+        }
+        }
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Remove profile?") },
+            text = { Text("Stop tracking \"${target.name}\"? Its folder and bookmarks stay on disk.") },
+            confirmButton = {
+                TextButton(onClick = { submitDelete() }, enabled = !mutating) {
+                    Text(if (mutating) "Removing..." else "Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }

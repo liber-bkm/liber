@@ -89,6 +89,20 @@ data class ApiSuggestionsResponse(
 )
 
 @Serializable
+data class ApiProfile(
+    val name: String = "",
+    val path: String = "",
+    val active: Boolean = false,
+    val default: Boolean = false,
+)
+
+@Serializable
+data class ApiProfilesResponse(
+    val active: String = "default",
+    val profiles: List<ApiProfile> = emptyList(),
+)
+
+@Serializable
 data class ApiCheckRow(
     val id: Int = 0,
     val title: String = "",
@@ -507,6 +521,80 @@ class LiberApi(baseUrl: String, token: String) {
             return json.parseToJsonElement(body).jsonObject["created"]
                 ?.jsonArray?.size
                 ?: throw IOException("bad learn response")
+        }
+    }
+
+    fun editRule(
+        id: Int,
+        match: String?,
+        folder: String?,
+        tags: List<String>?,
+        reapply: Boolean,
+    ): Pair<ApiRule, Int> {
+        val payload = buildJsonObject {
+            if (match != null) put("match", JsonPrimitive(match))
+            if (folder != null) put("folder", JsonPrimitive(folder))
+            if (tags != null) put("tags", JsonArray(tags.map { JsonPrimitive(it) }))
+            put("reapply", JsonPrimitive(reapply))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/rules/$id")
+                .put(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no such rule")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            val obj = json.parseToJsonElement(body).jsonObject
+            val rule = json.decodeFromJsonElement(ApiRule.serializer(), obj)
+            val reapplied = obj["reapplied"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+            return rule to reapplied
+        }
+    }
+
+    fun profiles(): ApiProfilesResponse {
+        val req = authed(Request.Builder().url("$base/api/v1/profiles")).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiProfilesResponse.serializer(), body)
+        }
+    }
+
+    fun switchProfile(name: String): String {
+        val payload = buildJsonObject {
+            put("name", JsonPrimitive(name))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/profiles/switch")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.parseToJsonElement(body).jsonObject["result"]
+                ?.jsonPrimitive?.contentOrNull
+                ?: throw IOException("bad switch response")
+        }
+    }
+
+    fun deleteProfile(name: String): String {
+        val payload = buildJsonObject {
+            put("name", JsonPrimitive(name))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/profiles/delete")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.parseToJsonElement(body).jsonObject["result"]
+                ?.jsonPrimitive?.contentOrNull
+                ?: throw IOException("bad delete response")
         }
     }
 
