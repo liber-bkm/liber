@@ -89,6 +89,8 @@ func newWebMux(token string) http.Handler {
 	mux.HandleFunc("/api/v1/check/run", handleAPICheckRun)
 	mux.HandleFunc("/api/v1/check/apply", handleAPICheckApply)
 	mux.HandleFunc("/api/v1/settings", handleAPISettings)
+	mux.HandleFunc("/api/v1/profiles", handleAPIProfiles)
+	mux.HandleFunc("/api/v1/profiles/", handleAPIProfilesSub)
 
 	return withAuth(token, mux)
 }
