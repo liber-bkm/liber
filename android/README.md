@@ -119,6 +119,8 @@ File inputs in the WebView only work through the `WebChromeClient` bridge in
 28. Native list parity: collection auto-loads; scope chips, Deep toggle, and sort narrow results like the WebView; detail delete confirms and the list refreshes without the deleted entry.
 29. Native saved content: card always opens offline, archive and notes open when present, attachments download and open externally; missing content shows a retryable error.
 30. Native rules edit + profiles: rule edit dialog saves with optional reapply and reports the count; profiles list with active mark, switch changes the collection everywhere, create-and-switch and untracking delete work; bad names and deleting the active profile are rejected with a message.
+31. Native history + bulk: history matches open order with counts; long-press selects, bulk bar deletes (confirmed), sets tags, and moves folders, and the list refreshes.
+32. Native library: import a browser export via the picker with counts; share the Netscape export; static site, sync (with push), and reindex run with output; prune/compact confirm first; failures show output plus error.
 
 ## Backup and reinstall (standalone mode)
 
