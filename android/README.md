@@ -118,6 +118,7 @@ File inputs in the WebView only work through the `WebChromeClient` bridge in
 27. Native look: gruvbox light and dark schemes follow the system setting; every screen shows its top bar, cards, and dialogs correctly in both; icons and chips render; rotation keeps state.
 28. Native list parity: collection auto-loads; scope chips, Deep toggle, and sort narrow results like the WebView; detail delete confirms and the list refreshes without the deleted entry.
 29. Native saved content: card always opens offline, archive and notes open when present, attachments download and open externally; missing content shows a retryable error.
+30. Native rules edit + profiles: rule edit dialog saves with optional reapply and reports the count; profiles list with active mark, switch changes the collection everywhere, create-and-switch and untracking delete work; bad names and deleting the active profile are rejected with a message.
 
 ## Backup and reinstall (standalone mode)
 
