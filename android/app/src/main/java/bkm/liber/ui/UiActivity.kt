@@ -9,22 +9,43 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,7 +81,7 @@ class UiActivity : ComponentActivity() {
             return
         }
         setContent {
-            MaterialTheme {
+            LiberTheme {
                 LiberNav(api = LiberApi(base, token))
             }
         }
@@ -147,6 +168,45 @@ private fun <T> runApi(main: Handler, call: () -> T, done: (Result<T>) -> Unit) 
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LiberTopBar(
+    title: String,
+    onBack: (() -> Unit)?,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    TopAppBar(
+        title = { Text(title) },
+        navigationIcon = {
+            onBack?.let {
+                IconButton(onClick = it) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            }
+        },
+        actions = actions,
+    )
+}
+
+@Composable
+fun CountChip(text: String) {
+    AssistChip(onClick = {}, label = { Text(text) })
+}
+
+@Composable
+fun ErrorBlock(error: String, onRetry: (() -> Unit)? = null) {
+    Text(
+        text = error,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.padding(top = 16.dp),
+    )
+    onRetry?.let {
+        Button(onClick = it, modifier = Modifier.padding(top = 8.dp)) {
+            Text("Retry")
+        }
+    }
+}
+
 @Composable
 fun SearchScreen(
     api: LiberApi,
@@ -178,40 +238,40 @@ fun SearchScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "liber", onBack = null) {
+            IconButton(onClick = onOpenTags) {
+                Icon(Icons.Filled.List, contentDescription = "Tags")
+            }
+            IconButton(onClick = onOpenCheck) {
+                Icon(Icons.Filled.Check, contentDescription = "Check")
+            }
+            IconButton(onClick = onOpenSettings) {
+                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+            }
+        }
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextField(
+            OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
                 placeholder = { Text("Search...") },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
             )
-            Button(onClick = { runSearch() }) {
-                Text("Go")
+            IconButton(onClick = { runSearch() }) {
+                Icon(Icons.Filled.Search, contentDescription = "Search")
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onOpenAdd) {
-                Text("Add")
-            }
-            Button(onClick = onOpenTags) {
-                Text("Tags")
-            }
-            Button(onClick = onOpenCheck) {
-                Text("Check")
-            }
-            Button(onClick = onOpenSettings) {
-                Text("Settings")
+            FilledTonalButton(onClick = onOpenAdd) {
+                Icon(Icons.Filled.Add, contentDescription = null)
+                Text("Add", modifier = Modifier.padding(start = 4.dp))
             }
         }
         when {
             loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
-            error != null -> Text(
-                text = error ?: "",
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(top = 16.dp),
-            )
+            error != null -> ErrorBlock(error = error ?: "")
             else -> {
                 Text(
                     text = "$total bookmark(s)",
@@ -221,27 +281,28 @@ fun SearchScreen(
                 if (results.isEmpty()) {
                     Text("No results yet. Search above.")
                 }
-                LazyColumn {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(results, key = { it.id }) { b ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpenDetail(b.id) }
-                                .padding(vertical = 8.dp),
+                        ElevatedCard(
+                            onClick = { onOpenDetail(b.id) },
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(b.title, style = MaterialTheme.typography.titleMedium)
-                            Text(b.url, style = MaterialTheme.typography.bodySmall)
-                            if (b.folder.isNotEmpty() || b.tags.isNotEmpty()) {
-                                Text(
-                                    (listOf(b.folder) + b.tags).filter { it.isNotEmpty() }
-                                        .joinToString(" · "),
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(b.title, style = MaterialTheme.typography.titleMedium)
+                                Text(b.url, style = MaterialTheme.typography.bodySmall)
+                                if (b.folder.isNotEmpty() || b.tags.isNotEmpty()) {
+                                    Text(
+                                        (listOf(b.folder) + b.tags).filter { it.isNotEmpty() }
+                                            .joinToString(" · "),
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+        }
         }
     }
 }
@@ -266,44 +327,41 @@ fun DetailScreen(api: LiberApi, id: Int, onBack: () -> Unit, onOpenEdit: () -> U
 
     androidx.compose.runtime.LaunchedEffect(id) { load() }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack) {
-                Text("Back")
-            }
-        }
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "Detail", onBack = onBack)
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         when {
             loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
-            error != null -> {
-                Text(
-                    text = error ?: "",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
-                    Text("Retry")
-                }
-            }
+            error != null -> ErrorBlock(error = error ?: "", onRetry = { load() })
             else -> bookmark?.let { b ->
-                Text(b.title, style = MaterialTheme.typography.headlineSmall)
-                Text(b.url, style = MaterialTheme.typography.bodyMedium)
-                if (b.description.isNotEmpty()) {
-                    Text(b.description, modifier = Modifier.padding(top = 8.dp))
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(b.title, style = MaterialTheme.typography.headlineSmall)
+                        Text(b.url, style = MaterialTheme.typography.bodyMedium)
+                        if (b.description.isNotEmpty()) {
+                            Text(b.description, modifier = Modifier.padding(top = 8.dp))
+                        }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) {
+                            if (b.folder.isNotEmpty()) {
+                                CountChip("Folder: ${b.folder}")
+                            }
+                            if (b.tags.isNotEmpty()) {
+                                CountChip("Tags: ${b.tags.joinToString(", ")}")
+                            }
+                        }
+                        Text(
+                            "md: ${if (b.hasMarkdown) "yes" else "no"} · archive: ${if (b.hasArchive) "yes" else "no"}" +
+                                " · opened ${b.openCount}x",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
                 }
-                if (b.folder.isNotEmpty()) {
-                    Text("Folder: ${b.folder}", style = MaterialTheme.typography.labelMedium)
-                }
-                if (b.tags.isNotEmpty()) {
-                    Text("Tags: ${b.tags.joinToString(", ")}", style = MaterialTheme.typography.labelMedium)
-                }
-                Text(
-                    "md: ${if (b.hasMarkdown) "yes" else "no"} · archive: ${if (b.hasArchive) "yes" else "no"}" +
-                        " · opened ${b.openCount}x",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
+                    FilledTonalButton(
                         onClick = {
                             runApi(main, { api.open(id) }) { res ->
                                 res.onSuccess { url ->
@@ -315,16 +373,19 @@ fun DetailScreen(api: LiberApi, id: Int, onBack: () -> Unit, onOpenEdit: () -> U
                         },
                         modifier = Modifier.padding(top = 8.dp),
                     ) {
-                        Text("Open")
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Text("Open", modifier = Modifier.padding(start = 4.dp))
                     }
-                    Button(
+                    OutlinedButton(
                         onClick = onOpenEdit,
                         modifier = Modifier.padding(top = 8.dp),
                     ) {
-                        Text("Edit")
+                        Icon(Icons.Filled.Edit, contentDescription = null)
+                        Text("Edit", modifier = Modifier.padding(start = 4.dp))
                     }
                 }
             }
+        }
         }
     }
 }
@@ -358,20 +419,17 @@ fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack) {
-                Text("Back")
-            }
-        }
-        TextField(
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "Add bookmark", onBack = onBack)
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        OutlinedTextField(
             value = url,
             onValueChange = { url = it },
             placeholder = { Text("https://example.com") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
-        TextField(
+        OutlinedTextField(
             value = title,
             onValueChange = { title = it },
             placeholder = { Text("Title (optional)") },
@@ -391,6 +449,7 @@ fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
             modifier = Modifier.padding(top = 8.dp),
         ) {
             Text(if (saving) "Saving..." else "Add")
+        }
         }
     }
 
@@ -461,53 +520,41 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack) {
-                Text("Back")
-            }
-        }
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "Edit bookmark", onBack = onBack)
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         when {
             loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
-            loadError != null -> {
-                Text(
-                    text = loadError ?: "",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
-                    Text("Retry")
-                }
-            }
+            loadError != null -> ErrorBlock(error = loadError ?: "", onRetry = { load() })
             else -> {
-                TextField(
+                OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
                     placeholder = { Text("Title") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
-                TextField(
+                OutlinedTextField(
                     value = url,
                     onValueChange = { url = it },
                     placeholder = { Text("https://example.com") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
-                TextField(
+                OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
                     placeholder = { Text("Description (optional)") },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
-                TextField(
+                OutlinedTextField(
                     value = tags,
                     onValueChange = { tags = it },
                     placeholder = { Text("Tags, comma separated (optional)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
-                TextField(
+                OutlinedTextField(
                     value = folder,
                     onValueChange = { folder = it },
                     placeholder = { Text("Folder (optional)") },
@@ -529,6 +576,7 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
                     Text(if (saving) "Saving..." else "Save")
                 }
             }
+        }
         }
     }
 }
@@ -593,30 +641,19 @@ fun TagsScreen(api: LiberApi, onBack: () -> Unit, onOpenFolders: () -> Unit, onO
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack) {
-                Text("Back")
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "Tags", onBack = onBack) {
+            IconButton(onClick = onOpenFolders) {
+                Icon(Icons.Filled.Home, contentDescription = "Folders")
             }
-            Button(onClick = onOpenFolders) {
-                Text("Folders")
-            }
-            Button(onClick = onOpenRules) {
-                Text("Rules")
+            IconButton(onClick = onOpenRules) {
+                Icon(Icons.Filled.Refresh, contentDescription = "Rules")
             }
         }
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         when {
             loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
-            error != null && tags.isEmpty() -> {
-                Text(
-                    text = error ?: "",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
-                    Text("Retry")
-                }
-            }
+            error != null && tags.isEmpty() -> ErrorBlock(error = error ?: "", onRetry = { load() })
             else -> {
                 if (error != null) {
                     Text(
@@ -633,42 +670,42 @@ fun TagsScreen(api: LiberApi, onBack: () -> Unit, onOpenFolders: () -> Unit, onO
                 if (tags.isEmpty()) {
                     Text("No tags yet.")
                 }
-                LazyColumn {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(tags, key = { it.name }) { t ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(t.name, style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    "${t.count} bookmark(s)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            TextButton(
-                                onClick = {
-                                    renameTarget = t
-                                    renameValue = t.name
-                                },
-                                enabled = !mutating,
+                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text("Rename")
-                            }
-                            TextButton(
-                                onClick = {
-                                    deleteTarget = t
-                                    deleteCount = t.count
-                                    submitDelete(confirmed = false)
-                                },
-                                enabled = !mutating,
-                            ) {
-                                Text("Delete")
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(t.name, style = MaterialTheme.typography.titleMedium)
+                                    CountChip("${t.count} bookmark(s)")
+                                }
+                                IconButton(
+                                    onClick = {
+                                        renameTarget = t
+                                        renameValue = t.name
+                                    },
+                                    enabled = !mutating,
+                                ) {
+                                    Icon(Icons.Filled.Edit, contentDescription = "Rename")
+                                }
+                                IconButton(
+                                    onClick = {
+                                        deleteTarget = t
+                                        deleteCount = t.count
+                                        submitDelete(confirmed = false)
+                                    },
+                                    enabled = !mutating,
+                                ) {
+                                    Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                                }
                             }
                         }
                     }
                 }
             }
+        }
         }
     }
 
@@ -677,7 +714,7 @@ fun TagsScreen(api: LiberApi, onBack: () -> Unit, onOpenFolders: () -> Unit, onO
             onDismissRequest = { renameTarget = null },
             title = { Text("Rename tag") },
             text = {
-                TextField(
+                OutlinedTextField(
                     value = renameValue,
                     onValueChange = { renameValue = it },
                     singleLine = true,
@@ -780,24 +817,12 @@ fun FoldersScreen(api: LiberApi, onBack: () -> Unit) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack) {
-                Text("Back")
-            }
-        }
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "Folders", onBack = onBack)
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         when {
             loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
-            error != null && folders.isEmpty() -> {
-                Text(
-                    text = error ?: "",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
-                    Text("Retry")
-                }
-            }
+            error != null && folders.isEmpty() -> ErrorBlock(error = error ?: "", onRetry = { load() })
             else -> {
                 if (error != null) {
                     Text(
@@ -814,45 +839,45 @@ fun FoldersScreen(api: LiberApi, onBack: () -> Unit) {
                 if (folders.isEmpty()) {
                     Text("Everything is at the root.")
                 }
-                LazyColumn {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(folders, key = { it.name }) { f ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    f.display.ifEmpty { "/" },
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                Text(
-                                    "${f.count} bookmark(s)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            TextButton(
-                                onClick = {
-                                    renameTarget = f
-                                    renameValue = f.name
-                                },
-                                enabled = !mutating && f.name.isNotEmpty(),
+                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text("Rename")
-                            }
-                            TextButton(
-                                onClick = {
-                                    deleteTarget = f
-                                    deleteCount = f.count
-                                    submitDelete(confirmed = false)
-                                },
-                                enabled = !mutating && f.name.isNotEmpty(),
-                            ) {
-                                Text("Delete")
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        f.display.ifEmpty { "/" },
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                    CountChip("${f.count} bookmark(s)")
+                                }
+                                IconButton(
+                                    onClick = {
+                                        renameTarget = f
+                                        renameValue = f.name
+                                    },
+                                    enabled = !mutating && f.name.isNotEmpty(),
+                                ) {
+                                    Icon(Icons.Filled.Edit, contentDescription = "Rename")
+                                }
+                                IconButton(
+                                    onClick = {
+                                        deleteTarget = f
+                                        deleteCount = f.count
+                                        submitDelete(confirmed = false)
+                                    },
+                                    enabled = !mutating && f.name.isNotEmpty(),
+                                ) {
+                                    Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                                }
                             }
                         }
                     }
                 }
             }
+        }
         }
     }
 
@@ -861,7 +886,7 @@ fun FoldersScreen(api: LiberApi, onBack: () -> Unit) {
             onDismissRequest = { renameTarget = null },
             title = { Text("Rename folder") },
             text = {
-                TextField(
+                OutlinedTextField(
                     value = renameValue,
                     onValueChange = { renameValue = it },
                     singleLine = true,
@@ -1015,24 +1040,12 @@ fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack) {
-                Text("Back")
-            }
-        }
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "Rules", onBack = onBack)
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         when {
             loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
-            error != null && rules.isEmpty() -> {
-                Text(
-                    text = error ?: "",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
-                    Text("Retry")
-                }
-            }
+            error != null && rules.isEmpty() -> ErrorBlock(error = error ?: "", onRetry = { load() })
             else -> {
                 if (error != null) {
                     Text(
@@ -1049,39 +1062,41 @@ fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
                 if (rules.isEmpty()) {
                     Text("No rules yet.")
                 }
-                LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                LazyColumn(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     items(rules, key = { it.id }) { r ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(r.match, style = MaterialTheme.typography.titleMedium)
-                                val detail = (listOf(r.folder) + r.tags)
-                                    .filter { it.isNotEmpty() }.joinToString(" · ")
-                                if (detail.isNotEmpty()) {
-                                    Text(detail, style = MaterialTheme.typography.bodySmall)
+                        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(r.match, style = MaterialTheme.typography.titleMedium)
+                                    val detail = (listOf(r.folder) + r.tags)
+                                        .filter { it.isNotEmpty() }.joinToString(" · ")
+                                    if (detail.isNotEmpty()) {
+                                        Text(detail, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    CountChip("applied to ${r.appliedCount} bookmark(s)")
                                 }
-                                Text(
-                                    "applied to ${r.appliedCount} bookmark(s)",
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                            }
-                            TextButton(
-                                onClick = { submitApply(r.id) },
-                                enabled = !mutating,
-                            ) {
-                                Text("Apply")
-                            }
-                            TextButton(
-                                onClick = {
-                                    deleteTarget = r
-                                    deleteCount = r.appliedCount
-                                    submitDelete(confirmed = false)
-                                },
-                                enabled = !mutating,
-                            ) {
-                                Text("Delete")
+                                IconButton(
+                                    onClick = { submitApply(r.id) },
+                                    enabled = !mutating,
+                                ) {
+                                    Icon(Icons.Filled.PlayArrow, contentDescription = "Apply")
+                                }
+                                IconButton(
+                                    onClick = {
+                                        deleteTarget = r
+                                        deleteCount = r.appliedCount
+                                        submitDelete(confirmed = false)
+                                    },
+                                    enabled = !mutating,
+                                ) {
+                                    Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                                }
                             }
                         }
                     }
@@ -1091,21 +1106,21 @@ fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(top = 8.dp),
                 )
-                TextField(
+                OutlinedTextField(
                     value = match,
                     onValueChange = { match = it },
                     placeholder = { Text("Match, e.g. host:example.com") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 )
-                TextField(
+                OutlinedTextField(
                     value = folder,
                     onValueChange = { folder = it },
                     placeholder = { Text("Folder (optional)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 )
-                TextField(
+                OutlinedTextField(
                     value = tags,
                     onValueChange = { tags = it },
                     placeholder = { Text("Tags, comma separated (optional)") },
@@ -1126,7 +1141,7 @@ fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextField(
+                    OutlinedTextField(
                         value = learnMin,
                         onValueChange = { learnMin = it },
                         placeholder = { Text("Min") },
@@ -1162,6 +1177,7 @@ fun RulesScreen(api: LiberApi, onBack: () -> Unit) {
                     )
                 }
             }
+        }
         }
     }
 
@@ -1249,47 +1265,61 @@ fun CheckScreen(api: LiberApi, onBack: () -> Unit) {
     }
 
     @Composable
-    fun CheckRowView(row: ApiCheckRow, actions: @Composable () -> Unit) {
-        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-            Text("[${row.id}] ${row.title}", style = MaterialTheme.typography.titleMedium)
-            Text(row.url, style = MaterialTheme.typography.bodySmall)
-            val extra = listOf(row.detail, row.target).filter { it.isNotEmpty() }
-                .joinToString(" -> ")
-            if (extra.isNotEmpty()) {
-                Text(extra, style = MaterialTheme.typography.labelSmall)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                actions()
+    fun CheckRowView(
+        row: ApiCheckRow,
+        bucketColor: androidx.compose.ui.graphics.Color,
+        actions: @Composable () -> Unit,
+    ) {
+        ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CountChip(row.status)
+                    Text(
+                        "[${row.id}] ${row.title}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = bucketColor,
+                    )
+                }
+                Text(row.url, style = MaterialTheme.typography.bodySmall)
+                val extra = listOf(row.detail, row.target).filter { it.isNotEmpty() }
+                    .joinToString(" -> ")
+                if (extra.isNotEmpty()) {
+                    Text(extra, style = MaterialTheme.typography.labelSmall)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    actions()
+                }
             }
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack) {
-                Text("Back")
-            }
-        }
-        TextField(
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "Check links", onBack = onBack)
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        OutlinedTextField(
             value = spec,
             onValueChange = { spec = it },
             placeholder = { Text("ids like 1-100 (empty = all)") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
-        TextField(
+        OutlinedTextField(
             value = stale,
             onValueChange = { stale = it },
             placeholder = { Text("only stale, e.g. 720h (empty = all)") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
-        Button(
+        FilledTonalButton(
             onClick = { runScan() },
             enabled = !scanning && !mutating,
             modifier = Modifier.padding(top = 8.dp),
         ) {
-            Text(if (scanning) "Scanning..." else "Run check")
+            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+            Text(
+                if (scanning) "Scanning..." else "Run check",
+                modifier = Modifier.padding(start = 4.dp),
+            )
         }
         if (scanning) {
             Text(
@@ -1318,24 +1348,27 @@ fun CheckScreen(api: LiberApi, onBack: () -> Unit) {
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
             )
-            LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+            LazyColumn(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 if (moved.isNotEmpty()) {
                     item {
                         Text("Moved", style = MaterialTheme.typography.titleMedium)
                     }
                     items(moved, key = { it.id }) { row ->
-                        CheckRowView(row) {
-                            TextButton(
+                        CheckRowView(row, MaterialTheme.colorScheme.tertiary) {
+                            IconButton(
                                 onClick = { submitApply(row, "update", confirmed = true) },
                                 enabled = !mutating,
                             ) {
-                                Text("Update URL")
+                                Icon(Icons.Filled.Check, contentDescription = "Update URL")
                             }
-                            TextButton(
+                            IconButton(
                                 onClick = { submitApply(row, "retitle", confirmed = true) },
                                 enabled = !mutating,
                             ) {
-                                Text("URL + title")
+                                Icon(Icons.Filled.Refresh, contentDescription = "URL + title")
                             }
                         }
                     }
@@ -1345,18 +1378,18 @@ fun CheckScreen(api: LiberApi, onBack: () -> Unit) {
                         Text("Dead", style = MaterialTheme.typography.titleMedium)
                     }
                     items(dead, key = { it.id }) { row ->
-                        CheckRowView(row) {
-                            TextButton(
+                        CheckRowView(row, MaterialTheme.colorScheme.error) {
+                            IconButton(
                                 onClick = { submitApply(row, "delete", confirmed = false) },
                                 enabled = !mutating,
                             ) {
-                                Text("Delete")
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete")
                             }
-                            TextButton(
+                            IconButton(
                                 onClick = { submitApply(row, "quarantine", confirmed = true) },
                                 enabled = !mutating,
                             ) {
-                                Text("Quarantine")
+                                Icon(Icons.Filled.Warning, contentDescription = "Quarantine")
                             }
                         }
                     }
@@ -1366,23 +1399,24 @@ fun CheckScreen(api: LiberApi, onBack: () -> Unit) {
                         Text("Uncertain", style = MaterialTheme.typography.titleMedium)
                     }
                     items(uncertain, key = { it.id }) { row ->
-                        CheckRowView(row) {
-                            TextButton(
+                        CheckRowView(row, MaterialTheme.colorScheme.onSurfaceVariant) {
+                            IconButton(
                                 onClick = { submitApply(row, "delete", confirmed = false) },
                                 enabled = !mutating,
                             ) {
-                                Text("Delete")
+                                Icon(Icons.Filled.Delete, contentDescription = "Delete")
                             }
-                            TextButton(
+                            IconButton(
                                 onClick = { submitApply(row, "quarantine", confirmed = true) },
                                 enabled = !mutating,
                             ) {
-                                Text("Quarantine")
+                                Icon(Icons.Filled.Warning, contentDescription = "Quarantine")
                             }
                         }
                     }
                 }
             }
+        }
         }
     }
 
@@ -1442,24 +1476,12 @@ fun SettingsScreen(api: LiberApi, onBack: () -> Unit) {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onBack) {
-                Text("Back")
-            }
-        }
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "Settings", onBack = onBack)
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         when {
             loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
-            error != null && settings == null -> {
-                Text(
-                    text = error ?: "",
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                Button(onClick = { load() }, modifier = Modifier.padding(top = 8.dp)) {
-                    Text("Retry")
-                }
-            }
+            error != null && settings == null -> ErrorBlock(error = error ?: "", onRetry = { load() })
             else -> settings?.let { s ->
                 if (error != null) {
                     Text(
@@ -1468,25 +1490,26 @@ fun SettingsScreen(api: LiberApi, onBack: () -> Unit) {
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
-                Text("Collection", style = MaterialTheme.typography.titleMedium)
-                Text(s.baseDir, style = MaterialTheme.typography.bodySmall)
-                Text(
-                    "${s.bookmarks} bookmark(s) · ${s.tags} tag(s) · " +
-                        "${s.folders} folder(s) · ${s.rules} rule(s)",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                if (s.activeProfile.isNotEmpty()) {
-                    Text(
-                        "Profile: ${s.activeProfile}",
-                        style = MaterialTheme.typography.labelMedium,
-                    )
+                ElevatedCard(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Collection", style = MaterialTheme.typography.titleMedium)
+                        Text(s.baseDir, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "${s.bookmarks} bookmark(s) · ${s.tags} tag(s) · " +
+                                "${s.folders} folder(s) · ${s.rules} rule(s)",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        if (s.activeProfile.isNotEmpty()) {
+                            CountChip("Profile: ${s.activeProfile}")
+                        }
+                        Text(
+                            s.maintenanceStatus,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                 }
-                Text(
-                    s.maintenanceStatus,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
                 Text(
                     "Archive backend",
                     style = MaterialTheme.typography.titleMedium,
@@ -1497,14 +1520,16 @@ fun SettingsScreen(api: LiberApi, onBack: () -> Unit) {
                         "empty resolves to the native default.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Column(modifier = Modifier.padding(top = 4.dp)) {
-                    backends.forEach { b ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(
-                                onClick = { selectBackend(b) },
-                                enabled = !saving && s.archiveBackend != b,
-                            ) {
-                                Text(if (s.archiveBackend == b) "● $b" else b)
+                ElevatedCard(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        backends.forEach { b ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(
+                                    onClick = { selectBackend(b) },
+                                    enabled = !saving && s.archiveBackend != b,
+                                ) {
+                                    Text(if (s.archiveBackend == b) "● $b" else b)
+                                }
                             }
                         }
                     }
@@ -1517,6 +1542,7 @@ fun SettingsScreen(api: LiberApi, onBack: () -> Unit) {
                     )
                 }
             }
+        }
         }
     }
 }
