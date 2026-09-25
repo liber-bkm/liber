@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -780,6 +781,81 @@ func handleAPIOpen(w http.ResponseWriter, r *http.Request, id int) {
 	writeAPIJSON(w, http.StatusOK, map[string]any{"url": b.URL})
 }
 
+func apiContentID(r *http.Request) (id int, kind string, n int, ok bool) {
+	rest, found := strings.CutPrefix(r.URL.Path, "/api/v1/bookmarks/")
+	if !found {
+		return 0, "", 0, false
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) == 2 && (parts[1] == "card" || parts[1] == "archive" || parts[1] == "markdown") {
+		id, err := strconv.Atoi(parts[0])
+		if err != nil || id < 1 {
+			return 0, "", 0, false
+		}
+		return id, parts[1], 0, true
+	}
+	if len(parts) == 3 && parts[1] == "attachments" {
+		id, err := strconv.Atoi(parts[0])
+		n, nerr := strconv.Atoi(parts[2])
+		if err != nil || id < 1 || nerr != nil || n < 1 {
+			return 0, "", 0, false
+		}
+		return id, "attachment", n, true
+	}
+	return 0, "", 0, false
+}
+
+func handleAPIContent(w http.ResponseWriter, r *http.Request, id int, kind string, n int) {
+	if r.Method != http.MethodGet {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	b := store.Find(id)
+	if b == nil {
+		writeAPIError(w, http.StatusNotFound, "no such bookmark")
+		return
+	}
+	switch kind {
+	case "card", "archive":
+		rel := b.HTMLFile
+		dir := cfg.htmlDir()
+		if kind == "archive" {
+			rel = b.ArchiveFile
+			dir = cfg.archiveDir()
+		}
+		if rel == "" {
+			writeAPIError(w, http.StatusNotFound, "no saved "+kind)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(dir, rel))
+	case "markdown":
+		if b.MarkdownFile == "" {
+			writeAPIError(w, http.StatusNotFound, "no saved markdown")
+			return
+		}
+		doc, err := markdownPageHTML(cfg, b)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, doc)
+	case "attachment":
+		if n > len(b.Attachments) {
+			writeAPIError(w, http.StatusNotFound, "no such attachment")
+			return
+		}
+		at := b.Attachments[n-1]
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", at.Name))
+		http.ServeFile(w, r, filepath.Join(cfg.attachmentsDir(), at.File))
+	}
+}
+
 func apiBookmarkID(r *http.Request) (int, bool) {
 	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/api/v1/bookmarks/"))
 	if err != nil || id < 1 {
@@ -890,6 +966,10 @@ func handleAPIBookmarks(w http.ResponseWriter, r *http.Request) {
 func handleAPIBookmark(w http.ResponseWriter, r *http.Request) {
 	if id, ok := apiOpenID(r); ok {
 		handleAPIOpen(w, r, id)
+		return
+	}
+	if id, kind, n, ok := apiContentID(r); ok {
+		handleAPIContent(w, r, id, kind, n)
 		return
 	}
 	id, ok := apiBookmarkID(r)

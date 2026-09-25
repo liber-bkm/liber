@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -676,6 +678,90 @@ func TestAPISettings(t *testing.T) {
 		t.Fatalf("code = %d, want 400", w.Code)
 	}
 	w = apiDo(t, h, "PUT", "/api/v1/settings", `{}`)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("code = %d, want 405", w.Code)
+	}
+}
+
+func apiContentSetup(t *testing.T) string {
+	t.Helper()
+	entries := []*Bookmark{
+		{ID: 1, URL: "https://a.com/1", Title: "alpha", HTMLFile: "0001-alpha.html",
+			MarkdownFile: "0001-alpha.md", ArchiveFile: "0001-alpha-archive.html",
+			Attachments: []Attachment{{Name: "paper.pdf", File: "0001-paper.pdf"}}},
+		{ID: 2, URL: "https://b.com/2", Title: "beta", HTMLFile: "0002-beta.html"},
+	}
+	_, base := setupReindexTest(t, entries)
+	writeHTMLFile(t, base, "0001-alpha.html", entries[0].URL, "alpha")
+	writeHTMLFile(t, base, "0002-beta.html", entries[1].URL, "beta")
+	md := "# alpha\n\nnotes here\n"
+	if err := os.MkdirAll(filepath.Join(base, "markdown"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "markdown", "0001-alpha.md"), []byte(md), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(base, "archive"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	arch := "<!DOCTYPE html><html><head><title>alpha</title></head><body>archived</body></html>"
+	if err := os.WriteFile(filepath.Join(base, "archive", "0001-alpha-archive.html"), []byte(arch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(base, "attachments"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "attachments", "0001-paper.pdf"), []byte("%PDF-1.4 fake"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return base
+}
+
+func TestAPIContent(t *testing.T) {
+	_ = apiContentSetup(t)
+	h := newWebMux("")
+
+	for _, tc := range []struct{ path, wantCT, wantBody string }{
+		{"/api/v1/bookmarks/1/card", "text/html", "<title>alpha</title>"},
+		{"/api/v1/bookmarks/1/archive", "text/html", "archived"},
+		{"/api/v1/bookmarks/1/markdown", "text/html", "notes here"},
+	} {
+		w := apiDo(t, h, "GET", tc.path, "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: code = %d", tc.path, w.Code)
+		}
+		if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, tc.wantCT) {
+			t.Fatalf("%s: content-type = %q", tc.path, ct)
+		}
+		if !strings.Contains(w.Body.String(), tc.wantBody) {
+			t.Fatalf("%s: body missing %q", tc.path, tc.wantBody)
+		}
+	}
+
+	w := apiDo(t, h, "GET", "/api/v1/bookmarks/1/attachments/1", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "%PDF-1.4 fake") {
+		t.Fatalf("attachment body wrong")
+	}
+	if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, "paper.pdf") {
+		t.Fatalf("content-disposition = %q", cd)
+	}
+
+	for _, path := range []string{
+		"/api/v1/bookmarks/2/archive",
+		"/api/v1/bookmarks/2/markdown",
+		"/api/v1/bookmarks/1/attachments/2",
+		"/api/v1/bookmarks/99/card",
+		"/api/v1/bookmarks/abc/card",
+	} {
+		w := apiDo(t, h, "GET", path, "")
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("%s: code = %d, want 404", path, w.Code)
+		}
+	}
+	w = apiDo(t, h, "POST", "/api/v1/bookmarks/1/card", "")
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("code = %d, want 405", w.Code)
 	}
