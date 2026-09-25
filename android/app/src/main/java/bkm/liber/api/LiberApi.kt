@@ -287,6 +287,25 @@ class LiberApi(baseUrl: String, token: String) {
         }
     }
 
+    fun content(id: Int, kind: String): String {
+        val req = authed(Request.Builder().url("$base/api/v1/bookmarks/$id/$kind")).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no saved $kind")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return body
+        }
+    }
+
+    fun downloadAttachment(id: Int, n: Int): ByteArray {
+        val req = authed(Request.Builder().url("$base/api/v1/bookmarks/$id/attachments/$n")).build()
+        client.newCall(req).execute().use { resp ->
+            if (resp.code == 404) throw IOException("no such attachment")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
+            return resp.body?.bytes() ?: throw IOException("empty attachment")
+        }
+    }
+
     fun tags(): List<ApiTag> {
         val req = authed(Request.Builder().url("$base/api/v1/tags")).build()
         client.newCall(req).execute().use { resp ->
