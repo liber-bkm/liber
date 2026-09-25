@@ -103,6 +103,7 @@ private sealed interface Screen {
     data object Rules : Screen
     data object Check : Screen
     data object Settings : Screen
+    data class Saved(val id: Int, val kind: String, val label: String) : Screen
 }
 
 @Composable
@@ -126,6 +127,7 @@ fun LiberNav(api: LiberApi) {
             onBack = { pop() },
             onOpenEdit = { push(Screen.Edit(top.id)) },
             onDeleted = { pop() },
+            onOpenSaved = { kind, label -> push(Screen.Saved(top.id, kind, label)) },
         )
         is Screen.Add -> AddScreen(
             api = api,
@@ -158,6 +160,13 @@ fun LiberNav(api: LiberApi) {
         )
         is Screen.Settings -> SettingsScreen(
             api = api,
+            onBack = { pop() },
+        )
+        is Screen.Saved -> SavedScreen(
+            api = api,
+            id = top.id,
+            kind = top.kind,
+            label = top.label,
             onBack = { pop() },
         )
     }
@@ -400,6 +409,7 @@ fun DetailScreen(
     onBack: () -> Unit,
     onOpenEdit: () -> Unit,
     onDeleted: () -> Unit,
+    onOpenSaved: (kind: String, label: String) -> Unit,
 ) {
     val context = LocalContext.current
     var loading by remember { mutableStateOf(true) }
@@ -407,6 +417,7 @@ fun DetailScreen(
     var bookmark by remember { mutableStateOf<ApiBookmark?>(null) }
     var showDelete by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    var opening by remember { mutableStateOf<String?>(null) }
     val main = Handler(Looper.getMainLooper())
 
     fun load() {
@@ -429,6 +440,38 @@ fun DetailScreen(
             res.onSuccess { onDeleted() }.onFailure {
                 showDelete = false
                 error = it.message ?: "delete failed"
+            }
+        }
+    }
+
+    fun openAttachment(name: String, n: Int) {
+        opening = name
+        error = null
+        runApi(main, { api.downloadAttachment(id, n) }) { res ->
+            opening = null
+            res.onSuccess { bytes ->
+                try {
+                    val dir = java.io.File(context.cacheDir, "liber-attachments").apply { mkdirs() }
+                    val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(64)
+                    val file = java.io.File(dir, "${id}-${n}-$safe")
+                    file.writeBytes(bytes)
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "bkm.liber.fileprovider", file,
+                    )
+                    val type = context.contentResolver.getType(uri)
+                        ?: android.webkit.MimeTypeMap.getSingleton()
+                            .getMimeTypeFromExtension(file.extension.lowercase())
+                        ?: "*/*"
+                    val view = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, type)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(view, name))
+                } catch (e: Exception) {
+                    error = e.message ?: "open failed"
+                }
+            }.onFailure {
+                error = it.message ?: "download failed"
             }
         }
     }
@@ -496,6 +539,50 @@ fun DetailScreen(
                     ) {
                         Icon(Icons.Filled.Delete, contentDescription = null)
                         Text("Delete", modifier = Modifier.padding(start = 4.dp))
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { onOpenSaved("card", "Card") },
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        Text("Card")
+                    }
+                    if (b.hasArchive) {
+                        OutlinedButton(
+                            onClick = { onOpenSaved("archive", "Archive") },
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) {
+                            Text("Archive")
+                        }
+                    }
+                    if (b.hasMarkdown) {
+                        OutlinedButton(
+                            onClick = { onOpenSaved("markdown", "Notes") },
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) {
+                            Text("Notes")
+                        }
+                    }
+                }
+                if (b.attachments.isNotEmpty()) {
+                    Text(
+                        "Attachments",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 16.dp),
+                    )
+                    b.attachments.forEachIndexed { i, at ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                onClick = { openAttachment(at.name, i + 1) },
+                                enabled = opening == null,
+                            ) {
+                                Text(
+                                    if (opening == at.name) "Opening..." else at.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1675,6 +1762,49 @@ fun SettingsScreen(api: LiberApi, onBack: () -> Unit) {
                 }
             }
         }
+        }
+    }
+}
+
+@Composable
+fun SavedScreen(api: LiberApi, id: Int, kind: String, label: String, onBack: () -> Unit) {
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var html by remember { mutableStateOf<String?>(null) }
+    val main = Handler(Looper.getMainLooper())
+
+    fun load() {
+        loading = true
+        error = null
+        runApi(main, { api.content(id, kind) }) { res ->
+            loading = false
+            res.onSuccess { html = it }
+                .onFailure { error = it.message ?: "request failed" }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(id, kind) { load() }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = label, onBack = onBack)
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+            error != null -> Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                ErrorBlock(error = error ?: "", onRetry = { load() })
+            }
+            else -> androidx.compose.ui.viewinterop.AndroidView(
+                factory = { ctx ->
+                    android.webkit.WebView(ctx).apply {
+                        settings.javaScriptEnabled = false
+                        settings.blockNetworkLoads = true
+                        settings.blockNetworkImage = true
+                    }
+                },
+                update = { view ->
+                    view.loadDataWithBaseURL(null, html.orEmpty(), "text/html", "utf-8", null)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }

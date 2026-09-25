@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Downloaded attachments opened with an external viewer. -->
+    <cache-path name="attachments" path="liber-attachments/" />
+</paths>
