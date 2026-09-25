@@ -767,6 +767,95 @@ func TestAPIContent(t *testing.T) {
 	}
 }
 
+func TestAPIRulesEdit(t *testing.T) {
+	_ = apiRulesSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "POST", "/api/v1/rules", `{"match":"host:h.com","folder":"docs"}`)
+	ruleID := int(apiDecode(t, w)["id"].(float64))
+
+	w = apiDo(t, h, "PUT", fmt.Sprintf("/api/v1/rules/%d", ruleID), `{"folder":"work","reapply":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	out := apiDecode(t, w)
+	if out["folder"] != "work" {
+		t.Fatalf("out = %v", out)
+	}
+	if out["reapplied"].(float64) != 0 {
+		t.Fatalf("reapplied = %v, want 0 (all already classified)", out)
+	}
+
+	w = apiDo(t, h, "PUT", "/api/v1/rules/999", `{"folder":"work"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "PUT", "/api/v1/rules/abc", `{"folder":"work"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "PUT", fmt.Sprintf("/api/v1/rules/%d", ruleID), `not json`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+}
+
+func TestAPIProfiles(t *testing.T) {
+	_ = apiTestSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "GET", "/api/v1/profiles", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	out := apiDecode(t, w)
+	if out["active"] != "default" || len(out["profiles"].([]any)) != 1 {
+		t.Fatalf("out = %v", out)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/profiles/switch", `{"name":"work"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if apiDecode(t, w)["active"] != "work" {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+	w = apiDo(t, h, "GET", "/api/v1/profiles", "")
+	names := map[string]bool{}
+	for _, p := range apiDecode(t, w)["profiles"].([]any) {
+		m := p.(map[string]any)
+		names[m["name"].(string)] = m["active"].(bool)
+	}
+	if !names["work"] || len(names) != 2 {
+		t.Fatalf("profiles = %v", names)
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/profiles/delete", `{"name":"work"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400 (active)", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/profiles/switch", `{"name":"default"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	w = apiDo(t, h, "POST", "/api/v1/profiles/delete", `{"name":"work"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	w = apiDo(t, h, "POST", "/api/v1/profiles/delete", `{"name":"missing"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/profiles/switch", `{"name":"bad/name"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/profiles/bogus", `{}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+}
+
 func TestAPIMethodAndAuth(t *testing.T) {
 	_ = apiTestSetup(t)
 	h := newWebMux("")

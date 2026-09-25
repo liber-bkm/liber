@@ -491,6 +491,56 @@ func handleAPIRulesSub(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeAPIJSON(w, http.StatusOK, map[string]any{"deleted": id})
+	case sub == "" && r.Method == http.MethodPut:
+		id, err := strconv.Atoi(name)
+		if err != nil || id < 1 {
+			writeAPIError(w, http.StatusNotFound, "no such rule")
+			return
+		}
+		var in struct {
+			Match   *string   `json:"match"`
+			Folder  *string   `json:"folder"`
+			Tags    *[]string `json:"tags"`
+			Reapply bool      `json:"reapply"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		match, folder, tags := "", "", []string{}
+		if in.Match != nil {
+			match = *in.Match
+		}
+		if in.Folder != nil {
+			folder = *in.Folder
+		}
+		if in.Tags != nil {
+			tags = *in.Tags
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		cfg, store, err := loadCfgAndStore()
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if store.FindAutoRule(id) == nil {
+			writeAPIError(w, http.StatusNotFound, "no such rule")
+			return
+		}
+		rule, changed, err := editRule(cfg, store, id, match, folder, tags, in.Reapply)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := saveWithJournal(cfg, store, journalUpserts(changed).merge(journalRules([]*AutoRule{rule}))); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out := toAPIRule(rule, ruleAppliedCounts(store)[rule.ID])
+		writeAPIJSON(w, http.StatusOK, map[string]any{
+			"id": out.ID, "match": out.Match, "folder": out.Folder,
+			"tags": out.Tags, "applied_count": out.AppliedCount, "reapplied": len(changed),
+		})
 	default:
 		writeAPIError(w, http.StatusNotFound, "no such endpoint")
 	}
@@ -716,6 +766,79 @@ func handleAPISettings(w http.ResponseWriter, r *http.Request) {
 		writeAPIJSON(w, http.StatusOK, map[string]any{"archive_backend": cfg.effectiveArchiveBackend()})
 	default:
 		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+type apiProfile struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Active  bool   `json:"active"`
+	Default bool   `json:"default"`
+}
+
+func handleAPIProfiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	entries, err := profileListData()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]apiProfile, 0, len(entries))
+	active := "default"
+	for _, e := range entries {
+		out = append(out, apiProfile{Name: e.Name, Path: e.Path, Active: e.Active, Default: e.Default})
+		if e.Active {
+			active = e.Name
+		}
+	}
+	writeAPIJSON(w, http.StatusOK, map[string]any{"active": active, "profiles": out})
+}
+
+func handleAPIProfilesSub(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	switch strings.TrimPrefix(r.URL.Path, "/api/v1/profiles/") {
+	case "switch":
+		var in struct {
+			Name string `json:"name"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		msg, err := profileSwitchMsg(in.Name)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		active := strings.TrimSpace(in.Name)
+		if active == "" {
+			active = "default"
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"result": msg, "active": active})
+	case "delete":
+		var in struct {
+			Name string `json:"name"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		msg, err := profileDeleteMsg(in.Name)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusOK, map[string]any{"result": msg})
+	default:
+		writeAPIError(w, http.StatusNotFound, "no such endpoint")
 	}
 }
 
