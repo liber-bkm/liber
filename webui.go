@@ -870,6 +870,26 @@ func handleCard(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(cfg.htmlDir(), b.HTMLFile))
 }
 
+func markdownPageHTML(cfg Config, b *Bookmark) (string, error) {
+	data, err := os.ReadFile(filepath.Join(cfg.markdownDir(), b.MarkdownFile))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>%s</title>
+<script>%s</script>
+<style>
+:root, html[data-theme=light] { --bg: #fbf1c7; --fg: #3c3836; --link: #076678; color-scheme: light; }
+html[data-theme=dark] { --bg: #282828; --fg: #ebdbb2; --link: #83a598; color-scheme: dark; }
+body { font-family: -apple-system, system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; word-wrap: break-word; color: var(--fg); background: var(--bg); line-height: 1.6; }
+a { color: var(--link); }
+pre { background: var(--surface); padding: .75rem; border-radius: 4px; overflow-x: auto; }
+code { font-family: ui-monospace, monospace; font-size: .9em; }
+blockquote { border-left: 3px solid var(--border-strong); margin-left: 0; padding-left: 1rem; color: var(--fg-soft); }
+</style>
+</head><body><p><a href="/">&larr; back</a></p>%s</body></html>`,
+		template.HTMLEscapeString(b.Title), themeInitScript, renderMarkdownHTML(string(data))), nil
+}
+
 func handleMarkdown(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/markdown/"))
 	if err != nil {
@@ -886,25 +906,13 @@ func handleMarkdown(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	data, err := os.ReadFile(filepath.Join(cfg.markdownDir(), b.MarkdownFile))
+	doc, err := markdownPageHTML(cfg, b)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>%s</title>
-<script>%s</script>
-<style>
-:root, html[data-theme=light] { --bg: #fbf1c7; --fg: #3c3836; --link: #076678; color-scheme: light; }
-html[data-theme=dark] { --bg: #282828; --fg: #ebdbb2; --link: #83a598; color-scheme: dark; }
-body { font-family: -apple-system, system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; word-wrap: break-word; color: var(--fg); background: var(--bg); line-height: 1.6; }
-a { color: var(--link); }
-pre { background: var(--surface); padding: .75rem; border-radius: 4px; overflow-x: auto; }
-code { font-family: ui-monospace, monospace; font-size: .9em; }
-blockquote { border-left: 3px solid var(--border-strong); margin-left: 0; padding-left: 1rem; color: var(--fg-soft); }
-</style>
-</head><body><p><a href="/">&larr; back</a></p>%s</body></html>`,
-		template.HTMLEscapeString(b.Title), themeInitScript, renderMarkdownHTML(string(data)))
+	fmt.Fprint(w, doc)
 }
 
 func renderSearchPage(w http.ResponseWriter, data searchPageData) {
