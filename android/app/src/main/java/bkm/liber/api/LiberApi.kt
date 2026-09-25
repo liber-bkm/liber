@@ -270,6 +270,23 @@ class LiberApi(baseUrl: String, token: String) {
         }
     }
 
+    fun delete(id: Int, confirmed: Boolean): Int {
+        val url = "$base/api/v1/bookmarks/$id" +
+            if (confirmed) "?confirm=true" else ""
+        val req = authed(Request.Builder().url(url).delete()).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no such bookmark")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            val obj = json.parseToJsonElement(body).jsonObject
+            if (obj["confirm_required"]?.jsonPrimitive?.contentOrNull == "true") {
+                throw ConfirmRequired(1)
+            }
+            return obj["deleted"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                ?: throw IOException("bad delete response")
+        }
+    }
+
     fun tags(): List<ApiTag> {
         val req = authed(Request.Builder().url("$base/api/v1/tags")).build()
         client.newCall(req).execute().use { resp ->

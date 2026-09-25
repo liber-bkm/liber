@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -17,7 +18,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -120,6 +125,7 @@ fun LiberNav(api: LiberApi) {
             id = top.id,
             onBack = { pop() },
             onOpenEdit = { push(Screen.Edit(top.id)) },
+            onDeleted = { pop() },
         )
         is Screen.Add -> AddScreen(
             api = api,
@@ -218,23 +224,56 @@ fun SearchScreen(
 ) {
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
+    var loaded by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var total by remember { mutableStateOf(0) }
     var results by remember { mutableStateOf(listOf<ApiBookmark>()) }
+    var scopes by remember { mutableStateOf(setOf("n", "u", "t", "d", "f")) }
+    var deep by remember { mutableStateOf(false) }
+    var sort by remember { mutableStateOf("") }
+    var sortOpen by remember { mutableStateOf(false) }
     val main = Handler(Looper.getMainLooper())
+    val sortOptions = listOf(
+        "Relevance" to "",
+        "Newest" to "newest",
+        "Oldest" to "oldest",
+        "Visited" to "visited",
+        "Title" to "title",
+    )
+    val scopeLabels = listOf(
+        "n" to "Title",
+        "u" to "URL",
+        "t" to "Tags",
+        "d" to "Notes",
+        "f" to "Folder",
+    )
 
     fun runSearch() {
         val q = query
+        val scope = scopeLabels.map { it.first }.filter { scopes.contains(it) }.joinToString("")
+        val isDeep = deep
+        val sortMode = sort
         loading = true
         error = null
-        runApi(main, { api.list(q, scope = "", deep = false, sort = "", page = 1) }) { res ->
+        runApi(main, { api.list(q, scope = scope, deep = isDeep, sort = sortMode, page = 1) }) { res ->
             loading = false
+            loaded = true
             res.onSuccess {
                 total = it.total
                 results = it.bookmarks
             }.onFailure {
                 error = it.message ?: "request failed"
             }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) { runSearch() }
+
+    fun toggleScope(letter: String) {
+        scopes = if (scopes.contains(letter)) {
+            (scopes - letter).ifEmpty { setOf(letter) }
+        } else {
+            scopes + letter
         }
     }
 
@@ -263,23 +302,70 @@ fun SearchScreen(
                 Icon(Icons.Filled.Search, contentDescription = "Search")
             }
         }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(scopeLabels.size) { i ->
+                val (letter, label) = scopeLabels[i]
+                FilterChip(
+                    selected = scopes.contains(letter),
+                    onClick = { toggleScope(letter) },
+                    label = { Text(label) },
+                )
+            }
+            item {
+                FilterChip(
+                    selected = deep,
+                    onClick = { deep = !deep },
+                    label = { Text("Deep") },
+                )
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = { sortOpen = !sortOpen }) {
+                    Text("Sort: ${sortOptions.first { it.second == sort }.first}")
+                }
+                DropdownMenu(
+                    expanded = sortOpen,
+                    onDismissRequest = { sortOpen = false },
+                ) {
+                    sortOptions.forEach { (label, value) ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                sort = value
+                                sortOpen = false
+                                runSearch()
+                            },
+                        )
+                    }
+                }
+            }
             FilledTonalButton(onClick = onOpenAdd) {
                 Icon(Icons.Filled.Add, contentDescription = null)
                 Text("Add", modifier = Modifier.padding(start = 4.dp))
             }
         }
         when {
-            loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
-            error != null -> ErrorBlock(error = error ?: "")
+            loading && !loaded -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            error != null && !loaded -> ErrorBlock(error = error ?: "")
             else -> {
+                if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.padding(top = 8.dp))
+                }
+                if (error != null) {
+                    Text(
+                        text = error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
                 Text(
                     text = "$total bookmark(s)",
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                 )
-                if (results.isEmpty()) {
-                    Text("No results yet. Search above.")
+                if (results.isEmpty() && !loading) {
+                    Text(if (loaded) "No bookmarks match." else "Loading...")
                 }
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(results, key = { it.id }) { b ->
@@ -308,11 +394,19 @@ fun SearchScreen(
 }
 
 @Composable
-fun DetailScreen(api: LiberApi, id: Int, onBack: () -> Unit, onOpenEdit: () -> Unit) {
+fun DetailScreen(
+    api: LiberApi,
+    id: Int,
+    onBack: () -> Unit,
+    onOpenEdit: () -> Unit,
+    onDeleted: () -> Unit,
+) {
     val context = LocalContext.current
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var bookmark by remember { mutableStateOf<ApiBookmark?>(null) }
+    var showDelete by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
     val main = Handler(Looper.getMainLooper())
 
     fun load() {
@@ -326,6 +420,18 @@ fun DetailScreen(api: LiberApi, id: Int, onBack: () -> Unit, onOpenEdit: () -> U
     }
 
     androidx.compose.runtime.LaunchedEffect(id) { load() }
+
+    fun submitDelete() {
+        deleting = true
+        error = null
+        runApi(main, { api.delete(id, confirmed = true) }) { res ->
+            deleting = false
+            res.onSuccess { onDeleted() }.onFailure {
+                showDelete = false
+                error = it.message ?: "delete failed"
+            }
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         LiberTopBar(title = "Detail", onBack = onBack)
@@ -383,10 +489,36 @@ fun DetailScreen(api: LiberApi, id: Int, onBack: () -> Unit, onOpenEdit: () -> U
                         Icon(Icons.Filled.Edit, contentDescription = null)
                         Text("Edit", modifier = Modifier.padding(start = 4.dp))
                     }
+                    OutlinedButton(
+                        onClick = { showDelete = true },
+                        enabled = !deleting,
+                        modifier = Modifier.padding(top = 8.dp),
+                    ) {
+                        Icon(Icons.Filled.Delete, contentDescription = null)
+                        Text("Delete", modifier = Modifier.padding(start = 4.dp))
+                    }
                 }
             }
         }
         }
+    }
+
+    if (showDelete && bookmark != null) {
+        AlertDialog(
+            onDismissRequest = { showDelete = false },
+            title = { Text("Delete bookmark?") },
+            text = { Text("Delete \"${bookmark?.title}\"? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = { submitDelete() }, enabled = !deleting) {
+                    Text(if (deleting) "Deleting..." else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDelete = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }
 

@@ -115,6 +115,8 @@ File inputs in the WebView only work through the `WebChromeClient` bridge in
 24. Native rules: reached from the tags screen, list matches `--auto list` with applied counts; add with folder/tags backfills; suggestions preview with min, create-all, and apply-all work; delete confirms and leaves classified bookmarks as-is; offline shows a retryable error.
 25. Native check: Check button on the list, spec/stale scan matches the WebView buckets; moved rows update URL with optional title refresh; dead/uncertain rows delete (with confirm) or quarantine and drop from the list; offline or bad spec shows a retryable error.
 26. Native settings: counts, base dir, and maintenance status match the WebView settings page; backend selector persists and reloads; offline shows a retryable error.
+27. Native look: gruvbox light and dark schemes follow the system setting; every screen shows its top bar, cards, and dialogs correctly in both; icons and chips render; rotation keeps state.
+28. Native list parity: collection auto-loads; scope chips, Deep toggle, and sort narrow results like the WebView; detail delete confirms and the list refreshes without the deleted entry.
 
 ## Backup and reinstall (standalone mode)
 
