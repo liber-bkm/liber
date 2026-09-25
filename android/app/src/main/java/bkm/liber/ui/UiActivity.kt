@@ -9,6 +9,8 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import bkm.liber.api.ApiBookmark
 import bkm.liber.api.ApiCheckRow
 import bkm.liber.api.ApiFolder
+import bkm.liber.api.ApiHistoryRow
 import bkm.liber.api.ApiProfile
 import bkm.liber.api.ApiSettings
 import bkm.liber.api.ApiRule
@@ -107,6 +110,8 @@ private sealed interface Screen {
     data object Settings : Screen
     data class Saved(val id: Int, val kind: String, val label: String) : Screen
     data object Profiles : Screen
+    data object History : Screen
+    data object Library : Screen
 }
 
 @Composable
@@ -124,6 +129,7 @@ fun LiberNav(api: LiberApi) {
             onOpenTags = { push(Screen.Tags) },
             onOpenCheck = { push(Screen.Check) },
             onOpenSettings = { push(Screen.Settings) },
+            onOpenHistory = { push(Screen.History) },
         )
         is Screen.Detail -> DetailScreen(
             api = api,
@@ -166,11 +172,21 @@ fun LiberNav(api: LiberApi) {
             api = api,
             onBack = { pop() },
             onOpenProfiles = { push(Screen.Profiles) },
+            onOpenLibrary = { push(Screen.Library) },
         )
         is Screen.Profiles -> ProfilesScreen(
             api = api,
             onBack = { pop() },
             onSwitched = { popToList() },
+        )
+        is Screen.History -> HistoryScreen(
+            api = api,
+            onBack = { pop() },
+            onOpenDetail = { push(Screen.Detail(it)) },
+        )
+        is Screen.Library -> LibraryScreen(
+            api = api,
+            onBack = { pop() },
         )
         is Screen.Saved -> SavedScreen(
             api = api,
@@ -232,6 +248,7 @@ fun ErrorBlock(error: String, onRetry: (() -> Unit)? = null) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(
     api: LiberApi,
@@ -240,6 +257,7 @@ fun SearchScreen(
     onOpenTags: () -> Unit,
     onOpenCheck: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
@@ -251,6 +269,13 @@ fun SearchScreen(
     var deep by remember { mutableStateOf(false) }
     var sort by remember { mutableStateOf("") }
     var sortOpen by remember { mutableStateOf(false) }
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(setOf<Int>()) }
+    var bulkDialog by remember { mutableStateOf<String?>(null) }
+    var bulkTagsText by remember { mutableStateOf("") }
+    var bulkFolderText by remember { mutableStateOf("") }
+    var bulkCount by remember { mutableStateOf(0) }
+    var bulkBusy by remember { mutableStateOf(false) }
     val main = Handler(Looper.getMainLooper())
     val sortOptions = listOf(
         "Relevance" to "",
@@ -296,16 +321,92 @@ fun SearchScreen(
         }
     }
 
+    fun toggleSelect(id: Int) {
+        selected = if (selected.contains(id)) selected - id else selected + id
+    }
+
+    fun exitSelection() {
+        selecting = false
+        selected = emptySet()
+        bulkDialog = null
+    }
+
+    fun afterBulk() {
+        exitSelection()
+        runSearch()
+    }
+
+    fun submitBulkDelete(confirmed: Boolean) {
+        val ids = selected
+        bulkBusy = true
+        error = null
+        runApi(main, { api.bulkDelete(ids, confirmed) }) { res ->
+            bulkBusy = false
+            res.onSuccess {
+                bulkDialog = null
+                afterBulk()
+            }.onFailure { e ->
+                val needed = e as? LiberApi.ConfirmRequired
+                if (needed != null && !confirmed) {
+                    bulkCount = needed.count
+                    bulkDialog = "delete"
+                } else {
+                    bulkDialog = null
+                    error = e.message ?: "delete failed"
+                }
+            }
+        }
+    }
+
+    fun submitBulkTags() {
+        val ids = selected
+        val tagList = bulkTagsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        bulkBusy = true
+        error = null
+        runApi(main, { api.bulkTags(ids, tagList) }) { res ->
+            bulkBusy = false
+            res.onSuccess {
+                bulkDialog = null
+                afterBulk()
+            }.onFailure {
+                error = it.message ?: "update failed"
+            }
+        }
+    }
+
+    fun submitBulkFolder() {
+        val ids = selected
+        val f = bulkFolderText
+        bulkBusy = true
+        error = null
+        runApi(main, { api.bulkFolder(ids, f) }) { res ->
+            bulkBusy = false
+            res.onSuccess {
+                bulkDialog = null
+                afterBulk()
+            }.onFailure {
+                error = it.message ?: "move failed"
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        LiberTopBar(title = "liber", onBack = null) {
-            IconButton(onClick = onOpenTags) {
-                Icon(Icons.Filled.List, contentDescription = "Tags")
-            }
-            IconButton(onClick = onOpenCheck) {
-                Icon(Icons.Filled.Check, contentDescription = "Check")
-            }
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+        if (selecting) {
+            LiberTopBar(
+                title = "${selected.size} selected",
+                onBack = { exitSelection() },
+            )
+        } else {
+            LiberTopBar(title = "liber", onBack = null) {
+                IconButton(onClick = onOpenTags) {
+                    Icon(Icons.Filled.List, contentDescription = "Tags")
+                }
+                IconButton(onClick = onOpenCheck) {
+                    Icon(Icons.Filled.Check, contentDescription = "Check")
+                }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                }
             }
         }
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -363,6 +464,9 @@ fun SearchScreen(
                 Icon(Icons.Filled.Add, contentDescription = null)
                 Text("Add", modifier = Modifier.padding(start = 4.dp))
             }
+            OutlinedButton(onClick = onOpenHistory) {
+                Text("History")
+            }
         }
         when {
             loading && !loaded -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
@@ -389,19 +493,69 @@ fun SearchScreen(
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(results, key = { it.id }) { b ->
                         ElevatedCard(
-                            onClick = { onOpenDetail(b.id) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().combinedClickable(
+                                onClick = {
+                                    if (selecting) toggleSelect(b.id) else onOpenDetail(b.id)
+                                },
+                                onLongClick = {
+                                    if (!selecting) {
+                                        selecting = true
+                                        toggleSelect(b.id)
+                                    }
+                                },
+                            ),
                         ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(b.title, style = MaterialTheme.typography.titleMedium)
-                                Text(b.url, style = MaterialTheme.typography.bodySmall)
-                                if (b.folder.isNotEmpty() || b.tags.isNotEmpty()) {
-                                    Text(
-                                        (listOf(b.folder) + b.tags).filter { it.isNotEmpty() }
-                                            .joinToString(" · "),
-                                        style = MaterialTheme.typography.labelSmall,
+                            Row(modifier = Modifier.padding(12.dp)) {
+                                if (selecting) {
+                                    Checkbox(
+                                        checked = selected.contains(b.id),
+                                        onCheckedChange = { toggleSelect(b.id) },
                                     )
                                 }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(b.title, style = MaterialTheme.typography.titleMedium)
+                                    Text(b.url, style = MaterialTheme.typography.bodySmall)
+                                    if (b.folder.isNotEmpty() || b.tags.isNotEmpty()) {
+                                        Text(
+                                            (listOf(b.folder) + b.tags).filter { it.isNotEmpty() }
+                                                .joinToString(" · "),
+                                            style = MaterialTheme.typography.labelSmall,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (selecting && selected.isNotEmpty()) {
+                    ElevatedCard(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(8.dp),
+                        ) {
+                            TextButton(
+                                onClick = { submitBulkDelete(confirmed = false) },
+                                enabled = !bulkBusy,
+                            ) {
+                                Text("Delete")
+                            }
+                            TextButton(
+                                onClick = {
+                                    bulkTagsText = ""
+                                    bulkDialog = "tags"
+                                },
+                                enabled = !bulkBusy,
+                            ) {
+                                Text("Tags")
+                            }
+                            TextButton(
+                                onClick = {
+                                    bulkFolderText = ""
+                                    bulkDialog = "folder"
+                                },
+                                enabled = !bulkBusy,
+                            ) {
+                                Text("Move")
                             }
                         }
                     }
@@ -409,6 +563,83 @@ fun SearchScreen(
             }
         }
         }
+    }
+
+    if (bulkDialog == "delete") {
+        AlertDialog(
+            onDismissRequest = { bulkDialog = null },
+            title = { Text("Delete bookmarks?") },
+            text = { Text("Delete $bulkCount bookmark(s)? This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = { submitBulkDelete(confirmed = true) },
+                    enabled = !bulkBusy,
+                ) {
+                    Text(if (bulkBusy) "Deleting..." else "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { bulkDialog = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+    if (bulkDialog == "tags") {
+        AlertDialog(
+            onDismissRequest = { bulkDialog = null },
+            title = { Text("Set tags") },
+            text = {
+                Column {
+                    Text("Replaces tags on ${selected.size} bookmark(s).")
+                    OutlinedTextField(
+                        value = bulkTagsText,
+                        onValueChange = { bulkTagsText = it },
+                        label = { Text("Tags, comma separated") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { submitBulkTags() }, enabled = !bulkBusy) {
+                    Text(if (bulkBusy) "Saving..." else "Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { bulkDialog = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+    if (bulkDialog == "folder") {
+        AlertDialog(
+            onDismissRequest = { bulkDialog = null },
+            title = { Text("Move to folder") },
+            text = {
+                Column {
+                    Text("Moves ${selected.size} bookmark(s). Empty means root.")
+                    OutlinedTextField(
+                        value = bulkFolderText,
+                        onValueChange = { bulkFolderText = it },
+                        label = { Text("Folder") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { submitBulkFolder() }, enabled = !bulkBusy) {
+                    Text(if (bulkBusy) "Saving..." else "Move")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { bulkDialog = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 }
 
@@ -1775,7 +2006,7 @@ fun CheckScreen(api: LiberApi, onBack: () -> Unit) {
 }
 
 @Composable
-fun SettingsScreen(api: LiberApi, onBack: () -> Unit, onOpenProfiles: () -> Unit) {
+fun SettingsScreen(api: LiberApi, onBack: () -> Unit, onOpenProfiles: () -> Unit, onOpenLibrary: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var settings by remember { mutableStateOf<ApiSettings?>(null) }
@@ -1837,6 +2068,12 @@ fun SettingsScreen(api: LiberApi, onBack: () -> Unit, onOpenProfiles: () -> Unit
                             modifier = Modifier.padding(top = 8.dp),
                         ) {
                             Text("Profiles")
+                        }
+                        OutlinedButton(
+                            onClick = onOpenLibrary,
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) {
+                            Text("Library")
                         }
                         Text(
                             s.maintenanceStatus,
@@ -2077,6 +2314,290 @@ fun ProfilesScreen(api: LiberApi, onBack: () -> Unit, onSwitched: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { deleteTarget = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+fun HistoryScreen(api: LiberApi, onBack: () -> Unit, onOpenDetail: (Int) -> Unit) {
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var rows by remember { mutableStateOf(listOf<ApiHistoryRow>()) }
+    val main = Handler(Looper.getMainLooper())
+
+    fun load() {
+        loading = true
+        error = null
+        runApi(main, { api.history() }) { res ->
+            loading = false
+            res.onSuccess { rows = it }
+                .onFailure { error = it.message ?: "request failed" }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) { load() }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "History", onBack = onBack)
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        when {
+            loading -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
+            error != null && rows.isEmpty() -> ErrorBlock(error = error ?: "", onRetry = { load() })
+            else -> {
+                if (rows.isEmpty()) {
+                    Text(
+                        "No open history yet. Opening a bookmark records it here.",
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(rows, key = { it.id }) { r ->
+                        ElevatedCard(
+                            onClick = { onOpenDetail(r.id) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(r.title, style = MaterialTheme.typography.titleMedium)
+                                Text(r.url, style = MaterialTheme.typography.bodySmall)
+                                CountChip(
+                                    "opened ${r.openCount}x" +
+                                        (r.lastOpenedAt.take(10).takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+}
+
+@Composable
+fun LibraryScreen(api: LiberApi, onBack: () -> Unit) {
+    val context = LocalContext.current
+    var error by remember { mutableStateOf<String?>(null) }
+    var result by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var push by remember { mutableStateOf(false) }
+    var rxMerge by remember { mutableStateOf(true) }
+    var rxPrune by remember { mutableStateOf(false) }
+    var rxCompact by remember { mutableStateOf(false) }
+    var rxPruneJournal by remember { mutableStateOf(false) }
+    var showReindexConfirm by remember { mutableStateOf(false) }
+    val main = Handler(Looper.getMainLooper())
+
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        busy = true
+        error = null
+        result = null
+        runApi(
+            main,
+            {
+                val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+                    ?: throw java.io.IOException("cannot read file")
+                api.importLibrary(bytes.toString(Charsets.UTF_8))
+            },
+        ) { res ->
+            busy = false
+            res.onSuccess { out ->
+                result = "Imported ${out.imported} bookmark(s)" +
+                    (if (out.skippedDup > 0) ", skipped ${out.skippedDup} duplicate(s)" else "") +
+                    (if (out.skippedBad > 0) ", skipped ${out.skippedBad} bad" else "") +
+                    (if (out.warnings.isNotEmpty()) "\n" + out.warnings.joinToString("\n") else "")
+            }.onFailure {
+                error = it.message ?: "import failed"
+            }
+        }
+    }
+
+    fun submitExport() {
+        busy = true
+        error = null
+        result = null
+        runApi(main, { api.exportLibrary() }) { res ->
+            busy = false
+            res.onSuccess { bytes ->
+                try {
+                    val dir = java.io.File(context.cacheDir, "liber-library").apply { mkdirs() }
+                    val file = java.io.File(dir, "liber-bookmarks.html")
+                    file.writeBytes(bytes)
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "bkm.liber.fileprovider", file,
+                    )
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/html"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(send, "Export bookmarks"))
+                } catch (e: Exception) {
+                    error = e.message ?: "share failed"
+                }
+            }.onFailure {
+                error = it.message ?: "export failed"
+            }
+        }
+    }
+
+    fun submitSite() {
+        busy = true
+        error = null
+        result = null
+        runApi(main, { api.exportSite() }) { res ->
+            busy = false
+            res.onSuccess { (path, count) ->
+                result = "Exported $count bookmark(s) to $path"
+            }.onFailure {
+                error = it.message ?: "export failed"
+            }
+        }
+    }
+
+    fun submitSync() {
+        val doPush = push
+        busy = true
+        error = null
+        result = null
+        runApi(main, { api.syncNow(doPush) }) { res ->
+            busy = false
+            res.onSuccess { out ->
+                result = (out.output + (out.error.takeIf { it.isNotEmpty() }?.let { "\n$it" } ?: ""))
+                    .takeIf { it.isNotBlank() } ?: "Sync done."
+            }.onFailure {
+                error = it.message ?: "sync failed"
+            }
+        }
+    }
+
+    fun submitReindex() {
+        val m = rxMerge
+        val p = rxPrune
+        val c = rxCompact
+        val pj = rxPruneJournal
+        busy = true
+        error = null
+        result = null
+        runApi(main, { api.reindex(m, p, c, pj) }) { res ->
+            busy = false
+            res.onSuccess { out ->
+                result = (out.output + (out.error.takeIf { it.isNotEmpty() }?.let { "\n$it" } ?: ""))
+                    .takeIf { it.isNotBlank() } ?: "Reindex done."
+            }.onFailure {
+                error = it.message ?: "reindex failed"
+            }
+        }
+    }
+
+    @Composable
+    fun CheckRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Checkbox(checked = checked, onCheckedChange = onChange)
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LiberTopBar(title = "Library", onBack = onBack)
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+            if (error != null) {
+                Text(
+                    text = error ?: "",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+            if (result != null) {
+                ElevatedCard(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Text(
+                        text = result ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+            Text("Import", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Import a browser bookmark export. Large files are capped at 1MB per request.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Button(
+                onClick = { picker.launch(arrayOf("text/html", "text/*")) },
+                enabled = !busy,
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Text(if (busy) "Working..." else "Pick file")
+            }
+            Text(
+                "Export",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { submitExport() }, enabled = !busy) {
+                    Text("Share export")
+                }
+                OutlinedButton(onClick = { submitSite() }, enabled = !busy) {
+                    Text("Static site")
+                }
+            }
+            Text(
+                "Sync",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            CheckRow("Push after commit", push) { push = it }
+            Button(onClick = { submitSync() }, enabled = !busy) {
+                Text(if (busy) "Working..." else "Run sync")
+            }
+            Text(
+                "Maintenance",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            CheckRow("Merge conflict copies", rxMerge) { rxMerge = it }
+            CheckRow("Prune pending entries", rxPrune) { rxPrune = it }
+            CheckRow("Compact ids", rxCompact) { rxCompact = it }
+            CheckRow("Prune journal", rxPruneJournal) { rxPruneJournal = it }
+            Button(
+                onClick = {
+                    if (rxPrune || rxCompact) showReindexConfirm = true else submitReindex()
+                },
+                enabled = !busy,
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                Text(if (busy) "Working..." else "Run reindex")
+            }
+        }
+    }
+
+    if (showReindexConfirm) {
+        AlertDialog(
+            onDismissRequest = { showReindexConfirm = false },
+            title = { Text("Run reindex?") },
+            text = { Text("Prune drops pending entries and compact renames files. Only do this on a fully synced collection.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showReindexConfirm = false
+                        submitReindex()
+                    },
+                ) {
+                    Text("Continue")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReindexConfirm = false }) {
                     Text("Cancel")
                 }
             },

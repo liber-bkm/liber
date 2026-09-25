@@ -103,6 +103,34 @@ data class ApiProfilesResponse(
 )
 
 @Serializable
+data class ApiHistoryRow(
+    val id: Int = 0,
+    val title: String = "",
+    val url: String = "",
+    @SerialName("open_count") val openCount: Int = 0,
+    @SerialName("last_opened_at") val lastOpenedAt: String = "",
+)
+
+@Serializable
+data class ApiHistoryResponse(
+    val history: List<ApiHistoryRow> = emptyList(),
+)
+
+@Serializable
+data class ApiImportResult(
+    val imported: Int = 0,
+    @SerialName("skipped_dup") val skippedDup: Int = 0,
+    @SerialName("skipped_bad") val skippedBad: Int = 0,
+    val warnings: List<String> = emptyList(),
+)
+
+@Serializable
+data class ApiCommandResult(
+    val output: String = "",
+    val error: String = "",
+)
+
+@Serializable
 data class ApiCheckRow(
     val id: Int = 0,
     val title: String = "",
@@ -598,6 +626,58 @@ class LiberApi(baseUrl: String, token: String) {
         }
     }
 
+    fun history(): List<ApiHistoryRow> {
+        val req = authed(Request.Builder().url("$base/api/v1/history")).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiHistoryResponse.serializer(), body).history
+        }
+    }
+
+    private fun bulkPayload(ids: Set<Int>, action: String, tags: List<String>?, folder: String?, confirmed: Boolean): String {
+        return buildJsonObject {
+            put("ids", JsonArray(ids.map { JsonPrimitive(it) }))
+            put("action", JsonPrimitive(action))
+            if (tags != null) put("tags", JsonArray(tags.map { JsonPrimitive(it) }))
+            if (folder != null) put("folder", JsonPrimitive(folder))
+            put("confirm", JsonPrimitive(confirmed))
+        }.toString()
+    }
+
+    private fun postBulk(ids: Set<Int>, action: String, tags: List<String>?, folder: String?, confirmed: Boolean): Int {
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/bulk")
+                .post(bulkPayload(ids, action, tags, folder, confirmed).toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no matching bookmarks")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            val obj = json.parseToJsonElement(body).jsonObject
+            if (obj["confirm_required"]?.jsonPrimitive?.contentOrNull == "true") {
+                throw ConfirmRequired(
+                    obj["count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0,
+                )
+            }
+            return obj["count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                ?: throw IOException("bad bulk response")
+        }
+    }
+
+    fun bulkDelete(ids: Set<Int>, confirmed: Boolean): Int {
+        return postBulk(ids, "delete", null, null, confirmed)
+    }
+
+    fun bulkTags(ids: Set<Int>, tags: List<String>): Int {
+        return postBulk(ids, "tags", tags, null, true)
+    }
+
+    fun bulkFolder(ids: Set<Int>, folder: String): Int {
+        return postBulk(ids, "folder", null, folder, true)
+    }
+
     private val slowClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.MINUTES)
@@ -672,6 +752,82 @@ class LiberApi(baseUrl: String, token: String) {
             return json.parseToJsonElement(body).jsonObject["archive_backend"]
                 ?.jsonPrimitive?.contentOrNull
                 ?: throw IOException("bad settings response")
+        }
+    }
+
+    fun importLibrary(content: String): ApiImportResult {
+        val payload = buildJsonObject {
+            put("content", JsonPrimitive(content))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/library/import")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiImportResult.serializer(), body)
+        }
+    }
+
+    fun exportLibrary(): ByteArray {
+        val req = authed(Request.Builder().url("$base/api/v1/library/export")).build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
+            return resp.body?.bytes() ?: throw IOException("empty export")
+        }
+    }
+
+    fun exportSite(): Pair<String, Int> {
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/library/site")
+                .post("{}".toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            val obj = json.parseToJsonElement(body).jsonObject
+            val path = obj["path"]?.jsonPrimitive?.contentOrNull
+                ?: throw IOException("bad site response")
+            val count = obj["count"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+            return path to count
+        }
+    }
+
+    fun syncNow(push: Boolean): ApiCommandResult {
+        val payload = buildJsonObject {
+            put("push", JsonPrimitive(push))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/sync")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiCommandResult.serializer(), body)
+        }
+    }
+
+    fun reindex(merge: Boolean, prune: Boolean, compact: Boolean, pruneJournal: Boolean): ApiCommandResult {
+        val payload = buildJsonObject {
+            put("merge", JsonPrimitive(merge))
+            put("prune", JsonPrimitive(prune))
+            put("compact", JsonPrimitive(compact))
+            put("prune_journal", JsonPrimitive(pruneJournal))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/reindex")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.decodeFromString(ApiCommandResult.serializer(), body)
         }
     }
 

@@ -151,6 +151,33 @@ class ApiParsingTest {
     }
 
     @Test
+    fun parsesHistoryResponse() {
+        val out = json.decodeFromString(
+            ApiHistoryResponse.serializer(),
+            """{"history":[{"id":1,"title":"a","url":"https://a","open_count":2,"last_opened_at":"2026-09-26T10:00:00Z"}]}""",
+        )
+        assertEquals(1, out.history.size)
+        assertEquals(ApiHistoryRow(1, "a", "https://a", 2, "2026-09-26T10:00:00Z"), out.history[0])
+    }
+
+    @Test
+    fun parsesLibraryResponses() {
+        val imp = json.decodeFromString(
+            ApiImportResult.serializer(),
+            """{"imported":3,"skipped_dup":1,"skipped_bad":0,"warnings":["w"]}""",
+        )
+        assertEquals(3, imp.imported)
+        assertEquals(1, imp.skippedDup)
+        assertEquals(listOf("w"), imp.warnings)
+        val cmd = json.decodeFromString(
+            ApiCommandResult.serializer(),
+            """{"output":"done","error":""}""",
+        )
+        assertEquals("done", cmd.output)
+        assertEquals("", cmd.error)
+    }
+
+    @Test
     fun listUrlParams() {
         val api = LiberApi("http://127.0.0.1:8080/", "s3cret")
         val url = api.listUrl("hello world", "nt", deep = true, sort = "newest", page = 2)
