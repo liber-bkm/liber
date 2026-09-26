@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -1184,7 +1186,7 @@ func apiContentID(r *http.Request) (id int, kind string, n int, ok bool) {
 		}
 		return id, parts[1], 0, true
 	}
-	if len(parts) == 3 && parts[1] == "attachments" {
+	if len(parts) == 3 && parts[1] == "attachments" && r.Method == http.MethodGet {
 		id, err := strconv.Atoi(parts[0])
 		n, nerr := strconv.Atoi(parts[2])
 		if err != nil || id < 1 || nerr != nil || n < 1 {
@@ -1228,6 +1230,16 @@ func handleAPIContent(w http.ResponseWriter, r *http.Request, id int, kind strin
 			writeAPIError(w, http.StatusNotFound, "no saved markdown")
 			return
 		}
+		if r.URL.Query().Get("raw") == "1" {
+			data, err := os.ReadFile(filepath.Join(cfg.markdownDir(), b.MarkdownFile))
+			if err != nil {
+				writeAPIError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			w.Write(data)
+			return
+		}
 		doc, err := markdownPageHTML(cfg, b)
 		if err != nil {
 			writeAPIError(w, http.StatusInternalServerError, err.Error())
@@ -1244,6 +1256,86 @@ func handleAPIContent(w http.ResponseWriter, r *http.Request, id int, kind strin
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", at.Name))
 		http.ServeFile(w, r, filepath.Join(cfg.attachmentsDir(), at.File))
 	}
+}
+
+func apiAttachmentWriteID(r *http.Request) (id int, n int, ok bool) {
+	rest, found := strings.CutPrefix(r.URL.Path, "/api/v1/bookmarks/")
+	if !found {
+		return 0, 0, false
+	}
+	parts := strings.Split(rest, "/")
+	if len(parts) == 2 && parts[1] == "attachments" && r.Method == http.MethodPost {
+		id, err := strconv.Atoi(parts[0])
+		if err != nil || id < 1 {
+			return 0, 0, false
+		}
+		return id, 0, true
+	}
+	if len(parts) == 3 && parts[1] == "attachments" && r.Method == http.MethodDelete {
+		id, err := strconv.Atoi(parts[0])
+		n, nerr := strconv.Atoi(parts[2])
+		if err != nil || id < 1 || nerr != nil || n < 1 {
+			return 0, 0, false
+		}
+		return id, n, true
+	}
+	return 0, 0, false
+}
+
+func handleAPIAttachmentWrite(w http.ResponseWriter, r *http.Request, id int, n int) {
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	cfg, store, err := loadCfgAndStore()
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	b := store.Find(id)
+	if b == nil {
+		writeAPIError(w, http.StatusNotFound, "no such bookmark")
+		return
+	}
+	if r.Method == http.MethodPost {
+		var in struct {
+			Filename      string `json:"filename"`
+			ContentBase64 string `json:"content_base64"`
+		}
+		if !decodeAPIBody(w, r, &in) {
+			return
+		}
+		if strings.TrimSpace(in.Filename) == "" || strings.TrimSpace(in.ContentBase64) == "" {
+			writeAPIError(w, http.StatusBadRequest, "filename and content_base64 are required")
+			return
+		}
+		raw, err := base64.StdEncoding.DecodeString(in.ContentBase64)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid base64 content")
+			return
+		}
+		if err := attachReader(cfg, b, in.Filename, bytes.NewReader(raw)); err != nil {
+			writeAPIError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		b.UpdatedAt = time.Now()
+		if err := saveWithJournal(cfg, store, journalUpserts([]*Bookmark{b})); err != nil {
+			writeAPIError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeAPIJSON(w, http.StatusCreated, map[string]any{"name": b.Attachments[len(b.Attachments)-1].Name})
+		return
+	}
+	if n > len(b.Attachments) {
+		writeAPIError(w, http.StatusNotFound, "no such attachment")
+		return
+	}
+	name := b.Attachments[n-1].Name
+	detachAttachment(cfg, b, n-1)
+	b.UpdatedAt = time.Now()
+	if err := saveWithJournal(cfg, store, journalUpserts([]*Bookmark{b})); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeAPIJSON(w, http.StatusOK, map[string]any{"deleted": name})
 }
 
 func apiBookmarkID(r *http.Request) (int, bool) {
@@ -1362,6 +1454,10 @@ func handleAPIBookmark(w http.ResponseWriter, r *http.Request) {
 		handleAPIContent(w, r, id, kind, n)
 		return
 	}
+	if id, n, ok := apiAttachmentWriteID(r); ok {
+		handleAPIAttachmentWrite(w, r, id, n)
+		return
+	}
 	id, ok := apiBookmarkID(r)
 	if !ok {
 		writeAPIError(w, http.StatusNotFound, "no such bookmark")
@@ -1382,13 +1478,14 @@ func handleAPIBookmark(w http.ResponseWriter, r *http.Request) {
 		writeAPIJSON(w, http.StatusOK, toAPIBookmark(b))
 	case http.MethodPut:
 		var in struct {
-			Title       *string   `json:"title"`
-			URL         *string   `json:"url"`
-			Description *string   `json:"description"`
-			Tags        *[]string `json:"tags"`
-			Folder      *string   `json:"folder"`
-			Markdown    bool      `json:"markdown"`
-			Archive     bool      `json:"archive"`
+			Title        *string   `json:"title"`
+			URL          *string   `json:"url"`
+			Description  *string   `json:"description"`
+			Tags         *[]string `json:"tags"`
+			Folder       *string   `json:"folder"`
+			Markdown     bool      `json:"markdown"`
+			Archive      bool      `json:"archive"`
+			MarkdownText *string   `json:"markdown_text"`
 		}
 		if !decodeAPIBody(w, r, &in) {
 			return
@@ -1435,6 +1532,12 @@ func handleAPIBookmark(w http.ResponseWriter, r *http.Request) {
 		syncBookmarkFiles(cfg, b, folderChanged)
 		if in.Markdown {
 			addMarkdownCopy(cfg, b)
+		}
+		if in.MarkdownText != nil {
+			if err := saveMarkdownBody(cfg, b, *in.MarkdownText); err != nil {
+				writeAPIError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 		if in.Archive {
 			addArchiveCopy(cfg, b)

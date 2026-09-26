@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1024,6 +1025,97 @@ func TestAPISyncReindex(t *testing.T) {
 	w = apiDo(t, h, "GET", "/api/v1/sync", "")
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("code = %d, want 405", w.Code)
+	}
+}
+
+func TestAPIMarkdownText(t *testing.T) {
+	base := apiContentSetup(t)
+	h := newWebMux("")
+
+	w := apiDo(t, h, "GET", "/api/v1/bookmarks/1/markdown?raw=1", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "text/markdown") {
+		t.Fatalf("content-type = %q", ct)
+	}
+	if strings.Contains(w.Body.String(), "title:") || !strings.Contains(w.Body.String(), "notes here") {
+		t.Fatalf("raw should be body only: %q", w.Body.String()[:100])
+	}
+
+	w = apiDo(t, h, "PUT", "/api/v1/bookmarks/1", `{"markdown_text":"# edited\n\nnew notes\n"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	w = apiDo(t, h, "GET", "/api/v1/bookmarks/1/markdown?raw=1", "")
+	if !strings.Contains(w.Body.String(), "new notes") {
+		t.Fatalf("body = %q", w.Body.String())
+	}
+	w = apiDo(t, h, "GET", "/api/v1/bookmarks/1/markdown", "")
+	if !strings.Contains(w.Body.String(), "new notes") {
+		t.Fatalf("rendered missing edit")
+	}
+
+	w = apiDo(t, h, "PUT", "/api/v1/bookmarks/2", `{"markdown_text":"fresh notes\n"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if b := loadTestStore(t, base).Find(2); b.MarkdownFile == "" {
+		t.Fatalf("copy not created")
+	}
+	w = apiDo(t, h, "GET", "/api/v1/bookmarks/2/markdown?raw=1", "")
+	if !strings.Contains(w.Body.String(), "fresh notes") {
+		t.Fatalf("body = %q", w.Body.String())
+	}
+}
+
+func TestAPIAttachmentsWrite(t *testing.T) {
+	base := apiContentSetup(t)
+	h := newWebMux("")
+	up := `{"filename":"note.txt","content_base64":"` + base64.StdEncoding.EncodeToString([]byte("hello")) + `"}`
+
+	w := apiDo(t, h, "POST", "/api/v1/bookmarks/2/attachments", up)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if apiDecode(t, w)["name"] != "note.txt" {
+		t.Fatalf("out = %s", w.Body.String())
+	}
+	if n := len(loadTestStore(t, base).Find(2).Attachments); n != 1 {
+		t.Fatalf("attachments = %d", n)
+	}
+	w = apiDo(t, h, "GET", "/api/v1/bookmarks/2/attachments/1", "")
+	if !strings.Contains(w.Body.String(), "hello") {
+		t.Fatalf("round trip failed")
+	}
+
+	w = apiDo(t, h, "POST", "/api/v1/bookmarks/2/attachments", `{"filename":"x","content_base64":"!!!"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/bookmarks/2/attachments", `{"filename":"","content_base64":"aGk="}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", w.Code)
+	}
+	w = apiDo(t, h, "POST", "/api/v1/bookmarks/99/attachments", up)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+
+	w = apiDo(t, h, "DELETE", "/api/v1/bookmarks/2/attachments/1", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", w.Code, w.Body.String())
+	}
+	if n := len(loadTestStore(t, base).Find(2).Attachments); n != 0 {
+		t.Fatalf("attachments = %d", n)
+	}
+	w = apiDo(t, h, "DELETE", "/api/v1/bookmarks/2/attachments/1", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+	w = apiDo(t, h, "DELETE", "/api/v1/bookmarks/99/attachments/1", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
 	}
 }
 

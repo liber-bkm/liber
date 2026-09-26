@@ -145,6 +145,39 @@ func TestWebDetachByName(t *testing.T) {
 	}
 }
 
+func TestWebEditNotes(t *testing.T) {
+	base := apiContentSetup(t)
+	_ = base
+	r := httptest.NewRequest(http.MethodGet, "/edit/1", nil)
+	w := httptest.NewRecorder()
+	handleEdit(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `name="markdown_body"`) || !strings.Contains(w.Body.String(), "notes here") {
+		t.Fatalf("notes textarea missing:\n%s", w.Body.String()[:1000])
+	}
+
+	vals := url.Values{
+		"title": {"alpha"}, "url": {"https://a.com/1"}, "markdown_body": {"# edited\n\nweb notes\n"},
+	}
+	r = httptest.NewRequest(http.MethodPost, "/edit/1", strings.NewReader(vals.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w = httptest.NewRecorder()
+	handleEdit(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("code = %d, body:\n%s", w.Code, w.Body.String())
+	}
+	cfg, _, err := loadCfgAndStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := readMarkdownBody(cfg, loadTestStore(t, base).Find(1))
+	if err != nil || !strings.Contains(body, "web notes") {
+		t.Fatalf("body = %q, err = %v", body, err)
+	}
+}
+
 func learnSetup(t *testing.T) string {
 	t.Helper()
 	entries := []*Bookmark{
