@@ -56,9 +56,23 @@ func writeHTMLBookmark(path string, b *Bookmark) error {
 }
 
 func writeMarkdownBookmark(path string, b *Bookmark) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+	return writeMarkdownBookmarkWithBody(path, b, defaultMarkdownBody(b))
+}
+
+func defaultMarkdownBody(b *Bookmark) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "# %s\n\n", b.Title)
+	if b.Description != "" {
+		sb.WriteString(b.Description + "\n\n")
 	}
+	fmt.Fprintf(&sb, "[Visit original](%s)\n", b.URL)
+	if b.ArchiveFile != "" {
+		sb.WriteString("\n_A local archive of this page is also saved alongside it._\n")
+	}
+	return sb.String()
+}
+
+func buildMarkdownFile(b *Bookmark, body string) string {
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	fmt.Fprintf(&sb, "title: %q\n", b.Title)
@@ -74,15 +88,31 @@ func writeMarkdownBookmark(path string, b *Bookmark) error {
 		}
 	}
 	sb.WriteString("---\n\n")
-	fmt.Fprintf(&sb, "# %s\n\n", b.Title)
-	if b.Description != "" {
-		sb.WriteString(b.Description + "\n\n")
+	sb.WriteString(body)
+	if !strings.HasSuffix(body, "\n") {
+		sb.WriteString("\n")
 	}
-	fmt.Fprintf(&sb, "[Visit original](%s)\n", b.URL)
-	if b.ArchiveFile != "" {
-		sb.WriteString("\n_A local archive of this page is also saved alongside it._\n")
+	return sb.String()
+}
+
+func writeMarkdownBookmarkWithBody(path string, b *Bookmark, body string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
-	return os.WriteFile(path, []byte(sb.String()), 0o644)
+	return os.WriteFile(path, []byte(buildMarkdownFile(b, body)), 0o644)
+}
+
+// markdownBody returns the notes body after the frontmatter block.
+func markdownBody(src string) string {
+	lines := strings.Split(src, "\n")
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
+		for i := 1; i < len(lines); i++ {
+			if strings.TrimSpace(lines[i]) == "---" {
+				return strings.Join(lines[i+1:], "\n")
+			}
+		}
+	}
+	return src
 }
 
 var (
@@ -94,15 +124,7 @@ var (
 
 // renderMarkdownHTML converts notes markdown to HTML; input is escaped first.
 func renderMarkdownHTML(src string) string {
-	lines := strings.Split(src, "\n")
-	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
-		for i := 1; i < len(lines); i++ {
-			if strings.TrimSpace(lines[i]) == "---" {
-				lines = lines[i+1:]
-				break
-			}
-		}
-	}
+	lines := strings.Split(markdownBody(src), "\n")
 	var sb strings.Builder
 	inCode, inList := false, false
 	flushList := func() {

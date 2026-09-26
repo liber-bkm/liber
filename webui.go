@@ -543,24 +543,27 @@ type editPageData struct {
 	Title, Description, Folder string
 	URL, TagsJoined            string
 	HasMarkdown, HasArchive    bool
+	MarkdownBody               string
 	Attachments                []webAttachmentView
 	Error                      string
 	AllTags, AllFolders        []string
 }
 
-func renderEditPage(w http.ResponseWriter, store *Store, b *Bookmark, errMsg string) {
+func renderEditPage(w http.ResponseWriter, cfg Config, store *Store, b *Bookmark, errMsg string) {
 	var buf bytes.Buffer
 	var atts []webAttachmentView
 	for i, at := range b.Attachments {
 		atts = append(atts, webAttachmentView{Idx: i + 1, Name: at.Name})
 	}
+	body, _ := readMarkdownBody(cfg, b)
 	editBodyTmpl.Execute(&buf, editPageData{
 		ID: b.ID, Title: b.Title, Description: b.Description, Folder: b.Folder, URL: b.URL,
 		TagsJoined:  strings.Join(b.Tags, ", "),
 		HasMarkdown: b.MarkdownFile != "", HasArchive: b.ArchiveFile != "",
-		Attachments: atts,
-		Error:       errMsg,
-		AllTags:     store.allTags(), AllFolders: store.allFolders(),
+		MarkdownBody: body,
+		Attachments:  atts,
+		Error:        errMsg,
+		AllTags:      store.allTags(), AllFolders: store.allFolders(),
 	})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	layoutTmpl.Execute(w, struct {
@@ -581,7 +584,7 @@ func handleEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, store, err := loadCfgAndStore()
+	cfg, store, err := loadCfgAndStore()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -591,7 +594,7 @@ func handleEdit(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	renderEditPage(w, store, b, "")
+	renderEditPage(w, cfg, store, b, "")
 }
 
 func handleEditSave(w http.ResponseWriter, r *http.Request, id int) {
@@ -616,12 +619,12 @@ func handleEditSave(w http.ResponseWriter, r *http.Request, id int) {
 
 	newTitle := strings.TrimSpace(r.FormValue("title"))
 	if newTitle == "" {
-		renderEditPage(w, store, b, "Title can't be empty.")
+		renderEditPage(w, cfg, store, b, "Title can't be empty.")
 		return
 	}
 	rawURL := strings.TrimSpace(r.FormValue("url"))
 	if rawURL == "" {
-		renderEditPage(w, store, b, "URL can't be empty.")
+		renderEditPage(w, cfg, store, b, "URL can't be empty.")
 		return
 	}
 	newURL := normalizeURL(rawURL)
@@ -641,6 +644,12 @@ func handleEditSave(w http.ResponseWriter, r *http.Request, id int) {
 	}
 	if r.FormValue("archive") == "on" {
 		addArchiveCopy(cfg, b)
+	}
+	if _, ok := r.Form["markdown_body"]; ok && b.MarkdownFile != "" {
+		if err := saveMarkdownBody(cfg, b, r.FormValue("markdown_body")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// highest index first, so splice indices stay valid
@@ -1089,6 +1098,7 @@ var editBodyTmpl = template.Must(template.New("editBody").Parse(`
   <datalist id="liber-folders">{{range .AllFolders}}<option value="{{.}}">{{end}}</datalist>
   {{if not .HasMarkdown}}<label><input type="checkbox" name="markdown"> add markdown copy</label>{{end}}
   {{if not .HasArchive}}<label><input type="checkbox" name="archive"> add archive</label>{{end}}
+  {{if .HasMarkdown}}<label>Notes (markdown)<br><textarea name="markdown_body" rows="12" cols="60">{{.MarkdownBody}}</textarea></label>{{end}}
   {{if .Attachments}}
   <fieldset class="attfieldset">
     <legend>attachments</legend>

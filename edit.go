@@ -82,6 +82,26 @@ func addMarkdownCopy(cfg Config, b *Bookmark) {
 	fmt.Println("Added markdown copy.")
 }
 
+// saveMarkdownBody writes the notes body, creating the copy first if needed.
+func saveMarkdownBody(cfg Config, b *Bookmark, body string) error {
+	if b.MarkdownFile == "" {
+		rel := filepath.Join(b.Folder, sharedBase(b)+".md")
+		b.MarkdownFile = rel
+	}
+	return writeMarkdownBookmarkWithBody(filepath.Join(cfg.markdownDir(), b.MarkdownFile), b, body)
+}
+
+func readMarkdownBody(cfg Config, b *Bookmark) (string, error) {
+	if b.MarkdownFile == "" {
+		return "", nil
+	}
+	data, err := os.ReadFile(filepath.Join(cfg.markdownDir(), b.MarkdownFile))
+	if err != nil {
+		return "", err
+	}
+	return markdownBody(string(data)), nil
+}
+
 func addArchiveCopy(cfg Config, b *Bookmark) {
 	if b.ArchiveFile != "" {
 		fmt.Println("Already has an archive -- skipping.")
