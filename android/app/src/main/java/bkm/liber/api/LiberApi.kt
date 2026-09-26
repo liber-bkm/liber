@@ -187,6 +187,7 @@ class LiberApi(baseUrl: String, token: String) {
             description: String?,
             tags: List<String>?,
             folder: String?,
+            markdownText: String? = null,
         ): String {
             return buildJsonObject {
                 if (title != null) put("title", JsonPrimitive(title))
@@ -194,6 +195,7 @@ class LiberApi(baseUrl: String, token: String) {
                 if (description != null) put("description", JsonPrimitive(description))
                 if (tags != null) put("tags", JsonArray(tags.map { JsonPrimitive(it) }))
                 if (folder != null) put("folder", JsonPrimitive(folder))
+                if (markdownText != null) put("markdown_text", JsonPrimitive(markdownText))
             }.toString()
         }
 
@@ -254,11 +256,12 @@ class LiberApi(baseUrl: String, token: String) {
         }
     }
 
-    fun add(url: String, title: String, confirmed: Boolean): ApiBookmark {
+    fun add(url: String, title: String, confirmed: Boolean, markdown: Boolean = false): ApiBookmark {
         val payload = JSONObject()
             .put("url", url)
             .put("title", title)
             .put("confirm_dup", confirmed)
+            .put("markdown", markdown)
             .toString()
         val req = authed(
             Request.Builder()
@@ -282,11 +285,12 @@ class LiberApi(baseUrl: String, token: String) {
         description: String?,
         tags: List<String>?,
         folder: String?,
+        markdownText: String? = null,
     ): ApiBookmark {
         val req = authed(
             Request.Builder()
                 .url("$base/api/v1/bookmarks/$id")
-                .put(updatePayload(title, url, description, tags, folder).toRequestBody("application/json".toMediaType())),
+                .put(updatePayload(title, url, description, tags, folder, markdownText).toRequestBody("application/json".toMediaType())),
         ).build()
         client.newCall(req).execute().use { resp ->
             val body = resp.body?.string() ?: ""
@@ -345,6 +349,48 @@ class LiberApi(baseUrl: String, token: String) {
             if (resp.code == 404) throw IOException("no such attachment")
             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
             return resp.body?.bytes() ?: throw IOException("empty attachment")
+        }
+    }
+
+    fun rawMarkdown(id: Int): String {
+        val req = authed(Request.Builder().url("$base/api/v1/bookmarks/$id/markdown?raw=1")).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no saved markdown")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return body
+        }
+    }
+
+    fun uploadAttachment(id: Int, filename: String, bytes: ByteArray): String {
+        val payload = buildJsonObject {
+            put("filename", JsonPrimitive(filename))
+            put("content_base64", JsonPrimitive(android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)))
+        }.toString()
+        val req = authed(
+            Request.Builder()
+                .url("$base/api/v1/bookmarks/$id/attachments")
+                .post(payload.toRequestBody("application/json".toMediaType())),
+        ).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no such bookmark")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.parseToJsonElement(body).jsonObject["name"]
+                ?.jsonPrimitive?.contentOrNull
+                ?: throw IOException("bad upload response")
+        }
+    }
+
+    fun deleteAttachment(id: Int, n: Int): String {
+        val req = authed(Request.Builder().url("$base/api/v1/bookmarks/$id/attachments/$n").delete()).build()
+        client.newCall(req).execute().use { resp ->
+            val body = resp.body?.string() ?: ""
+            if (resp.code == 404) throw IOException("no such attachment")
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")
+            return json.parseToJsonElement(body).jsonObject["deleted"]
+                ?.jsonPrimitive?.contentOrNull
+                ?: throw IOException("bad delete response")
         }
     }
 

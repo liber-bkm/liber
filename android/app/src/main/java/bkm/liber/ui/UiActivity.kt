@@ -62,6 +62,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import bkm.liber.api.ApiAttachment
 import bkm.liber.api.ApiBookmark
 import bkm.liber.api.ApiCheckRow
 import bkm.liber.api.ApiFolder
@@ -852,24 +853,58 @@ fun DetailScreen(
 
 @Composable
 fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
+    val context = LocalContext.current
     var url by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
+    var wantMarkdown by remember { mutableStateOf(false) }
+    var picked by remember { mutableStateOf(listOf<android.net.Uri>()) }
+    var createdId by remember { mutableStateOf<Int?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     var pendingDup by remember { mutableStateOf<ApiBookmark?>(null) }
     var pendingTitle by remember { mutableStateOf("") }
     val main = Handler(Looper.getMainLooper())
 
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        picked = picked + uris
+    }
+
+    fun fileName(uri: android.net.Uri): String {
+        context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0) return c.getString(idx)
+            }
+        }
+        return uri.lastPathSegment?.substringAfterLast("/") ?: "attachment"
+    }
+
     fun submit(confirmed: Boolean) {
         saving = true
         error = null
         val u = url
         val t = title
-        runApi(main, { api.add(u, t, confirmed) }) { res ->
+        val md = wantMarkdown
+        val files = picked.toList()
+        runApi(
+            main,
+            {
+                val created = api.add(u, t, confirmed, md)
+                createdId = created.id
+                for (uri in files) {
+                    val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+                        ?: throw java.io.IOException("cannot read file")
+                    api.uploadAttachment(created.id, fileName(uri), bytes)
+                }
+                created
+            },
+        ) { res ->
             saving = false
             res.onSuccess { onAdded() }.onFailure { e ->
                 val dup = (e as? LiberApi.Duplicate)?.existing
-                if (dup != null && !confirmed) {
+                if (dup != null && !confirmed && createdId == null) {
                     pendingDup = dup
                     pendingTitle = t
                 } else {
@@ -896,6 +931,37 @@ fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Checkbox(
+                checked = wantMarkdown,
+                onCheckedChange = { wantMarkdown = it },
+            )
+            Text(
+                "Markdown notes",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
+        if (picked.isNotEmpty()) {
+            Text(
+                picked.map { fileName(it) }.joinToString(", "),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { picker.launch(arrayOf("*/*")) },
+                enabled = !saving,
+            ) {
+                Text("Attach files")
+            }
+            if (picked.isNotEmpty()) {
+                TextButton(onClick = { picked = emptyList() }, enabled = !saving) {
+                    Text("Clear")
+                }
+            }
+        }
         if (error != null) {
             Text(
                 text = error ?: "",
@@ -903,12 +969,13 @@ fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
+        val doneId = createdId
         Button(
-            onClick = { submit(confirmed = false) },
-            enabled = !saving && url.isNotBlank(),
+            onClick = { if (doneId != null) onAdded() else submit(confirmed = false) },
+            enabled = !saving && (doneId != null || url.isNotBlank()),
             modifier = Modifier.padding(top = 8.dp),
         ) {
-            Text(if (saving) "Saving..." else "Add")
+            Text(if (saving) "Saving..." else if (doneId != null) "Done" else "Add")
         }
         }
     }
@@ -934,6 +1001,7 @@ fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
 
 @Composable
 fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) {
+    val context = LocalContext.current
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var title by remember { mutableStateOf("") }
@@ -941,21 +1009,72 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
     var description by remember { mutableStateOf("") }
     var tags by remember { mutableStateOf("") }
     var folder by remember { mutableStateOf("") }
+    var wantMarkdown by remember { mutableStateOf(false) }
+    var notes by remember { mutableStateOf("") }
+    var attachments by remember { mutableStateOf(listOf<ApiAttachment>()) }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     val main = Handler(Looper.getMainLooper())
 
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        saving = true
+        error = null
+        runApi(
+            main,
+            {
+                for (uri in uris) {
+                    val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+                        ?: throw java.io.IOException("cannot read file")
+                    var name = uri.lastPathSegment?.substringAfterLast("/") ?: "attachment"
+                    context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                        if (c.moveToFirst()) {
+                            val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (idx >= 0) name = c.getString(idx)
+                        }
+                    }
+                    api.uploadAttachment(id, name, bytes)
+                }
+                api.get(id)
+            },
+        ) { res ->
+            saving = false
+            res.onSuccess { b -> attachments = b.attachments }
+                .onFailure { error = it.message ?: "upload failed" }
+        }
+    }
+
     fun load() {
         loading = true
         loadError = null
-        runApi(main, { api.get(id) }) { res ->
+        runApi(
+            main,
+            {
+                val b = api.get(id)
+                val raw = if (b.hasMarkdown) {
+                    try {
+                        api.rawMarkdown(id)
+                    } catch (e: Exception) {
+                        ""
+                    }
+                } else {
+                    ""
+                }
+                b to raw
+            },
+        ) { res ->
             loading = false
-            res.onSuccess { b ->
+            res.onSuccess { (b, raw) ->
                 title = b.title
                 url = b.url
                 description = b.description
                 tags = b.tags.joinToString(", ")
                 folder = b.folder
+                wantMarkdown = b.hasMarkdown
+                notes = raw
+                attachments = b.attachments
             }.onFailure {
                 loadError = it.message ?: "request failed"
             }
@@ -972,11 +1091,28 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
         val d = description
         val f = folder
         val tagList = tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        runApi(main, { api.update(id, t, u, d, tagList, f) }) { res ->
+        val text = if (wantMarkdown) notes else null
+        runApi(main, { api.update(id, t, u, d, tagList, f, text) }) { res ->
             saving = false
             res.onSuccess { onSaved() }.onFailure {
                 error = it.message ?: "save failed"
             }
+        }
+    }
+
+    fun removeAttachment(name: String, n: Int) {
+        saving = true
+        error = null
+        runApi(
+            main,
+            {
+                api.deleteAttachment(id, n)
+                api.get(id)
+            },
+        ) { res ->
+            saving = false
+            res.onSuccess { b -> attachments = b.attachments }
+                .onFailure { error = it.message ?: "remove failed" }
         }
     }
 
@@ -1021,6 +1157,56 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Checkbox(
+                        checked = wantMarkdown,
+                        onCheckedChange = { wantMarkdown = it },
+                    )
+                    Text(
+                        "Markdown notes",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+                if (wantMarkdown) {
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        placeholder = { Text("Notes (markdown)") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        minLines = 6,
+                    )
+                }
+                Text(
+                    "Attachments",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                if (attachments.isEmpty()) {
+                    Text("None.", style = MaterialTheme.typography.bodySmall)
+                }
+                attachments.forEachIndexed { i, at ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            at.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f).padding(top = 12.dp),
+                        )
+                        IconButton(
+                            onClick = { removeAttachment(at.name, i + 1) },
+                            enabled = !saving,
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = "Remove")
+                        }
+                    }
+                }
+                OutlinedButton(
+                    onClick = { picker.launch(arrayOf("*/*")) },
+                    enabled = !saving,
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Text("Attach files")
+                }
                 if (error != null) {
                     Text(
                         text = error ?: "",
