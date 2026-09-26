@@ -1,191 +1,122 @@
-# liber Android wrapper
+# liber for Android
 
-Thin native wrapper around the liber Go binary: on launch it starts
-`liber --serve` on loopback and shows the web UI in a WebView. All bookmark
-logic stays in Go; Android contributes lifecycle, private storage, and link
-handling. No gomobile, no UI rewrite.
+liber on your phone: your bookmarks, tags, notes, and saved pages live
+on the device and work offline. The app opens in the native view; a
+legacy web view of the same collection is one tap away in settings.
+No account, no cloud, no background services.
 
-## Quick start (personal debug APK)
+## Install
 
-With nix (primary tool source; in distrobox, prefix host nix calls with
-`distrobox-host-exec`):
+Get the APK from the release page (`liber-android-debug.apk` for
+personal use; `liber-android.apk` when a signed build is published),
+transfer it to your phone, and open it to install. Your Android version
+may ask you to allow installs from that source first.
 
-```sh
-nix develop .#android-fhs   # FHS chroot: same toolchain plus a standard
-                            # /lib64 loader, so Gradle-fetched Google binaries
-                            # (aapt2, d8, apksigner) run unmodified.
-                            # Exiting the inner bash ends the session.
-sh android/scripts/build-go-lib.sh
-cd android && ./gradlew assembleDebug --no-daemon
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
+## First launch
 
-Without nix: install Temurin JDK 17, Gradle 8.x, and the SDK
-(`platform-tools`, `platforms;android-35`, `build-tools;35.0.0`; accept
-licenses via `yes | sdkmanager --licenses`), export `ANDROID_HOME`, then run
-the same three commands. Enable USB debugging on the phone and accept the
-host key so `adb devices` lists it. The APK is unsigned debug, fine for
-personal use, not for stores.
+On first launch the app asks how it should run:
 
-Troubleshooting: if Gradle demands an SDK component (e.g. offers to install
-build-tools), do not install it ad hoc. The nix SDK is read-only by design,
-so the fix is always version pins: `platformVersions`/`buildToolsVersions`
-in `flake.nix` must match `compileSdk`/`buildToolsVersion` in
-`android/app/build.gradle` and the AGP line must support that API level
-(AGP 8.7+ for 35).
+- **Standalone (on this device)** keeps everything on the phone. Pick
+  this unless you run liber on a computer too.
+- **Connect to a server** talks to liber on your desktop over your
+  local network. Enter its LAN address (and the auth token, if that
+  server requires one).
 
-## Layout
+## Finding bookmarks
 
-- `settings.gradle`, `build.gradle`, `gradle.properties`: Gradle project,
-  Android Gradle Plugin 8.7.3, no third-party dependencies (framework
-  WebView only).
-- `app/build.gradle`: `bkm.liber`, minSdk 26, targetSdk/compileSdk 35.
-  `versionName`/`versionCode` come from `-PliberVersionName`/`-PliberVersionCode`
-  (CI passes the release tag and `major*10000 + minor*100 + patch`); the checked-in
-  fallbacks are debug-build only. Bump the fallbacks when liber releases.
-- `app/src/main/jniLibs/<abi>/libliber.so`: Go binary, built by
-  `scripts/build-go-lib.sh`, never committed (gitignored).
-- `app/src/main/`: manifest (INTERNET only), `MainActivity.kt`, layout,
-  strings.
+The list shows your whole collection. Type to search; the chips narrow
+the search to titles, URLs, tags, notes, or folders, Deep also searches
+saved page content, and the Sort button reorders (newest, oldest, most
+visited, title). Tapping a bookmark opens its detail page; Open launches
+the live page in your browser.
 
-## Build
+Long-press list entries to select several at once, then delete them,
+set their tags, or move them to a folder together.
 
-Prereqs: JDK 17, Android SDK with platform-35 and build-tools. Gradle itself
-comes from the committed wrapper (`./gradlew`, pinned to 8.10.2), so no
-system Gradle is needed.
-With nix (primary tool source): `nix develop .#android` provides Go, JDK 17,
-Gradle, and the SDK with `ANDROID_HOME`/`ANDROID_SDK_ROOT` preset (fast shell
-for Go builds and scripts). Gradle assembly itself must run inside
-`nix develop .#android-fhs`, which adds a standard /lib64 loader contract so
-raw Google binaries run unmodified.
+## Adding bookmarks
 
-```sh
-# 1. From the repo root, build the Go binary for arm64:
-sh android/scripts/build-go-lib.sh
-#    or reproducibly via nix: nix build .#liber-android-arm64
-#    then copy result/bin/liber to
-#    android/app/src/main/jniLibs/arm64-v8a/libliber.so
+Tap Add, enter the URL (the title is fetched automatically), and
+optionally tick Markdown notes or a full-page archive. Archives take a
+while to fetch. Attaching files works too.
 
-# 2. Assemble the debug APK:
-cd android && ./gradlew assembleDebug
-# APK: app/build/outputs/apk/debug/app-debug.apk
-```
+The fastest way to save while browsing: use Android's share sheet on a
+page and send it to liber. The add form opens prefilled. Sharing plain
+text without a link opens a narrowed search instead.
 
-Verify the APK actually contains compiled code before installing (a missing
-Kotlin plugin once shipped a codeless APK that crashed on launch with
-`ClassNotFoundException`):
+Adding a URL that is already bookmarked tells you so, with the option
+to add it anyway.
 
-```sh
-unzip -l app/build/outputs/apk/debug/app-debug.apk | grep classes
-# expect a multi-megabyte classes.dex; bytes means something is wrong
-```
+## Organizing
 
-Install with `adb install`, or transfer the APK to the device and open it.
-First launch creates `<app-files>/bookmarks` (`LIBER_BASE_DIR`) and
-`<app-files>/liber-config.json` (`LIBER_CONFIG`).
+- **Detail, Edit, Delete**: every bookmark can be retitled, retagged,
+  moved, given notes or an archive after the fact, or deleted (with a
+  confirm step).
+- **Tags** lists every tag with counts. Rename merges into an existing
+  tag of that name; delete asks first and tells you how many bookmarks
+  are affected.
+- **Folders** works the same way for folders and subfolders. Deleting a
+  folder moves its bookmarks back to the root; the root itself has no
+  actions.
+- **Rules** files new bookmarks automatically by URL or title match.
+  The learn section suggests rules from how your collection already
+  clusters, with create-all and apply-all. Editing a rule can reapply
+  it to bookmarks it already classified.
+- **Profiles** (from settings) keep fully separate collections, e.g.
+  work and personal. Switching changes the collection everywhere;
+  removing a profile only untracks it, nothing on disk is touched.
+- **History** shows what you opened, most recent first.
 
-## Manual test checklist (on device)
+## Saved pages and health
 
-File inputs in the WebView only work through the `WebChromeClient` bridge in
-`MainActivity.kt`; verify after any change there:
+Detail offers the saved copies when they exist: the card (always kept),
+the full-page archive, and your notes, all readable offline.
+Attachments download and open in an external viewer.
 
-1. Attach a file to a bookmark from the edit page, then open it back.
-2. Import a browser bookmark export via settings, confirm counts.
-3. Open the picker and cancel it, confirm no crash and the next picker still works.
-4. Attach two files at once (multiple selection path).
-5. Share a page URL from the browser to liber, confirm the add form opens prefilled.
-6. Share plain text without a URL, confirm it falls back to search.
-7. Share while the app is already open, confirm it navigates without losing history.
-8. Export the static site from settings, tap the download, confirm it lands in Downloads/liber with a completion notice.
-9. Open the ⋮ menu, pick a sync folder, confirm the toast, restart the app, confirm the folder is remembered.
-10. Open the ⋮ menu and dismiss it without choosing (back button, then again via tap-outside), reopen both times and confirm it appears every time.
-11. With an export present, use Export to sync folder, confirm index.html appears in the picked folder (re-run replaces, never duplicates).
-12. Fresh install shows the mode dialog; pick standalone, confirm the local UI loads.
-13. From the ⋮ menu open Server mode, enter a LAN URL, confirm the remote UI loads and loopback links stay in-app.
-14. Against an authed server: save the token in Server mode, confirm the UI loads without a manual login; wrong token falls back to the server login page (logcat notes the rejection).
-15. Switch back to standalone, confirm the local UI returns and no second server lingers (logcat shows one liber startup).
-16. Cold start loads the page without manual retry; killing the server mid-run shows the error view whose Retry recovers without changing ports.
-17. Full backup loop: settings, Library, Download browser export, confirm `liber-bookmarks.html` in Downloads; reinstall the app; settings, Library, import the file; confirm every bookmark, tag, and folder is back.
-18. ⋮ menu, Native UI (beta): list loads the same bookmarks as the WebView view; a search narrows them; tapping one opens it externally; airplane-mode error shows instead of a hang.
-19. Native detail: tapping a result shows full fields with working Open (history count increments, visible in WebView history); missing id shows retryable error.
-20. Native add: new URL saves and appears in both views; duplicate URL shows the already-bookmarked dialog with working Add-anyway.
-21. Native edit: from detail open Edit, change title/tags, save, confirm the change shows in both views; blank title/URL blocks saving; missing id shows retryable error.
-22. Native tags: list matches the WebView tags page counts; rename updates every bookmark (renaming onto an existing tag merges); delete asks with the affected count and updates both views; offline shows a retryable error.
-23. Native folders: reached from the tags screen, counts match the WebView page; rename moves the subtree (merging onto an existing folder); delete moves the subtree back to root after a count confirm; root has no actions; offline shows a retryable error.
-24. Native rules: reached from the tags screen, list matches `--auto list` with applied counts; add with folder/tags backfills; suggestions preview with min, create-all, and apply-all work; delete confirms and leaves classified bookmarks as-is; offline shows a retryable error.
-25. Native check: Check button on the list, spec/stale scan matches the WebView buckets; moved rows update URL with optional title refresh; dead/uncertain rows delete (with confirm) or quarantine and drop from the list; offline or bad spec shows a retryable error.
-26. Native settings: counts, base dir, and maintenance status match the WebView settings page; backend selector persists and reloads; offline shows a retryable error.
-27. Native look: gruvbox light and dark schemes follow the system setting; every screen shows its top bar, cards, and dialogs correctly in both; icons and chips render; rotation keeps state.
-28. Native list parity: collection auto-loads; scope chips, Deep toggle, and sort narrow results like the WebView; detail delete confirms and the list refreshes without the deleted entry.
-29. Native saved content: card always opens offline, archive and notes open when present, attachments download and open externally; missing content shows a retryable error.
-30. Native rules edit + profiles: rule edit dialog saves with optional reapply and reports the count; profiles list with active mark, switch changes the collection everywhere, create-and-switch and untracking delete work; bad names and deleting the active profile are rejected with a message.
-31. Native history + bulk: history matches open order with counts; long-press selects, bulk bar deletes (confirmed), sets tags, and moves folders, and the list refreshes.
-32. Native library: import a browser export via the picker with counts; share the Netscape export; static site, sync (with push), and reindex run with output; prune/compact confirm first; failures show output plus error.
+Check scans your links and groups them into moved (update the URL,
+optionally refreshing the title), dead, and uncertain (delete with a
+confirm step, or quarantine into a folder for later review).
 
-## Backup and reinstall (standalone mode)
+## Library and backup
 
-The collection lives in app-private storage, which Android deletes with the
-app. Before uninstalling or wiping, download a portable backup from settings,
-Library, Download browser export (`liber-bookmarks.html`, Netscape format).
-After reinstalling, restore it through settings, Library, import. Reimport
-assigns fresh ids but keeps every URL, title, tag, folder, and description
-(first line); nothing else is needed, since a fresh install has nothing to
-conflict with.
+From settings, Library covers the heavy lifting:
 
-## ABIs
+- **Import** a browser bookmark export picked from your files.
+- **Share export** sends the whole collection as a portable bookmark
+  file you can keep or move to another device.
+- **Static site** writes a browsable offline copy into the collection.
+- **Sync** commits the collection when it lives in a git/jj repo, with
+  an optional push.
+- **Maintenance** (reindex) merges conflict copies and journals, and
+  can prune or compact on a fully synced collection. Prune and compact
+  ask first.
 
-`arm64-v8a` builds with plain Go, no NDK. `x86_64` (emulators, Chromebooks)
-and 32-bit ABIs need an NDK clang as external linker; see the commented
-recipe in `scripts/build-go-lib.sh`. Only ship ABIs you built.
+**Before uninstalling or wiping the phone, export.** The collection
+lives in app-private storage, which Android deletes with the app. Share
+an export to somewhere safe first; after reinstalling, import it back.
+Reimport assigns fresh ids but keeps every URL, title, tag, folder, and
+description.
 
-## Behavior notes
+The ⋮ menu's sync folder picks a folder that survives reinstalls and
+can carry the static-site export out of app-private storage.
 
-- Server binds `127.0.0.1` on a runtime-picked free port and stops with the
-  app. Nothing runs in the background.
-- Links to 127.0.0.1 stay in the WebView; external links open the system
-  browser (history tracking still applies, since taps go through `/open/`).
-- Back button walks WebView history. Rotation does not restart the server
-  (`configChanges` in the manifest).
-- Server output goes to logcat under the `LiberApp` tag.
-- Storage is app-private. Sync story: export/share from the app, or point a
-  sync client at an app-exposed folder later; scoped storage makes arbitrary
-  shared folders painful, so this is deliberately not attempted in v1.
+## Settings
 
-## Android option semantics
+Settings shows the collection location, counts, and health status, plus:
 
-- Config lives at app-private `filesDir/liber-config.json` (`LIBER_CONFIG`),
-  collection at `filesDir/bookmarks` (`LIBER_BASE_DIR`). The file is not
-  directly editable: manage everything through the settings page, which shows
-  the effective path.
-- Archiving is native-snapshot only. The backend selector still lists the
-  other backends, but an empty backend resolves to native on Android and the
-  settings page says so; `single-file` and `monolith` have no on-device
-  binaries to call.
-- `browser_cmd` is irrelevant inside the WebView (links are handled natively).
-- `device_id` is per install. Each phone gets its own on first write.
+- **Archive backend**: on Android only the built-in native snapshot is
+  available (single-file and monolith need desktop binaries), so leave
+  it on auto.
+- **Profiles** and **Library** screens described above.
+- **Switch to legacy WebView**: restarts into the web view of the same
+  collection. The ⋮ menu there returns to the native view.
 
-## Distribution
+## Info
 
-F-Droid first (source-based review, matching audience), Play Store second.
-Play notes: keep permissions at INTERNET only, no foreground service while
-the server lives and dies with the activity, verify 16KB-page-clean native
-output for Android 15+ targets, and expect new personal accounts to need
-14 days of closed testing before production access.
-
-## Release CI
-
-`.github/workflows/release.yml` builds `liber-android-debug.apk` on every
-release and uploads it next to the desktop binaries (included in
-`SHA256SUMS.txt`). A manual `workflow_dispatch` run exercises the same path
-without uploading anything. A signed `liber-android.apk` is built and uploaded only
-when these repository secrets exist:
-
-- `ANDROID_KEYSTORE_BASE64`: release keystore, base64-encoded
-- `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
-
-The Gradle build reads them from `LIBER_KEYSTORE_*` env vars and skips
-signing cleanly when absent, so forks without secrets still get the debug
-APK. Generate the keystore once with
-`keytool -genkey -v -keystore liber-release.keystore -alias liber -keyalg RSA
--keysize 2048 -validity 10000`, back it up somewhere safe, and never commit
-it: losing the key means a new app identity on every store.
+- The app needs the INTERNET permission only (loopback server, page
+  fetches, archives). Nothing runs when the app is closed.
+- Everything is stored privately on the device; settings shows the
+  effective path but the config file itself is managed through the app.
+- Rotating the phone never loses your place or restarts anything.
+- If something goes wrong, airplane-mode screens show a retry instead
+  of hanging. For a bug report, `adb logcat -s LiberApp` captures the
+  app log.

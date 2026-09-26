@@ -7,3 +7,4 @@ android/app/src/main/jniLibs/
 android/app/build/
 android/build/
 android/.gradle/
+android/android-dev-docs.md
