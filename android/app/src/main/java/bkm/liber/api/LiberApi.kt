@@ -188,6 +188,7 @@ class LiberApi(baseUrl: String, token: String) {
             tags: List<String>?,
             folder: String?,
             markdownText: String? = null,
+            archive: Boolean = false,
         ): String {
             return buildJsonObject {
                 if (title != null) put("title", JsonPrimitive(title))
@@ -196,6 +197,7 @@ class LiberApi(baseUrl: String, token: String) {
                 if (tags != null) put("tags", JsonArray(tags.map { JsonPrimitive(it) }))
                 if (folder != null) put("folder", JsonPrimitive(folder))
                 if (markdownText != null) put("markdown_text", JsonPrimitive(markdownText))
+                if (archive) put("archive", JsonPrimitive(true))
             }.toString()
         }
 
@@ -256,19 +258,21 @@ class LiberApi(baseUrl: String, token: String) {
         }
     }
 
-    fun add(url: String, title: String, confirmed: Boolean, markdown: Boolean = false): ApiBookmark {
+    fun add(url: String, title: String, confirmed: Boolean, markdown: Boolean = false, archive: Boolean = false): ApiBookmark {
         val payload = JSONObject()
             .put("url", url)
             .put("title", title)
             .put("confirm_dup", confirmed)
             .put("markdown", markdown)
+            .put("archive", archive)
             .toString()
         val req = authed(
             Request.Builder()
                 .url("$base/api/v1/bookmarks")
                 .post(payload.toRequestBody("application/json".toMediaType())),
         ).build()
-        client.newCall(req).execute().use { resp ->
+        // Archiving fetches the page synchronously and can take a while.
+        slowClient.newCall(req).execute().use { resp ->
             val body = resp.body?.string() ?: ""
             if (resp.code == 409) {
                 throw Duplicate(duplicateOf(body), "possible duplicate")
@@ -286,13 +290,15 @@ class LiberApi(baseUrl: String, token: String) {
         tags: List<String>?,
         folder: String?,
         markdownText: String? = null,
+        archive: Boolean = false,
     ): ApiBookmark {
         val req = authed(
             Request.Builder()
                 .url("$base/api/v1/bookmarks/$id")
-                .put(updatePayload(title, url, description, tags, folder, markdownText).toRequestBody("application/json".toMediaType())),
+                .put(updatePayload(title, url, description, tags, folder, markdownText, archive).toRequestBody("application/json".toMediaType())),
         ).build()
-        client.newCall(req).execute().use { resp ->
+        // Archiving fetches the page synchronously and can take a while.
+        slowClient.newCall(req).execute().use { resp ->
             val body = resp.body?.string() ?: ""
             if (resp.code == 404) throw IOException("no such bookmark")
             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}: $body")

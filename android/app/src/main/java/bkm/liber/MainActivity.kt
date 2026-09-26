@@ -126,6 +126,22 @@ class MainActivity : Activity() {
 
     private fun prefs() = getPreferences(MODE_PRIVATE)
 
+    private fun nativeMode() = prefs().getString(Prefs.UI_MODE, Prefs.NATIVE) != Prefs.WEBVIEW
+
+    // MainActivity stays alive underneath as the server owner: its onDestroy
+    // is what stops the Go process, so finishing here would kill the
+    // server out from under the native UI.
+    private fun launchNative(base: String, share: String?) {
+        startActivity(
+            Intent(this, UiActivity::class.java).apply {
+                putExtra(UiActivity.EXTRA_BASE, base)
+                putExtra(UiActivity.EXTRA_TOKEN, prefs().getString(Prefs.SERVER_TOKEN, ""))
+                putExtra(UiActivity.EXTRA_EXIT_ON_ROOT, true)
+                if (share != null) putExtra(UiActivity.EXTRA_SHARE, share)
+            },
+        )
+    }
+
     private fun routeStartup() {
         if (prefs().getString(Prefs.MODE, null) == null) {
             showModeDialog(firstRun = true)
@@ -144,8 +160,13 @@ class MainActivity : Activity() {
             stopServer()
             activeBase = base
             internalHost = Uri.parse(base).host ?: ""
-            pendingShare = sharedTarget(intent)
-            loginRemoteThenLoad(base)
+            val share = sharedTarget(intent)
+            pendingShare = share
+            if (nativeMode()) {
+                launchNative(base, share)
+            } else {
+                loginRemoteThenLoad(base)
+            }
         } else {
             startStandalone()
         }
@@ -163,8 +184,31 @@ class MainActivity : Activity() {
         val base = "http://127.0.0.1:$port"
         activeBase = base
         internalHost = "127.0.0.1"
-        pendingShare = sharedTarget(intent)
+        val share = sharedTarget(intent)
+        pendingShare = share
+        if (nativeMode()) {
+            Thread({
+                if (!waitForServer(port)) {
+                    runOnUiThread { showFatal() }
+                    return@Thread
+                }
+                runOnUiThread { launchNative(base, share) }
+            }, "liber-wait").start()
+            return
+        }
         loadAppUrl(targetUrl(base))
+    }
+
+    private fun waitForServer(port: Int): Boolean {
+        repeat(50) {
+            try {
+                java.net.Socket("127.0.0.1", port).close()
+                return true
+            } catch (_: Exception) {
+                Thread.sleep(100)
+            }
+        }
+        return false
     }
 
     private fun stopServer() {
@@ -283,6 +327,10 @@ class MainActivity : Activity() {
         setIntent(intent)
         val shared = sharedTarget(intent) ?: return
         pendingShare = shared
+        if (nativeMode() && activeBase.isNotEmpty()) {
+            launchNative(activeBase, shared)
+            return
+        }
         val base = activeBase
         if (base.isNotEmpty() && ::web.isInitialized) {
             loadAppUrl(targetUrl(base))
@@ -402,7 +450,7 @@ class MainActivity : Activity() {
         popup.menu.add(Menu.NONE, MENU_SYNC_FOLDER, Menu.NONE, "Sync folder")
         popup.menu.add(Menu.NONE, MENU_EXPORT_SYNC, Menu.NONE, "Export to sync folder")
         popup.menu.add(Menu.NONE, MENU_SERVER_MODE, Menu.NONE, "Server mode")
-        popup.menu.add(Menu.NONE, MENU_NATIVE_UI, Menu.NONE, "Native UI (beta)")
+        popup.menu.add(Menu.NONE, MENU_NATIVE_UI, Menu.NONE, "Native UI")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 MENU_SYNC_FOLDER -> {

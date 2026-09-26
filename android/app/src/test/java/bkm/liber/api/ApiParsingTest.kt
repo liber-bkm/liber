@@ -74,6 +74,8 @@ class ApiParsingTest {
         val md = LiberApi.updatePayload(null, null, null, null, null, "# notes\n")
         assertTrue(md.contains("\"markdown_text\":\"# notes\\n\""))
         assertTrue(!md.contains("\"title\""))
+        val arch = LiberApi.updatePayload("T", null, null, null, null, null, true)
+        assertTrue(arch.contains("\"archive\":true"))
     }
 
     @Test

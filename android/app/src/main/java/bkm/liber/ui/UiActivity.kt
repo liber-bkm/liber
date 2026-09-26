@@ -27,12 +27,12 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -62,6 +62,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import bkm.liber.Prefs
 import bkm.liber.api.ApiAttachment
 import bkm.liber.api.ApiBookmark
 import bkm.liber.api.ApiCheckRow
@@ -80,6 +81,8 @@ class UiActivity : ComponentActivity() {
     companion object {
         const val EXTRA_BASE = "base"
         const val EXTRA_TOKEN = "token"
+        const val EXTRA_SHARE = "share"
+        const val EXTRA_EXIT_ON_ROOT = "exit_on_root"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -91,9 +94,11 @@ class UiActivity : ComponentActivity() {
             finish()
             return
         }
+        val share = intent.getStringExtra(EXTRA_SHARE)?.takeIf { it.isNotBlank() }
+        val exitOnRoot = intent.getBooleanExtra(EXTRA_EXIT_ON_ROOT, false)
         setContent {
             LiberTheme {
-                LiberNav(api = LiberApi(base, token))
+                LiberNav(api = LiberApi(base, token), initialShare = share, exitOnRoot = exitOnRoot)
             }
         }
     }
@@ -115,16 +120,40 @@ private sealed interface Screen {
     data object Library : Screen
 }
 
+private fun looksLikeUrl(text: String): Boolean {
+    val t = text.trim()
+    return t.startsWith("http://", ignoreCase = true) || t.startsWith("https://", ignoreCase = true)
+}
+
 @Composable
-fun LiberNav(api: LiberApi) {
-    var stack by remember { mutableStateOf(listOf<Screen>(Screen.List)) }
+fun LiberNav(api: LiberApi, initialShare: String? = null, exitOnRoot: Boolean = false) {
+    var shareConsumed by remember { mutableStateOf(false) }
+    val shareUrl = if (!shareConsumed) initialShare?.takeIf { looksLikeUrl(it) } else null
+    val shareQuery = if (!shareConsumed) initialShare?.takeIf { !looksLikeUrl(it) } else null
+    var stack by remember {
+        mutableStateOf(
+            if (shareUrl != null) {
+                listOf<Screen>(Screen.List, Screen.Add)
+            } else {
+                listOf<Screen>(Screen.List)
+            },
+        )
+    }
+    androidx.compose.runtime.LaunchedEffect(Unit) { shareConsumed = true }
     val push = { s: Screen -> stack = stack + s }
     val pop = { if (stack.size > 1) stack = stack.dropLast(1) }
     val popToList = { stack = listOf<Screen>(Screen.List) }
     BackHandler(enabled = stack.size > 1) { pop() }
+    val activity = LocalContext.current as? android.app.Activity
+    // At the root there is no screen to pop to: MainActivity underneath never
+    // loaded its WebView in native-default mode, so background the app instead
+    // of revealing an empty view. From the legacy menu peek, system back
+    // returns to the WebView instead.
+    BackHandler(enabled = exitOnRoot && stack.size <= 1) { activity?.moveTaskToBack(true) }
     when (val top = stack.last()) {
         is Screen.List -> SearchScreen(
             api = api,
+            initialQuery = shareQuery ?: "",
             onOpenDetail = { push(Screen.Detail(it)) },
             onOpenAdd = { push(Screen.Add) },
             onOpenTags = { push(Screen.Tags) },
@@ -142,6 +171,7 @@ fun LiberNav(api: LiberApi) {
         )
         is Screen.Add -> AddScreen(
             api = api,
+            initialUrl = shareUrl ?: "",
             onBack = { pop() },
             onAdded = { pop() },
         )
@@ -174,6 +204,7 @@ fun LiberNav(api: LiberApi) {
             onBack = { pop() },
             onOpenProfiles = { push(Screen.Profiles) },
             onOpenLibrary = { push(Screen.Library) },
+            onOpenRules = { push(Screen.Rules) },
         )
         is Screen.Profiles -> ProfilesScreen(
             api = api,
@@ -253,6 +284,7 @@ fun ErrorBlock(error: String, onRetry: (() -> Unit)? = null) {
 @Composable
 fun SearchScreen(
     api: LiberApi,
+    initialQuery: String,
     onOpenDetail: (Int) -> Unit,
     onOpenAdd: () -> Unit,
     onOpenTags: () -> Unit,
@@ -260,7 +292,7 @@ fun SearchScreen(
     onOpenSettings: () -> Unit,
     onOpenHistory: () -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf(initialQuery) }
     var loading by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -400,7 +432,7 @@ fun SearchScreen(
         } else {
             LiberTopBar(title = "liber", onBack = null) {
                 IconButton(onClick = onOpenTags) {
-                    Icon(Icons.Filled.List, contentDescription = "Tags")
+                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Tags")
                 }
                 IconButton(onClick = onOpenCheck) {
                     Icon(Icons.Filled.Check, contentDescription = "Check")
@@ -471,7 +503,7 @@ fun SearchScreen(
         }
         when {
             loading && !loaded -> CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
-            error != null && !loaded -> ErrorBlock(error = error ?: "")
+            error != null && !loaded -> ErrorBlock(error = error ?: "", onRetry = { runSearch() })
             else -> {
                 if (loading) {
                     CircularProgressIndicator(modifier = Modifier.padding(top = 8.dp))
@@ -852,11 +884,12 @@ fun DetailScreen(
 }
 
 @Composable
-fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
+fun AddScreen(api: LiberApi, initialUrl: String, onBack: () -> Unit, onAdded: () -> Unit) {
     val context = LocalContext.current
-    var url by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf(initialUrl) }
     var title by remember { mutableStateOf("") }
     var wantMarkdown by remember { mutableStateOf(false) }
+    var wantArchive by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(listOf<android.net.Uri>()) }
     var createdId by remember { mutableStateOf<Int?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -887,11 +920,12 @@ fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
         val u = url
         val t = title
         val md = wantMarkdown
+        val arch = wantArchive
         val files = picked.toList()
         runApi(
             main,
             {
-                val created = api.add(u, t, confirmed, md)
+                val created = api.add(u, t, confirmed, md, arch)
                 createdId = created.id
                 for (uri in files) {
                     val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
@@ -938,6 +972,17 @@ fun AddScreen(api: LiberApi, onBack: () -> Unit, onAdded: () -> Unit) {
             )
             Text(
                 "Markdown notes",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Checkbox(
+                checked = wantArchive,
+                onCheckedChange = { wantArchive = it },
+            )
+            Text(
+                "Full-page archive (takes a while)",
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = 12.dp),
             )
@@ -1011,6 +1056,8 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
     var folder by remember { mutableStateOf("") }
     var wantMarkdown by remember { mutableStateOf(false) }
     var notes by remember { mutableStateOf("") }
+    var hasArchive by remember { mutableStateOf(false) }
+    var wantArchive by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf(listOf<ApiAttachment>()) }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
@@ -1074,6 +1121,8 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
                 folder = b.folder
                 wantMarkdown = b.hasMarkdown
                 notes = raw
+                hasArchive = b.hasArchive
+                wantArchive = false
                 attachments = b.attachments
             }.onFailure {
                 loadError = it.message ?: "request failed"
@@ -1092,7 +1141,8 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
         val f = folder
         val tagList = tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         val text = if (wantMarkdown) notes else null
-        runApi(main, { api.update(id, t, u, d, tagList, f, text) }) { res ->
+        val arch = wantArchive
+        runApi(main, { api.update(id, t, u, d, tagList, f, text, arch) }) { res ->
             saving = false
             res.onSuccess { onSaved() }.onFailure {
                 error = it.message ?: "save failed"
@@ -1176,6 +1226,25 @@ fun EditScreen(api: LiberApi, id: Int, onBack: () -> Unit, onSaved: () -> Unit) 
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         minLines = 6,
                     )
+                }
+                if (hasArchive) {
+                    Text(
+                        "Full-page archive saved.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Checkbox(
+                            checked = wantArchive,
+                            onCheckedChange = { wantArchive = it },
+                        )
+                        Text(
+                            "Full-page archive (takes a while)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
+                    }
                 }
                 Text(
                     "Attachments",
@@ -2192,7 +2261,8 @@ fun CheckScreen(api: LiberApi, onBack: () -> Unit) {
 }
 
 @Composable
-fun SettingsScreen(api: LiberApi, onBack: () -> Unit, onOpenProfiles: () -> Unit, onOpenLibrary: () -> Unit) {
+fun SettingsScreen(api: LiberApi, onBack: () -> Unit, onOpenProfiles: () -> Unit, onOpenLibrary: () -> Unit, onOpenRules: () -> Unit) {
+    val context = LocalContext.current
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var settings by remember { mutableStateOf<ApiSettings?>(null) }
@@ -2260,6 +2330,32 @@ fun SettingsScreen(api: LiberApi, onBack: () -> Unit, onOpenProfiles: () -> Unit
                             modifier = Modifier.padding(top = 8.dp),
                         ) {
                             Text("Library")
+                        }
+                        OutlinedButton(
+                            onClick = onOpenRules,
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) {
+                            Text("Rules")
+                        }
+                        Text(
+                            "Interface",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(top = 16.dp),
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                context.getSharedPreferences(
+                                    "MainActivity",
+                                    android.content.Context.MODE_PRIVATE,
+                                ).edit().putString(Prefs.UI_MODE, Prefs.WEBVIEW).apply()
+                                val restart = Intent(context, bkm.liber.MainActivity::class.java).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                }
+                                context.startActivity(restart)
+                            },
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text("Switch to legacy WebView")
                         }
                         Text(
                             s.maintenanceStatus,
