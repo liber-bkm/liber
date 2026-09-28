@@ -16,7 +16,7 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        version = "0.9.2";
+        version = "0.10.1";
         # Scoped package set for Android tooling. The SDK is proprietary, so
         # license acceptance and unfree permission live here only; the default
         # shell and packages stay fully free.
