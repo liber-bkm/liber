@@ -1,8 +1,12 @@
-
+# Liber 
 A simple cross-platform manager, operated through CLI or web UI, that
 saves bookmarks as plain browsable HTML files, optionally with web
 archives, markdown notes, or file attachments. Your collection stays
-fully browsable and usable without liber itself. For more details visit the documentation site at [liber-bkm.github.io](https://liber-bkm.github.io)
+fully browsable and usable without liber itself.
+
+> [!TIP]
+> For more details visit the documentation site at [liber-bkm.github.io](https://liber-bkm.github.io)
+
 # Features
 - Plain HTML bookmarks
 - Web page archives, markdown notes and file attachments
@@ -98,7 +102,7 @@ go build -o liber . # or: make && sudo make install
 ```
 
 # Usage
-Full guides with examples can be found at
+Liber can be used either in terminal or through WebUI. Full guides with examples can be found at
 [documentation](https://liber-bkm.github.io/). Everyday commands:
 
 ```
