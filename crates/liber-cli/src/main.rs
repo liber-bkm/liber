@@ -45,7 +45,7 @@ enum Cmd {
 #[derive(clap::Args)]
 struct AddArgs {
     url: String,
-    #[arg(short, long)]
+    #[arg(long)]
     title: Option<String>,
     #[arg(short, long)]
     tags: Vec<String>,
@@ -62,6 +62,8 @@ struct AddArgs {
 #[derive(clap::Args)]
 struct ListArgs {
     query: Option<String>,
+    #[arg(long)]
+    sort: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -214,6 +216,183 @@ struct ServeArgs {
 #[derive(clap::Args)]
 struct CompletionArgs {
     shell: String,
+}
+
+fn load_store() -> anyhow::Result<(liber_core::store::Config, liber_core::store::Store)> {
+    let (cfg, _) = liber_core::config::load_config()?;
+    let store = liber_core::store::Store::open(cfg.clone())?;
+    Ok((cfg, store))
+}
+
+fn display_folder(f: &str) -> &str {
+    if f.is_empty() {
+        "/"
+    } else {
+        f
+    }
+}
+
+fn confirm(prompt: &str) -> bool {
+    use std::io::{self, Write};
+    print!("{prompt} [y/N] ");
+    let _ = io::stdout().flush();
+    let mut line = String::new();
+    if io::stdin().read_line(&mut line).is_err() {
+        return false;
+    }
+    matches!(line.trim().to_lowercase().as_str(), "y" | "yes")
+}
+
+fn open_in_browser(cfg: &liber_core::store::Config, url: &str) -> anyhow::Result<()> {
+    println!("{url}");
+    let mut cmd = if cfg.browser_cmd.trim().is_empty() {
+        #[cfg(target_os = "macos")]
+        let c = std::process::Command::new("open");
+        #[cfg(target_os = "windows")]
+        let c = {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/C", "start", ""]);
+            c
+        };
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let c = std::process::Command::new("xdg-open");
+        c
+    } else {
+        let parts: Vec<&str> = cfg.browser_cmd.split_whitespace().collect();
+        let mut c = std::process::Command::new(parts[0]);
+        c.args(&parts[1..]);
+        c
+    };
+    cmd.arg(url).status()?;
+    Ok(())
+}
+
+fn run_add(a: AddArgs) -> anyhow::Result<()> {
+    let (_, mut store) = load_store()?;
+    let opts = liber_core::create::CreateOptions {
+        title: a.title,
+        description: a.description.unwrap_or_default(),
+        tags: a.tags,
+        folder: a.folder.unwrap_or_default(),
+        markdown: a.markdown,
+    };
+    match liber_core::create::create_bookmark(&mut store, &a.url, opts) {
+        Err(liber_core::CoreError::Duplicate(_)) => {
+            let dup = store
+                .find_by_url(&liber_core::slug::normalize_url(&a.url))?
+                .unwrap();
+            println!(
+                "Already bookmarked: [{}] {} (folder: {})",
+                &dup.uuid.to_string()[..8],
+                dup.title,
+                display_folder(&dup.folder)
+            );
+            if !confirm("Add it anyway?") {
+                println!("Cancelled.");
+                return Ok(());
+            }
+            println!("Use a distinct URL to add a second copy.");
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+        Ok(b) => {
+            println!("\nSaved [{}] {}", &b.uuid.to_string()[..8], b.title);
+            println!(
+                "  html: {}",
+                store.cfg.html_dir().join(&b.html_file).display()
+            );
+            if let Some(rel) = &b.markdown_file {
+                println!(
+                    "  markdown: {}",
+                    store.cfg.markdown_dir().join(rel).display()
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn run_list(a: ListArgs) -> anyhow::Result<()> {
+    let (_, store) = load_store()?;
+    let mut found = store.list()?;
+    if let Some(q) = &a.query {
+        let fields = liber_core::search::SearchFields::all();
+        found.retain(|b| liber_core::search::bookmark_matches(b, q, &fields));
+    }
+    let sort = liber_core::search::parse_sort_mode(a.sort.as_deref().unwrap_or(""))?;
+    let fields = liber_core::search::SearchFields::all();
+    let query = a.query.unwrap_or_default();
+    let ordered = liber_core::search::order_results(found, &query, &fields, sort);
+    for b in ordered {
+        println!(
+            "[{}] {} ({}) {}",
+            &b.uuid.to_string()[..8],
+            b.title,
+            display_folder(&b.folder),
+            b.url
+        );
+    }
+    Ok(())
+}
+
+fn run_open(spec: &str) -> anyhow::Result<()> {
+    let (cfg, mut store) = load_store()?;
+    let tokens = liber_core::idspec::parse_id_spec(spec)?;
+    let found = match store.resolve_spec(&tokens) {
+        Ok(v) => v,
+        Err(_) if liber_core::idspec::is_query_spec(spec) => {
+            let fields = liber_core::search::SearchFields::all();
+            store
+                .list()?
+                .into_iter()
+                .filter(|b| liber_core::search::bookmark_matches(b, spec, &fields))
+                .collect()
+        }
+        Err(e) => return Err(e.into()),
+    };
+    if found.is_empty() {
+        return Err(anyhow::anyhow!("no bookmarks matching {spec:?}"));
+    }
+    for b in found {
+        store.record_open(&b.uuid)?;
+        open_in_browser(&cfg, &b.url)?;
+    }
+    Ok(())
+}
+
+fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
+    let (mut cfg, path) = liber_core::config::load_config()?;
+    match cmd {
+        ConfigCmd::Get { key } => match key.as_str() {
+            "base_dir" => println!("{}", cfg.base_dir.display()),
+            "device_id" => println!("{}", cfg.device_id),
+            "archive_backend" => println!("{}", cfg.archive_backend),
+            "browser_cmd" => println!("{}", cfg.browser_cmd),
+            "auth_token" => println!("{}", cfg.auth_token),
+            _ => return Err(anyhow::anyhow!("unknown key {key:?}")),
+        },
+        ConfigCmd::Set { key, value } => {
+            match key.as_str() {
+                "base_dir" => cfg.base_dir = value.into(),
+                "device_id" => cfg.device_id = value,
+                "archive_backend" => match value.as_str() {
+                    "builtin" | "monolith" | "single-file" => cfg.archive_backend = value,
+                    _ => {
+                        return Err(anyhow::anyhow!(
+                            "invalid archive_backend (expected builtin, monolith, or single-file)"
+                        ))
+                    }
+                },
+                "browser_cmd" => cfg.browser_cmd = value,
+                "auth_token" => cfg.auth_token = value,
+                _ => return Err(anyhow::anyhow!("unknown key {key:?}")),
+            }
+            liber_core::config::save_config_to(&path, &cfg)?;
+            println!("Set {key} in {}", path.display());
+        }
+        ConfigCmd::List => println!("{}", serde_json::to_string_pretty(&cfg).unwrap_or_default()),
+    }
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
