@@ -20,6 +20,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 tantivy = "0.22"
+url = "2"
 thiserror = "1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
