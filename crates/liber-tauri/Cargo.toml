@@ -1,0 +1,17 @@
+[package]
+name = "liber-tauri"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "liber_tauri"
+path = "src/lib.rs"
+
+[dependencies]
+liber-core = { path = "../liber-core" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+# Tauri 2 dependency lands with the Tauri phase (desktop/mobile).
+# Kept out of the scaffold so `cargo check` stays fast and offline-friendly.
