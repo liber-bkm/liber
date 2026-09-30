@@ -46,3 +46,15 @@ pub struct OpLogEntry {
     pub op: String,
     pub payload: serde_json::Value,
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct NewBookmark {
+    pub url: String,
+    pub title: String,
+    pub description: String,
+    pub tags: Vec<String>,
+    pub folder: String,
+    pub html_file: String,
+    pub markdown_file: Option<String>,
+    pub archive_file: Option<String>,
+}
