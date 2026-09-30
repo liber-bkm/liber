@@ -5,6 +5,7 @@ pub mod check;
 pub mod config;
 pub mod create;
 pub mod dedupe;
+pub mod edit;
 pub mod error;
 pub mod export;
 pub mod idspec;
