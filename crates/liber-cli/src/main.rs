@@ -364,6 +364,81 @@ fn run_open(spec: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_edit(a: EditArgs) -> anyhow::Result<()> {
+    let (_, mut store) = load_store()?;
+    let tokens = liber_core::idspec::parse_id_spec(&a.spec)?;
+    let targets = store.resolve_spec(&tokens)?;
+    if targets.is_empty() {
+        return Err(anyhow::anyhow!("no bookmarks matching {:?}", a.spec));
+    }
+    for b in targets {
+        let opts = liber_core::edit::EditOptions {
+            title: a.title.clone(),
+            description: a.description.clone(),
+            tags: a.tags.clone(),
+            folder: a.folder.clone(),
+            url: a.url.clone(),
+            add_markdown: a.markdown,
+        };
+        let out = liber_core::edit::edit_bookmark(&mut store, &b.uuid, opts)?;
+        println!("Updated [{}] {}", &out.uuid.to_string()[..8], out.title);
+    }
+    Ok(())
+}
+
+fn run_delete(spec: &str, yes: bool) -> anyhow::Result<()> {
+    let (_, mut store) = load_store()?;
+    let tokens = liber_core::idspec::parse_id_spec(spec)?;
+    let targets = store.resolve_spec(&tokens)?;
+    if targets.is_empty() {
+        return Err(anyhow::anyhow!("no bookmarks matching {spec:?}"));
+    }
+    if targets.len() == 1 {
+        let b = &targets[0];
+        if !yes
+            && !confirm(&format!(
+                "Delete [{}] {}?",
+                &b.uuid.to_string()[..8],
+                b.title
+            ))
+        {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    } else {
+        println!("About to delete {} bookmarks:", targets.len());
+        for b in &targets {
+            println!("  [{}] {}", &b.uuid.to_string()[..8], b.title);
+        }
+        if !yes && !confirm(&format!("Delete all {}?", targets.len())) {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+    for b in &targets {
+        liber_core::edit::delete_bookmark_with_files(&mut store, &b.uuid)?;
+    }
+    if targets.len() == 1 {
+        println!(
+            "Deleted [{}] {}",
+            &targets[0].uuid.to_string()[..8],
+            targets[0].title
+        );
+    } else {
+        println!("Deleted {} bookmark(s).", targets.len());
+    }
+    Ok(())
+}
+
+fn run_serve(addr: &str, token_flag: Option<&str>) -> anyhow::Result<()> {
+    let (cfg, _) = liber_core::config::load_config()?;
+    let token = cfg.resolve_auth_token(token_flag.unwrap_or(""));
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(liber_server::serve(cfg, token, addr))
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
@@ -420,11 +495,10 @@ fn main() -> anyhow::Result<()> {
             Cmd::Add(a) => run_add(a),
             Cmd::List(a) => run_list(a),
             Cmd::Open(a) => run_open(&a.spec),
+            Cmd::Edit(a) => run_edit(a),
+            Cmd::Delete(a) => run_delete(&a.spec, a.yes),
             Cmd::Config(a) => run_config(a.cmd),
-            Cmd::Serve(a) => {
-                println!("serve {}: not implemented", a.addr);
-                Ok(())
-            }
+            Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref()),
             _ => {
                 println!("not implemented");
                 Ok(())
