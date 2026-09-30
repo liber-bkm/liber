@@ -400,17 +400,31 @@ fn main() -> anyhow::Result<()> {
     match cli.cmd {
         None => {
             if cli.list {
-                println!("list: not implemented");
+                run_list(ListArgs {
+                    query: None,
+                    sort: None,
+                })
             } else if cli.serve {
                 println!("serve: not implemented");
+                Ok(())
             } else {
                 println!("liber: no command given, see --help");
+                Ok(())
             }
         }
         Some(cmd) => match cmd {
-            Cmd::Serve(a) => println!("serve {}: not implemented", a.addr),
-            _ => println!("not implemented"),
+            Cmd::Add(a) => run_add(a),
+            Cmd::List(a) => run_list(a),
+            Cmd::Open(a) => run_open(&a.spec),
+            Cmd::Config(a) => run_config(a.cmd),
+            Cmd::Serve(a) => {
+                println!("serve {}: not implemented", a.addr);
+                Ok(())
+            }
+            _ => {
+                println!("not implemented");
+                Ok(())
+            }
         },
     }
-    Ok(())
 }
