@@ -26,7 +26,11 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 axum = "0.7"
-tower = "0.4"
+tower = { version = "0.4", features = ["util"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+subtle = "2"
 tracing = "0.1"
 dirs = "5"
 nucleo = "0.5"
