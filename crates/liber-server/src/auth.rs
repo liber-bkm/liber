@@ -155,3 +155,158 @@ pub async fn logout() -> Response {
         .into_response()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    use crate::{build_router, AppState};
+    use liber_core::auth::auth_mac;
+    use liber_core::store::Config;
+
+    fn test_app(token: &str) -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            base_dir: dir.path().to_path_buf(),
+            device_id: "test-device".to_string(),
+            ..Default::default()
+        };
+        let state = AppState::new(cfg, token.to_string());
+        (build_router(state), dir)
+    }
+
+    fn get(uri: &str) -> Request<Body> {
+        Request::builder().uri(uri).body(Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn open_server_needs_nothing() {
+        let (app, _dir) = test_app("");
+        let res = app.oneshot(get("/api/v2/bookmarks")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn api_requires_bearer_without_cookie() {
+        let (app, _dir) = test_app("tok");
+        let res = app.oneshot(get("/api/v2/bookmarks")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn bearer_grants_access() {
+        let (app, _dir) = test_app("tok");
+        let bearer = format!("Bearer {}", auth_mac("tok", "liber-bearer-v1"));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/bookmarks")
+                    .header(header::AUTHORIZATION, bearer)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn login_form_issues_cookie() {
+        let (app, _dir) = test_app("tok");
+        let bad = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/login")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from("token=nope"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(bad.status(), StatusCode::UNAUTHORIZED);
+
+        let good = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/login")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from("token=tok"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(good.status(), StatusCode::SEE_OTHER);
+        let set_cookie = good
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(set_cookie.starts_with(&format!("{COOKIE_NAME}=")));
+
+        let cookie_pair = set_cookie.split(';').next().unwrap().to_string();
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/bookmarks")
+                    .header(header::COOKIE, cookie_pair)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn cookie_post_checks_origin() {
+        let (app, _dir) = test_app("tok");
+        let cookie = format!("{COOKIE_NAME}={}", auth_mac("tok", "liber-cookie-v1"));
+        let evil = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v2/bookmarks")
+                    .header(header::COOKIE, cookie.clone())
+                    .header(header::ORIGIN, "http://evil.com")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{\"url\":\"https://example.com/x\"}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(evil.status(), StatusCode::FORBIDDEN);
+
+        let same = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v2/bookmarks")
+                    .header(header::COOKIE, cookie)
+                    .header(header::ORIGIN, "http://127.0.0.1:8080")
+                    .header(header::HOST, "127.0.0.1:8080")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{\"url\":\"https://example.com/x\"}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(same.status(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn pages_redirect_to_login() {
+        let (app, _dir) = test_app("tok");
+        let res = app.oneshot(get("/settings")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let _ = to_bytes(Body::empty(), 0).await;
+    }
+}
