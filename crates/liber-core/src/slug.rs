@@ -91,3 +91,47 @@ pub fn dedupe_strings(items: Vec<String>) -> Vec<String> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slug_vectors() {
+        assert_eq!(slugify("Hello World!"), "hello-world");
+        assert_eq!(slugify("  spaced  out  "), "spaced-out");
+        assert_eq!(slugify("con"), "con-item");
+        assert_eq!(slugify(""), "");
+        assert_eq!(slug_or_fallback(""), "bookmark");
+        assert_eq!(slug_or_fallback("My Title"), "my-title");
+    }
+
+    #[test]
+    fn folder_vectors() {
+        assert_eq!(sanitize_folder("tech/rust"), "tech/rust");
+        assert_eq!(sanitize_folder("a\\b"), "a/b");
+        assert_eq!(sanitize_folder("../x/./y"), "x/y");
+        assert_eq!(sanitize_folder(""), "");
+    }
+
+    #[test]
+    fn filename_windows_names() {
+        assert_eq!(sanitize_filename("AUX"), "AUX-item");
+        assert_eq!(sanitize_filename("a<b"), "a-b");
+        assert_eq!(sanitize_filename("..."), "item");
+    }
+
+    #[test]
+    fn url_scheme_default() {
+        assert_eq!(normalize_url("example.com"), "https://example.com");
+        assert_eq!(normalize_url("http://example.com"), "http://example.com");
+    }
+
+    #[test]
+    fn dedupe_case_insensitive() {
+        assert_eq!(
+            dedupe_strings(vec!["A".into(), "a".into(), " b ".into()]),
+            vec!["A".to_string(), "b".to_string()]
+        );
+    }
+}
