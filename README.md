@@ -1,8 +1,9 @@
 # liber-rs
 
 Professional grade local first bookmark manager. CLI plus modern web UI plus
-Tauri desktop and mobile. Rust port of liber (see parent directory), with
-clean break storage and full feature parity as the goal.
+Tauri desktop and mobile. Rust port of liber (see parent directory) with
+clean break storage; every Go capability is available in enhanced form,
+not cloned.
 
 Status: early scaffold. See `local/PARITY.md` for what works today.
 
