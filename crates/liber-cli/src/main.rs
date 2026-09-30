@@ -76,12 +76,16 @@ struct EditArgs {
     spec: String,
     #[arg(short, long)]
     url: Option<String>,
-    #[arg(short, long)]
+    #[arg(long)]
     title: Option<String>,
-    #[arg(short, long)]
-    tags: Vec<String>,
+    #[arg(long)]
+    description: Option<String>,
+    #[arg(short, long, num_args(0..))]
+    tags: Option<Vec<String>>,
     #[arg(short, long)]
     folder: Option<String>,
+    #[arg(long)]
+    markdown: bool,
 }
 
 #[derive(clap::Args)]
