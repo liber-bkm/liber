@@ -1,10 +1,6 @@
-docs.md
-dev-docs.md
-/to-do.md
-/liber
-/local
-android/app/src/main/jniLibs/
-android/app/build/
-android/build/
-android/.gradle/
-android/android-dev-docs.md
+/target/
+frontend/node_modules/
+frontend/dist/
+result
+.direnv/
+local/

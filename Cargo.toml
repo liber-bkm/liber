@@ -1,0 +1,32 @@
+[workspace]
+members = [
+  "crates/liber-core",
+  "crates/liber-cli",
+  "crates/liber-server",
+  "crates/liber-tauri",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+authors = ["liber-rs contributors"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+tantivy = "0.22"
+thiserror = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+tower = "0.4"
+tracing = "0.1"
+dirs = "5"
+nucleo = "0.5"
+ratatui = "0.28"
