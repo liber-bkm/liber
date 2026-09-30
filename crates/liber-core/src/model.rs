@@ -47,8 +47,9 @@ pub struct OpLogEntry {
     pub payload: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct NewBookmark {
+    pub uuid: uuid::Uuid,
     pub url: String,
     pub title: String,
     pub description: String,

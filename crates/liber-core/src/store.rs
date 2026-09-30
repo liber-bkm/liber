@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Row};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::dedupe::normalize_for_dedupe;
@@ -56,13 +57,27 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 ";
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     pub base_dir: PathBuf,
+    #[serde(default)]
+    pub html_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub markdown_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub archive_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub attachment_dir: Option<PathBuf>,
+    #[serde(default)]
     pub device_id: String,
+    #[serde(default)]
     pub active_profile: Option<String>,
+    #[serde(default)]
     pub auth_token: String,
+    #[serde(default)]
     pub archive_backend: String,
+    #[serde(default)]
+    pub browser_cmd: String,
 }
 
 impl Config {
@@ -208,7 +223,7 @@ impl Store {
         }
         let now = Utc::now();
         let b = Bookmark {
-            uuid: Uuid::new_v4(),
+            uuid: new.uuid,
             url: new.url,
             title: new.title,
             description: new.description,
@@ -562,10 +577,15 @@ mod tests {
 
     fn sample(url: &str) -> NewBookmark {
         NewBookmark {
+            uuid: Uuid::new_v4(),
             url: url.to_string(),
             title: "Example".to_string(),
+            description: String::new(),
+            tags: vec![],
+            folder: String::new(),
             html_file: "x.html".to_string(),
-            ..Default::default()
+            markdown_file: None,
+            archive_file: None,
         }
     }
 

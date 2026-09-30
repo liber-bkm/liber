@@ -283,7 +283,6 @@ fn map_err<E: std::fmt::Display>(e: E) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::NewBookmark;
     use chrono::Utc;
 
     fn bookmark(title: &str, url: &str) -> Bookmark {
@@ -314,7 +313,6 @@ mod tests {
         assert_eq!(parse_sort_mode("newest").unwrap(), SortMode::Newest);
         assert_eq!(parse_sort_mode("").unwrap(), SortMode::Relevance);
         assert!(parse_sort_mode("bogus").is_err());
-        let _ = NewBookmark::default();
     }
 
     #[test]
