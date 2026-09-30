@@ -22,3 +22,27 @@ pub struct Bookmark {
     pub check_status: Option<String>,
     pub applied_rules: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Attachment {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoRule {
+    pub id: String,
+    pub pattern: String,
+    pub action_tag: Option<String>,
+    pub action_folder: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpLogEntry {
+    pub seq: i64,
+    pub uuid: Option<Uuid>,
+    pub device_id: String,
+    pub ts: DateTime<Utc>,
+    pub op: String,
+    pub payload: serde_json::Value,
+}
