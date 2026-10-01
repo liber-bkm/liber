@@ -7,6 +7,7 @@ use axum::Router;
 pub mod api;
 pub mod auth;
 pub mod bookmarks;
+pub mod rules;
 pub mod taxonomy;
 
 #[derive(Clone)]
@@ -48,6 +49,19 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v2/folders", get(taxonomy::list_folders))
         .route("/api/v2/folders/rename", post(taxonomy::rename_folder_ep))
         .route("/api/v2/folders/delete", post(taxonomy::delete_folder_ep))
+        .route(
+            "/api/v2/rules",
+            get(rules::list_rules).post(rules::add_rule_ep),
+        )
+        .route(
+            "/api/v2/rules/:id",
+            axum::routing::put(rules::edit_rule_ep).delete(rules::delete_rule_ep),
+        )
+        .route("/api/v2/rules/apply", post(rules::apply_rules_ep))
+        .route(
+            "/api/v2/rules/learn",
+            get(rules::learn_rules).post(rules::learn_create),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
