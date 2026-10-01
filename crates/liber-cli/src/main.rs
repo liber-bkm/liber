@@ -439,6 +439,76 @@ fn run_serve(addr: &str, token_flag: Option<&str>) -> anyhow::Result<()> {
     rt.block_on(liber_server::serve(cfg, token, addr))
 }
 
+fn run_tags(cmd: Option<TagsCmd>) -> anyhow::Result<()> {
+    let (_, mut store) = load_store()?;
+    match cmd {
+        None | Some(TagsCmd::List) => {
+            let counts = liber_core::taxonomy::tag_counts(&store)?;
+            if counts.is_empty() {
+                println!("No tags yet.");
+            }
+            for (name, n) in counts {
+                println!("{name:<30} {n}");
+            }
+        }
+        Some(TagsCmd::Rename { from, to }) => {
+            let changed = liber_core::taxonomy::rename_tag(&mut store, &from, &to)?;
+            if changed.is_empty() {
+                println!("No bookmarks have the tag {from:?}.");
+            } else {
+                println!(
+                    "Renamed tag {from:?} to {to:?} on {} bookmark(s).",
+                    changed.len()
+                );
+            }
+        }
+        Some(TagsCmd::Delete { name }) => {
+            let changed = liber_core::taxonomy::delete_tag(&mut store, &name)?;
+            if changed.is_empty() {
+                println!("No bookmarks have the tag {name:?}.");
+            } else {
+                println!("Removed tag {name:?} from {} bookmark(s).", changed.len());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_folders(cmd: Option<FoldersCmd>) -> anyhow::Result<()> {
+    let (_, mut store) = load_store()?;
+    match cmd {
+        None | Some(FoldersCmd::List) => {
+            let counts = liber_core::taxonomy::folder_counts(&store)?;
+            if counts.is_empty() {
+                println!("No folders yet, everything is at the root.");
+            }
+            for (name, n) in counts {
+                println!("{name:<30} {n}");
+            }
+        }
+        Some(FoldersCmd::Rename { from, to }) => {
+            let changed = liber_core::taxonomy::rename_folder(&mut store, &from, &to)?;
+            if changed.is_empty() {
+                println!("No bookmarks are in folder {from:?}.");
+            } else {
+                println!(
+                    "Moved {} bookmark(s) from {from:?} to {to:?}.",
+                    changed.len()
+                );
+            }
+        }
+        Some(FoldersCmd::Delete { name }) => {
+            let changed = liber_core::taxonomy::delete_folder(&mut store, &name)?;
+            if changed.is_empty() {
+                println!("No bookmarks are in folder {name:?}.");
+            } else {
+                println!("Moved {} bookmark(s) to the root.", changed.len());
+            }
+        }
+    }
+    Ok(())
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
