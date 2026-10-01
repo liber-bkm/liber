@@ -524,6 +524,17 @@ impl Store {
         self.append_oplog(Some(*uuid), "upsert", payload)
     }
 
+    pub fn remove_attachment(&mut self, uuid: &Uuid, path: &str) -> Result<bool, CoreError> {
+        let n = self
+            .conn
+            .execute(
+                "DELETE FROM attachments WHERE bookmark_uuid = ?1 AND path = ?2",
+                params![uuid.to_string(), path],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
     pub fn add_rule(
         &mut self,
         pattern: String,

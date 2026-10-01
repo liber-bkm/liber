@@ -1,4 +1,5 @@
 pub mod archive;
+pub mod attach;
 pub mod auth;
 pub mod automation;
 pub mod check;
