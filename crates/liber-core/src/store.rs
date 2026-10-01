@@ -78,6 +78,14 @@ pub struct Config {
     pub archive_backend: String,
     #[serde(default)]
     pub browser_cmd: String,
+    #[serde(default)]
+    pub browser_path: String,
+    #[serde(default)]
+    pub singlefile_cmd: String,
+    #[serde(default)]
+    pub singlefile_browser_path: String,
+    #[serde(default)]
+    pub monolith_cmd: String,
 }
 
 impl Config {
