@@ -124,6 +124,81 @@ pub async fn edit_rule_ep(
     ))
 }
 
+pub async fn delete_rule_ep(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let _guard = state.write_mu.lock().await;
+    let mut store = store_of(&state)?;
+    if !store.delete_rule(&id).map_err(core_err)? {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no such rule"})),
+        ));
+    }
+    Ok(Json(serde_json::json!({"deleted": id})))
+}
+
+#[derive(Deserialize)]
+pub struct ApplyBody {
+    pub id: Option<String>,
+}
+
+pub async fn apply_rules_ep(
+    State(state): State<AppState>,
+    Json(input): Json<ApplyBody>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let _guard = state.write_mu.lock().await;
+    let mut store = store_of(&state)?;
+    let changed = apply_rules(&mut store, input.id.as_deref()).map_err(core_err)?;
+    Ok(Json(serde_json::json!({"applied": changed.len()})))
+}
+
+#[derive(Deserialize)]
+pub struct LearnParams {
+    pub min: Option<usize>,
+}
+
+pub async fn learn_rules(
+    State(state): State<AppState>,
+    Query(p): Query<LearnParams>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let store = store_of(&state)?;
+    let min = p.min.unwrap_or(3).max(2);
+    let out = suggest_rules(&store, min).map_err(core_err)?;
+    Ok(Json(serde_json::json!({
+        "suggestions": out.iter().map(|s| serde_json::json!({
+            "host": s.host, "folder": s.folder, "count": s.count,
+        })).collect::<Vec<_>>(),
+    })))
+}
+
+pub async fn learn_create(
+    State(state): State<AppState>,
+    Json(p): Json<LearnParams>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let _guard = state.write_mu.lock().await;
+    let mut store = store_of(&state)?;
+    let min = p.min.unwrap_or(3).max(2);
+    let suggestions = suggest_rules(&store, min).map_err(core_err)?;
+    let mut created = 0;
+    let mut applied = 0;
+    for s in suggestions {
+        let (_, changed) = create_rule(
+            &mut store,
+            format!("host:{}", s.host),
+            vec![],
+            Some(s.folder),
+        )
+        .map_err(core_err)?;
+        created += 1;
+        applied += changed.len();
+    }
+    Ok(Json(
+        serde_json::json!({"created": created, "applied": applied}),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
