@@ -310,4 +310,55 @@ pub fn quarantine_bookmark(store: &mut Store, uuid: &Uuid) -> Result<bool, CoreE
     )?;
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    fn test_server() -> (String, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let handle = std::thread::spawn(move || {
+            for stream in listener.incoming().take(8) {
+                let mut stream = stream.unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut request_line = String::new();
+                reader.read_line(&mut request_line).unwrap();
+                let parts: Vec<&str> = request_line.split_whitespace().collect();
+                let (method, path) = (parts[0], parts[1]);
+                let body = match (method, path) {
+                    ("HEAD", "/ok") => "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    ("HEAD", "/gone") => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    ("HEAD", "/moved") => "HTTP/1.1 301 Moved Permanently\r\nLocation: /ok\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    ("HEAD", "/nohead") => "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    ("GET", "/nohead") => "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nhi",
+                    ("HEAD", "/foreign") => "HTTP/1.1 302 Found\r\nLocation: https://other.test/x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    _ => "HTTP/1.1 500 Oops\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                };
+                stream.write_all(body.as_bytes()).unwrap();
+            }
+        });
+        (format!("http://{addr}"), handle)
+    }
+
+    #[test]
+    fn classify_vectors() {
+        let (base, _srv) = test_server();
+        let client = check_client().unwrap();
+        let r = classify_url(&client, &format!("{base}/ok"));
+        assert_eq!(r.status, CheckStatus::Ok);
+        let r = classify_url(&client, &format!("{base}/gone"));
+        assert_eq!(r.status, CheckStatus::Dead);
+        let r = classify_url(&client, &format!("{base}/moved"));
+        assert_eq!(r.status, CheckStatus::Moved);
+        assert_eq!(r.target, Some(format!("{base}/ok")));
+        let r = classify_url(&client, &format!("{base}/nohead"));
+        assert_eq!(r.status, CheckStatus::Ok);
+        let r = classify_url(&client, &format!("{base}/foreign"));
+        assert_eq!(r.status, CheckStatus::Uncertain);
+        let r = classify_url(&client, "http://127.0.0.1:1/unreachable");
+        assert_eq!(r.status, CheckStatus::Uncertain);
+    }
 }
