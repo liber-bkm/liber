@@ -150,4 +150,84 @@ pub fn delete_folder(store: &mut Store, folder: &str) -> Result<Vec<Bookmark>, C
     rename_folder(store, folder, "")
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::create::{create_bookmark, CreateOptions};
+    use crate::store::Config;
+
+    fn mem_store(base: &std::path::Path) -> Store {
+        Store::open_in_memory(Config {
+            base_dir: base.to_path_buf(),
+            device_id: "test-device".to_string(),
+            ..Default::default()
+        })
+        .unwrap()
+    }
+
+    fn add(store: &mut Store, url: &str, tags: Vec<&str>, folder: &str) {
+        create_bookmark(
+            store,
+            url,
+            CreateOptions {
+                title: Some(url.to_string()),
+                tags: tags.into_iter().map(str::to_string).collect(),
+                folder: folder.to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn tag_rename_merges_and_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = mem_store(dir.path());
+        add(&mut s, "https://example.com/a", vec!["Rust", "x"], "");
+        add(&mut s, "https://example.com/b", vec!["rust"], "");
+        let changed = rename_tag(&mut s, "RUST", "go").unwrap();
+        assert_eq!(changed.len(), 2);
+        let counts = tag_counts(&mut s).unwrap();
+        assert_eq!(counts, vec![("go".to_string(), 2), ("x".to_string(), 1)]);
+        assert!(rename_tag(&mut s, "go", "GO").is_err());
+        assert!(rename_tag(&mut s, "missing", "go").unwrap().is_empty());
+    }
+
+    #[test]
+    fn tag_delete_clears() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = mem_store(dir.path());
+        add(&mut s, "https://example.com/a", vec!["x", "y"], "");
+        let changed = delete_tag(&mut s, "X").unwrap();
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].tags, vec!["y".to_string()]);
+        assert!(delete_tag(&mut s, " ").is_err());
+    }
+
+    #[test]
+    fn folder_rename_moves_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = mem_store(dir.path());
+        add(&mut s, "https://example.com/a", vec![], "tech");
+        add(&mut s, "https://example.com/b", vec![], "tech/rust");
+        add(&mut s, "https://example.com/c", vec![], "other");
+        let changed = rename_folder(&mut s, "tech", "dev").unwrap();
+        assert_eq!(changed.len(), 2);
+        let counts = folder_counts(&mut s).unwrap();
+        assert!(counts.contains(&("dev".to_string(), 1)));
+        assert!(counts.contains(&("dev/rust".to_string(), 1)));
+        assert!(s.cfg.html_dir().join(&changed[0].html_file).exists());
+        assert!(rename_folder(&mut s, "", "x").is_err());
+        assert!(rename_folder(&mut s, "dev", "dev").is_err());
+    }
+
+    #[test]
+    fn folder_delete_moves_to_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = mem_store(dir.path());
+        add(&mut s, "https://example.com/a", vec![], "tech");
+        let changed = delete_folder(&mut s, "tech").unwrap();
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].folder, "");
+    }
 }
