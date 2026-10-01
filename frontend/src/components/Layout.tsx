@@ -3,7 +3,7 @@ import { BookOpen, Clock3, FolderTree, Moon, Plus, Sun, Tags } from "lucide-reac
 import { fetchFolders, fetchTags } from "../api";
 import { useTheme } from "../theme";
 
-export type View = "library" | "history";
+export type View = "library" | "history" | "tags" | "folders";
 
 export function Layout({
   view,
@@ -48,6 +48,8 @@ export function Layout({
           <Plus className="h-4 w-4" /> Add bookmark
         </button>
         <NavItem active={view === "library" && !folder && !tag} onClick={() => { setView("library"); setFolder(null); setTag(null); }} icon={<BookOpen className="h-4 w-4" />} label="Library" />
+        <NavItem active={view === "tags"} onClick={() => setView("tags")} icon={<Tags className="h-4 w-4" />} label="Tags" />
+        <NavItem active={view === "folders"} onClick={() => setView("folders")} icon={<FolderTree className="h-4 w-4" />} label="Folders" />
         <NavItem active={view === "history"} onClick={() => setView("history")} icon={<Clock3 className="h-4 w-4" />} label="History" />
         <SectionTitle icon={<FolderTree className="h-3.5 w-3.5" />} label="Folders" />
         {(folders.data?.folders ?? []).map((f) => (
