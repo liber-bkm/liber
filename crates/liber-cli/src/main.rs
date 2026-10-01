@@ -531,7 +531,11 @@ fn run_delete(spec: &str, yes: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_serve(addr: &str, token_flag: Option<&str>, static_dir: Option<std::path::PathBuf>) -> anyhow::Result<()> {
+fn run_serve(
+    addr: &str,
+    token_flag: Option<&str>,
+    static_dir: Option<std::path::PathBuf>,
+) -> anyhow::Result<()> {
     let (cfg, _) = liber_core::config::load_config()?;
     let token = cfg.resolve_auth_token(token_flag.unwrap_or(""));
     let rt = tokio::runtime::Builder::new_multi_thread()
