@@ -8,6 +8,7 @@ pub mod api;
 pub mod auth;
 pub mod bookmarks;
 pub mod check;
+pub mod library;
 pub mod rules;
 pub mod taxonomy;
 
@@ -65,6 +66,12 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/v2/check/run", post(check::run_check))
         .route("/api/v2/check/apply", post(check::apply_check))
+        .route("/api/v2/library/import", post(library::import_library))
+        .route(
+            "/api/v2/library/export-bookmarks",
+            get(library::export_bookmarks),
+        )
+        .route("/api/v2/library/export-site", post(library::export_site_ep))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
