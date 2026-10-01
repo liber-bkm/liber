@@ -35,6 +35,7 @@ enum Cmd {
     History(HistoryArgs),
     Check(CheckArgs),
     Archive(ArchiveArgs),
+    Attachments(AttachmentsArgs),
     Sync(SyncArgs),
     Config(ConfigArgs),
     Pick(PickArgs),
@@ -58,6 +59,8 @@ struct AddArgs {
     markdown: bool,
     #[arg(long)]
     archive: bool,
+    #[arg(long)]
+    attach: Vec<std::path::PathBuf>,
 }
 
 #[derive(clap::Args)]
@@ -87,6 +90,10 @@ struct EditArgs {
     folder: Option<String>,
     #[arg(long)]
     markdown: bool,
+    #[arg(long)]
+    attach: Vec<std::path::PathBuf>,
+    #[arg(long)]
+    detach: Vec<String>,
 }
 
 #[derive(clap::Args)]
@@ -210,6 +217,11 @@ struct ArchiveArgs {
 }
 
 #[derive(clap::Args)]
+struct AttachmentsArgs {
+    spec: String,
+}
+
+#[derive(clap::Args)]
 struct SyncArgs {
     #[command(subcommand)]
     cmd: SyncCmd,
@@ -273,6 +285,8 @@ struct ServeArgs {
     addr: String,
     #[arg(long)]
     auth_token: Option<String>,
+    #[arg(long)]
+    static_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(clap::Args)]
@@ -380,6 +394,12 @@ fn run_add(a: AddArgs) -> anyhow::Result<()> {
                     Err(e) => println!("warning: archive failed: {e}"),
                 }
             }
+            for path in &a.attach {
+                match liber_core::attach::attach_file(&mut store, &b.uuid, path) {
+                    Ok(at) => println!("  attach: {}", at.name),
+                    Err(e) => println!("warning: could not attach {}: {e}", path.display()),
+                }
+            }
             Ok(())
         }
     }
@@ -450,6 +470,18 @@ fn run_edit(a: EditArgs) -> anyhow::Result<()> {
             add_markdown: a.markdown,
         };
         let out = liber_core::edit::edit_bookmark(&mut store, &b.uuid, opts)?;
+        for path in &a.attach {
+            match liber_core::attach::attach_file(&mut store, &out.uuid, path) {
+                Ok(at) => println!("Attached {}", at.name),
+                Err(e) => println!("warning: could not attach {}: {e}", path.display()),
+            }
+        }
+        for which in &a.detach {
+            match liber_core::attach::detach_attachment(&mut store, &out.uuid, which) {
+                Ok(name) => println!("Detached {name}"),
+                Err(e) => println!("warning: {e}"),
+            }
+        }
         println!("Updated [{}] {}", &out.uuid.to_string()[..8], out.title);
     }
     Ok(())
@@ -499,13 +531,13 @@ fn run_delete(spec: &str, yes: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_serve(addr: &str, token_flag: Option<&str>) -> anyhow::Result<()> {
+fn run_serve(addr: &str, token_flag: Option<&str>, static_dir: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let (cfg, _) = liber_core::config::load_config()?;
     let token = cfg.resolve_auth_token(token_flag.unwrap_or(""));
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.block_on(liber_server::serve(cfg, token, addr))
+    rt.block_on(liber_server::serve(cfg, token, addr, static_dir))
 }
 
 fn run_tags(cmd: Option<TagsCmd>) -> anyhow::Result<()> {
@@ -938,6 +970,25 @@ fn run_reindex(prune: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_attachments(spec: &str) -> anyhow::Result<()> {
+    let (_, store) = load_store()?;
+    let tokens = liber_core::idspec::parse_id_spec(spec)?;
+    let targets = store.resolve_spec(&tokens)?;
+    if targets.is_empty() {
+        return Err(anyhow::anyhow!("no bookmarks matching {spec:?}"));
+    }
+    for b in targets {
+        println!("[{}] {}", &b.uuid.to_string()[..8], b.title);
+        if b.attachments.is_empty() {
+            println!("  (none)");
+        }
+        for (i, at) in b.attachments.iter().enumerate() {
+            println!("  {}) {}", i + 1, at.name);
+        }
+    }
+    Ok(())
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
@@ -1005,12 +1056,13 @@ fn main() -> anyhow::Result<()> {
             Cmd::Auto(a) => run_auto(a.cmd),
             Cmd::Check(a) => run_check(a),
             Cmd::Archive(a) => run_archive(&a.spec, a.backend.as_deref()),
+            Cmd::Attachments(a) => run_attachments(&a.spec),
             Cmd::Import(a) => run_import(a),
             Cmd::Export(a) => run_export(a),
             Cmd::Reindex(a) => run_reindex(a.prune),
             Cmd::Sync(a) => run_sync(a.cmd),
             Cmd::Config(a) => run_config(a.cmd),
-            Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref()),
+            Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref(), a.static_dir.clone()),
             _ => {
                 println!("not implemented");
                 Ok(())
