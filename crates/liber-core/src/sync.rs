@@ -346,4 +346,121 @@ pub fn git_snapshot(
     }
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::create::{create_bookmark, CreateOptions};
+    use crate::store::Config;
+
+    fn device_store(base: &std::path::Path, device: &str) -> Store {
+        Store::open_in_memory(Config {
+            base_dir: base.to_path_buf(),
+            device_id: device.to_string(),
+            ..Default::default()
+        })
+        .unwrap()
+    }
+
+    fn add(store: &mut Store, url: &str, title: &str) -> Bookmark {
+        create_bookmark(
+            store,
+            url,
+            CreateOptions {
+                title: Some(title.to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn converge_new_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        add(&mut a, "https://example.com/1", "One");
+        let bundle = export_bundle(&a, None).unwrap();
+        let rep = replay_entries(&mut b, &bundle).unwrap();
+        assert_eq!(rep.inserted, 1);
+        assert_eq!(b.list().unwrap().len(), 1);
+        let rep = replay_entries(&mut b, &bundle).unwrap();
+        assert_eq!(rep.inserted + rep.merged + rep.deduped, 0);
+    }
+
+    #[test]
+    fn newer_wins_and_tags_union() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        let ba = add(&mut a, "https://example.com/1", "Old");
+        let bundle = export_bundle(&a, None).unwrap();
+        replay_entries(&mut b, &bundle).unwrap();
+        let mut ba2 = a.get(&ba.uuid).unwrap().unwrap();
+        ba2.tags = vec!["t1".to_string()];
+        a.update_bookmark(&ba2).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let mut bb = b.get(&ba.uuid).unwrap().unwrap();
+        bb.title = "New".to_string();
+        bb.tags = vec!["t2".to_string()];
+        b.update_bookmark(&bb).unwrap();
+        let ab = export_bundle(&a, None).unwrap();
+        let rep = replay_entries(&mut b, &ab).unwrap();
+        assert!(rep.merged > 0);
+        let got = b.get(&ba.uuid).unwrap().unwrap();
+        assert_eq!(got.title, "New");
+        assert!(got.tags.contains(&"t1".to_string()));
+        assert!(got.tags.contains(&"t2".to_string()));
+    }
+
+    #[test]
+    fn tombstone_loses_to_newer_edit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        let ba = add(&mut a, "https://example.com/1", "One");
+        replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        a.delete_bookmark(&ba.uuid).unwrap();
+        let mut bb = b.get(&ba.uuid).unwrap().unwrap();
+        bb.title = "Edited".to_string();
+        b.update_bookmark(&bb).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let rep = replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        assert_eq!(rep.deleted, 0);
+        assert!(b.get(&ba.uuid).unwrap().is_some());
+    }
+
+    #[test]
+    fn tombstone_wins_when_newer() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        let ba = add(&mut a, "https://example.com/1", "One");
+        replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        a.delete_bookmark(&ba.uuid).unwrap();
+        let rep = replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        assert_eq!(rep.deleted, 1);
+        assert!(b.get(&ba.uuid).unwrap().is_none());
+    }
+
+    #[test]
+    fn rules_union_by_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        a.add_rule("host:example.com".to_string(), vec!["t".to_string()], None)
+            .unwrap();
+        b.add_rule("host:example.com".to_string(), vec!["t".to_string()], None)
+            .unwrap();
+        b.add_rule(
+            "host:other.com".to_string(),
+            vec![],
+            Some("misc".to_string()),
+        )
+        .unwrap();
+        let rep = replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        assert_eq!(rep.deduped, 1);
+        assert_eq!(b.list_rules().unwrap().len(), 2);
+    }
 }
