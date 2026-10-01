@@ -43,6 +43,7 @@ pub fn load_config() -> Result<(Config, PathBuf), CoreError> {
             if let Err(werr) = save_config_to(&path, &cfg) {
                 eprintln!("warning: could not write default config: {werr}");
             }
+            apply_env_overrides(&mut cfg);
             return Ok((cfg, path));
         }
         Err(e) => return Err(CoreError::Storage(e.to_string())),
@@ -58,6 +59,11 @@ pub fn load_config() -> Result<(Config, PathBuf), CoreError> {
     if cfg.device_id.is_empty() {
         cfg.device_id = Uuid::new_v4().to_string();
     }
+    apply_env_overrides(&mut cfg);
+    Ok((cfg, path))
+}
+
+fn apply_env_overrides(cfg: &mut Config) {
     if let Ok(base) = std::env::var("LIBER_BASE_DIR") {
         if !base.trim().is_empty() {
             cfg.base_dir = PathBuf::from(base.trim());
@@ -68,7 +74,6 @@ pub fn load_config() -> Result<(Config, PathBuf), CoreError> {
             cfg.auth_token = token.trim().to_string();
         }
     }
-    Ok((cfg, path))
 }
 
 pub fn save_config_to(path: &PathBuf, cfg: &Config) -> Result<(), CoreError> {
@@ -144,13 +149,21 @@ impl Config {
 mod tests {
     use super::*;
 
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn isolated_env(dir: &std::path::Path) {
         std::env::set_var("LIBER_CONFIG", dir.join("config.json"));
         std::env::set_var("LIBER_BASE_DIR", dir.join("data"));
     }
 
+    fn clear_env() {
+        std::env::remove_var("LIBER_CONFIG");
+        std::env::remove_var("LIBER_BASE_DIR");
+    }
+
     #[test]
     fn default_then_reload_roundtrip() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         isolated_env(dir.path());
         let (cfg, _) = load_config().unwrap();
@@ -158,7 +171,17 @@ mod tests {
         let (again, _) = load_config().unwrap();
         assert_eq!(cfg.device_id, again.device_id);
         assert_eq!(again.base_dir, dir.path().join("data"));
-        std::env::remove_var("LIBER_CONFIG");
-        std::env::remove_var("LIBER_BASE_DIR");
+        clear_env();
+    }
+
+    #[test]
+    fn first_run_honors_base_dir_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        isolated_env(dir.path());
+        assert!(!dir.path().join("config.json").exists());
+        let (cfg, _) = load_config().unwrap();
+        assert_eq!(cfg.base_dir, dir.path().join("data"));
+        clear_env();
     }
 }
