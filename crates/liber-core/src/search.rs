@@ -234,6 +234,28 @@ impl SearchIndex {
         Ok(())
     }
 
+    pub fn rebuild_all(&self, docs: &[(Bookmark, String)]) -> Result<(), CoreError> {
+        let mut writer = self.writer()?;
+        writer.delete_all_documents().map_err(map_err)?;
+        for (b, content) in docs {
+            let uuid_str = b.uuid.to_string();
+            writer
+                .add_document(doc!(
+                    self.uuid => uuid_str,
+                    self.title => b.title.clone(),
+                    self.description => b.description.clone(),
+                    self.url => b.url.clone(),
+                    self.tags => b.tags.join(" "),
+                    self.folder => b.folder.clone(),
+                    self.content => content.clone(),
+                ))
+                .map_err(map_err)?;
+        }
+        writer.commit().map_err(map_err)?;
+        self.reader.reload().map_err(map_err)?;
+        Ok(())
+    }
+
     pub fn delete_bookmark(&self, uuid: &Uuid) -> Result<(), CoreError> {
         let mut writer = self.writer()?;
         writer.delete_term(tantivy::Term::from_field_text(self.uuid, &uuid.to_string()));
