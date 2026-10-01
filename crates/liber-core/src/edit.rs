@@ -85,49 +85,63 @@ pub fn edit_bookmark(
     }
 
     if folder_changed {
-        if !b.html_file.is_empty() {
-            let rel = join_folder(&b.folder, &file_base(&b.html_file));
-            move_file(
-                &store.cfg.html_dir().join(&b.html_file),
-                &store.cfg.html_dir().join(&rel),
-            )?;
-            b.html_file = rel;
-        }
-        if let Some(rel) = b.markdown_file.clone() {
-            let next = join_folder(&b.folder, &file_base(&rel));
-            move_file(
-                &store.cfg.markdown_dir().join(&rel),
-                &store.cfg.markdown_dir().join(&next),
-            )?;
-            b.markdown_file = Some(next);
-        }
-        if let Some(rel) = b.archive_file.clone() {
-            let next = join_folder(&b.folder, &file_base(&rel));
-            move_file(
-                &store.cfg.archive_dir().join(&rel),
-                &store.cfg.archive_dir().join(&next),
-            )?;
-            b.archive_file = Some(next);
-        }
+        move_bookmark_files(store, &mut b)?;
     }
 
+    rewrite_bookmark_files(store, &mut b, opts.add_markdown)?;
+
+    store.update_bookmark(&b)?;
+    Ok(b)
+}
+
+pub(crate) fn move_bookmark_files(store: &Store, b: &mut Bookmark) -> Result<(), CoreError> {
     if !b.html_file.is_empty() {
-        write_html_bookmark(&store.cfg.html_dir().join(&b.html_file), &b)?;
+        let rel = join_folder(&b.folder, &file_base(&b.html_file));
+        move_file(
+            &store.cfg.html_dir().join(&b.html_file),
+            &store.cfg.html_dir().join(&rel),
+        )?;
+        b.html_file = rel;
     }
     if let Some(rel) = b.markdown_file.clone() {
-        write_markdown_bookmark(&store.cfg.markdown_dir().join(&rel), &b)?;
+        let next = join_folder(&b.folder, &file_base(&rel));
+        move_file(
+            &store.cfg.markdown_dir().join(&rel),
+            &store.cfg.markdown_dir().join(&next),
+        )?;
+        b.markdown_file = Some(next);
     }
-    if opts.add_markdown && b.markdown_file.is_none() && !b.html_file.is_empty() {
+    if let Some(rel) = b.archive_file.clone() {
+        let next = join_folder(&b.folder, &file_base(&rel));
+        move_file(
+            &store.cfg.archive_dir().join(&rel),
+            &store.cfg.archive_dir().join(&next),
+        )?;
+        b.archive_file = Some(next);
+    }
+    Ok(())
+}
+
+pub(crate) fn rewrite_bookmark_files(
+    store: &Store,
+    b: &mut Bookmark,
+    add_markdown: bool,
+) -> Result<(), CoreError> {
+    if !b.html_file.is_empty() {
+        write_html_bookmark(&store.cfg.html_dir().join(&b.html_file), b)?;
+    }
+    if let Some(rel) = b.markdown_file.clone() {
+        write_markdown_bookmark(&store.cfg.markdown_dir().join(&rel), b)?;
+    }
+    if add_markdown && b.markdown_file.is_none() && !b.html_file.is_empty() {
         let rel = join_folder(
             &b.folder,
             &format!("{}.md", trim_ext(&file_base(&b.html_file))),
         );
-        write_markdown_bookmark(&store.cfg.markdown_dir().join(&rel), &b)?;
+        write_markdown_bookmark(&store.cfg.markdown_dir().join(&rel), b)?;
         b.markdown_file = Some(rel);
     }
-
-    store.update_bookmark(&b)?;
-    Ok(b)
+    Ok(())
 }
 
 pub fn delete_bookmark_with_files(store: &mut Store, uuid: &Uuid) -> Result<bool, CoreError> {
