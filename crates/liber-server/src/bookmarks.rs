@@ -192,12 +192,44 @@ pub async fn delete_bookmark(
 pub async fn open_bookmark(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Json<serde_json::Value>, ApiErr> {
     let target = resolve_one(&state, &id).await?;
     let _guard = state.write_mu.lock().await;
     let mut store = open_store(&state)?;
     store.record_open(&target.uuid).map_err(core_err)?;
     Ok(Json(serde_json::json!({"url": target.url})))
+}
+
+pub async fn download_attachment(
+    State(state): State<AppState>,
+    Path((id, name)): Path<(String, String)>,
+) -> Result<axum::response::Response, ApiErr> {
+    use axum::body::Body;
+    use axum::http::header;
+    let target = resolve_one(&state, &id).await?;
+    let Some(at) = target
+        .attachments
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case(&name))
+    else {
+        return Err(err(StatusCode::NOT_FOUND, "no such attachment"));
+    };
+    let store = open_store(&state)?;
+    let data = std::fs::read(store.cfg.attachment_dir().join(&at.path))
+        .map_err(|_| err(StatusCode::NOT_FOUND, "attachment file missing"))?;
+    let mime = liber_core::archive::mime_for(&at.name, None);
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, mime),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", at.name),
+            ),
+        ],
+        Body::from(data),
+    )
+        .into_response())
 }
 
 #[cfg(test)]

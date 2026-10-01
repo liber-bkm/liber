@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::middleware;
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
 
@@ -19,6 +20,7 @@ pub struct AppState {
     pub cfg: liber_core::store::Config,
     pub token: String,
     pub write_mu: Arc<tokio::sync::Mutex<()>>,
+    pub static_dir: Option<std::path::PathBuf>,
 }
 
 impl AppState {
@@ -27,7 +29,13 @@ impl AppState {
             cfg,
             token,
             write_mu: Arc::new(tokio::sync::Mutex::new(())),
+            static_dir: None,
         }
+    }
+
+    pub fn with_static_dir(mut self, dir: Option<std::path::PathBuf>) -> Self {
+        self.static_dir = dir;
+        self
     }
 }
 
@@ -45,6 +53,10 @@ pub fn build_router(state: AppState) -> Router {
                 .delete(bookmarks::delete_bookmark),
         )
         .route("/api/v2/bookmarks/:id/open", post(bookmarks::open_bookmark))
+        .route(
+            "/api/v2/bookmarks/:id/attachments/:name",
+            get(bookmarks::download_attachment),
+        )
         .route("/login", get(auth::login_page).post(auth::login_submit))
         .route("/logout", get(auth::logout).post(auth::logout))
         .route("/api/v2/tags", get(taxonomy::list_tags))
@@ -78,6 +90,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v2/sync/import", post(sync::import_oplog))
         .route("/api/v2/sync/prune", post(sync::prune_oplog_ep))
         .route("/api/v2/reindex", post(reindex::reindex_ep))
+        .fallback(frontend_fallback)
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
@@ -89,12 +102,55 @@ async fn health() -> &'static str {
     "ok"
 }
 
+async fn frontend_fallback(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    use axum::http::StatusCode;
+    let path = req.uri().path().to_string();
+    if path.starts_with("/api/") {
+        return (
+            StatusCode::NOT_FOUND,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            "{\"error\":\"not found\"}\n",
+        )
+            .into_response();
+    }
+    let Some(dir) = &state.static_dir else {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    };
+    let rel = path.trim_start_matches('/');
+    let candidate = dir.join(if rel.is_empty() { "index.html" } else { rel });
+    let file = if candidate.is_file() {
+        candidate
+    } else {
+        dir.join("index.html")
+    };
+    if !file.is_file() {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    }
+    let mime = liber_core::archive::mime_for(
+        file.to_string_lossy().as_ref(),
+        None,
+    );
+    match tokio::fs::read(&file).await {
+        Ok(data) => (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, mime)],
+            data,
+        )
+            .into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "not found").into_response(),
+    }
+}
+
 pub async fn serve(
     cfg: liber_core::store::Config,
     token: String,
     addr: &str,
+    static_dir: Option<std::path::PathBuf>,
 ) -> anyhow::Result<()> {
-    let state = AppState::new(cfg, token);
+    let state = AppState::new(cfg, token).with_static_dir(static_dir);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, build_router(state)).await?;
     Ok(())
