@@ -155,11 +155,38 @@ struct AutoArgs {
 
 #[derive(Subcommand)]
 enum AutoCmd {
-    Add { pattern: String },
+    Add {
+        #[arg(long)]
+        match_: String,
+        #[arg(long)]
+        folder: Option<String>,
+        #[arg(long)]
+        tag: Vec<String>,
+    },
     List,
-    Apply,
-    Learn,
-    Delete { id: String },
+    Edit {
+        id: String,
+        #[arg(long)]
+        match_: Option<String>,
+        #[arg(long)]
+        folder: Option<String>,
+        #[arg(long)]
+        tag: Vec<String>,
+        #[arg(long)]
+        reapply: bool,
+    },
+    Apply {
+        id: Option<String>,
+    },
+    Learn {
+        #[arg(long, default_value_t = 3)]
+        min: usize,
+        #[arg(long)]
+        create: bool,
+    },
+    Delete {
+        id: String,
+    },
 }
 
 #[derive(clap::Args)]
@@ -509,6 +536,113 @@ fn run_folders(cmd: Option<FoldersCmd>) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_auto(cmd: AutoCmd) -> anyhow::Result<()> {
+    let (_, mut store) = load_store()?;
+    match cmd {
+        AutoCmd::Add {
+            match_,
+            folder,
+            tag,
+        } => {
+            let (rule, changed) =
+                liber_core::automation::create_rule(&mut store, match_, tag, folder)?;
+            println!(
+                "Added automation {}",
+                liber_core::automation::describe_rule(&rule)
+            );
+            if !changed.is_empty() {
+                println!("Applied to {} existing bookmark(s).", changed.len());
+            }
+        }
+        AutoCmd::List => {
+            let rules = store.list_rules()?;
+            if rules.is_empty() {
+                println!("No automations yet. Add one with: liber auto add --match <substring> --folder <folder>");
+                return Ok(());
+            }
+            let counts = applied_counts(&store)?;
+            for r in rules {
+                println!(
+                    "{} (applied to {} bookmark(s))",
+                    liber_core::automation::describe_rule(&r),
+                    counts.get(&r.id).copied().unwrap_or(0)
+                );
+            }
+        }
+        AutoCmd::Edit {
+            id,
+            match_,
+            folder,
+            tag,
+            reapply,
+        } => {
+            let tags = if tag.is_empty() { None } else { Some(tag) };
+            let (rule, changed) =
+                liber_core::automation::edit_rule(&mut store, &id, match_, tags, folder, reapply)?;
+            println!(
+                "Updated automation {}",
+                liber_core::automation::describe_rule(&rule)
+            );
+            if reapply {
+                println!("Reapplied to {} bookmark(s).", changed.len());
+            }
+        }
+        AutoCmd::Apply { id } => {
+            let changed = liber_core::automation::apply_rules(&mut store, id.as_deref())?;
+            println!("Applied automations to {} bookmark(s).", changed.len());
+        }
+        AutoCmd::Learn { min, create } => {
+            let suggestions = liber_core::automation::suggest_rules(&store, min.max(2))?;
+            if suggestions.is_empty() {
+                println!("No rule suggestions: no host appears in one folder often enough.");
+                return Ok(());
+            }
+            for s in suggestions {
+                println!(
+                    "{} bookmark(s) with host {} are in folder {:?}: liber auto add --match host:{} --folder {}",
+                    s.count, s.host, s.folder, s.host, s.folder
+                );
+                if !create && !confirm("Create this rule?") {
+                    continue;
+                }
+                let (rule, changed) = liber_core::automation::create_rule(
+                    &mut store,
+                    format!("host:{}", s.host),
+                    vec![],
+                    Some(s.folder.clone()),
+                )?;
+                println!(
+                    "Added automation {} (applied to {} existing bookmark(s)).",
+                    liber_core::automation::describe_rule(&rule),
+                    changed.len()
+                );
+            }
+        }
+        AutoCmd::Delete { id } => {
+            if store.delete_rule(&id)? {
+                println!(
+                    "Deleted automation [{id}]. Bookmarks it already classified are left as-is."
+                );
+            } else {
+                return Err(anyhow::anyhow!("no automation with id {id:?}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn applied_counts(
+    store: &liber_core::store::Store,
+) -> anyhow::Result<std::collections::HashMap<String, usize>> {
+    let mut counts = std::collections::HashMap::new();
+    for b in store.list()? {
+        for a in &b.applied_rules {
+            *counts.entry(a.rule_id.clone()).or_insert(0) += 1;
+        }
+    }
+    Ok(counts)
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
@@ -569,6 +703,7 @@ fn main() -> anyhow::Result<()> {
             Cmd::Delete(a) => run_delete(&a.spec, a.yes),
             Cmd::Tags(a) => run_tags(a.cmd),
             Cmd::Folders(a) => run_folders(a.cmd),
+            Cmd::Auto(a) => run_auto(a.cmd),
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref()),
             _ => {
