@@ -15,16 +15,32 @@ toolchain.
 
 ```sh
 cd project-liber
-nix develop --command bash -c 'cargo build --release -p liber-cli'
-./target/release/liber --help
+nix build .#default
+./result/bin/liber --help
 ```
 
-Frontend:
+## Building
 
-```sh
-cd frontend
-nix develop --command bash -c 'pnpm install && pnpm build'
-```
+Four flavors, pick one:
+
+* **Dev backend only** (fast, no UI): `nix develop --command bash -c
+  'cargo build -p liber-cli'`. Serves API-only; `/` explains how to add
+  the UI.
+* **Dev with UI**: build the frontend once (`cd frontend &&
+  pnpm install && pnpm build`), then `EMBED_UI=1 cargo build` to bake it
+  in, or point any build at it with `liber serve --static-dir
+  ./frontend/dist`. For UI iteration prefer `pnpm dev` (proxies `/api`
+  to a local `liber serve`).
+* **Release locally**: `cd frontend && pnpm install && pnpm build`,
+  then `EMBED_UI=1 cargo build --release -p liber-cli`. The binary serves
+  the UI with zero flags. Without `EMBED_UI=1` the build stays API-only
+  even in release mode, by design, so stale `dist` output never ships
+  silently.
+* **Nix package**: `nix build .#default` builds the frontend offline
+  from the lockfile, then the release binary with the UI embedded.
+
+Serving order is always explicit `--static-dir`, then the embedded
+bundle, then an API-only notice.
 
 ## Quickstart
 
@@ -32,12 +48,12 @@ nix develop --command bash -c 'pnpm install && pnpm build'
 liber add https://example.com -t reading --folder tech
 liber list
 liber open <uuid-prefix>
-liber serve --addr 127.0.0.1:8080 --static-dir ./frontend/dist
+liber serve
 ```
 
-Then open the printed address in a browser. The CLI and the served UI share
-the same store: changes on either side appear on the other after a reload.
-`serve --static-dir` points at the built frontend (`frontend/dist`).
+Then open the printed address in a browser. `serve` ships the UI inside
+the binary for release and nix builds; dev builds serve API-only unless
+given `--static-dir` (see Building).
 
 ## CLI
 
