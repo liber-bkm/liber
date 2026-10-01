@@ -142,7 +142,7 @@ struct Fetched {
     mime: String,
 }
 
-fn mime_for(url: &str, header: Option<&str>) -> String {
+pub fn mime_for(url: &str, header: Option<&str>) -> String {
     if let Some(h) = header {
         let mime = h.split(';').next().unwrap_or("").trim();
         if !mime.is_empty() {
