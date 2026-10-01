@@ -146,6 +146,48 @@ export function shortUuid(uuid: string): string {
   return uuid.slice(0, 8);
 }
 
+export interface BulkResult {
+  deleted?: number;
+  updated?: number;
+  confirm_required?: boolean;
+  count?: number;
+}
+
+export function bulkOp(ids: string[], op: string, extra?: { tags?: string[]; folder?: string; confirm?: boolean }): Promise<BulkResult> {
+  return request<BulkResult>("/api/v2/bulk", {
+    method: "POST",
+    body: JSON.stringify({ ids, op, ...extra }),
+  });
+}
+
+export function renameTag(old: string, next: string): Promise<{ renamed: number }> {
+  return request("/api/v2/tags/rename", {
+    method: "POST",
+    body: JSON.stringify({ old, new: next }),
+  });
+}
+
+export function deleteTag(tag: string, confirm: boolean): Promise<{ deleted?: number; confirm_required?: boolean; count?: number }> {
+  return request("/api/v2/tags/delete", {
+    method: "POST",
+    body: JSON.stringify({ tag, confirm }),
+  });
+}
+
+export function renameFolder(old: string, next: string): Promise<{ renamed: number }> {
+  return request("/api/v2/folders/rename", {
+    method: "POST",
+    body: JSON.stringify({ old, new: next }),
+  });
+}
+
+export function deleteFolder(folder: string): Promise<{ moved_to_root: number }> {
+  return request("/api/v2/folders/delete", {
+    method: "POST",
+    body: JSON.stringify({ folder }),
+  });
+}
+
 export function domainOf(url: string): string {
   try {
     return new URL(url).hostname;
