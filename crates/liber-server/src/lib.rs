@@ -1,9 +1,24 @@
 use std::sync::Arc;
 
+use axum::http::StatusCode;
 use axum::middleware;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
+
+#[cfg(embed_frontend)]
+#[derive(rust_embed::RustEmbed)]
+#[folder = "../../frontend/dist"]
+struct EmbeddedUi;
+
+#[cfg(embed_frontend)]
+fn embedded_file(path: &str) -> Option<(Vec<u8>, String)> {
+    let rel = path.trim_start_matches('/');
+    let rel = if rel.is_empty() { "index.html" } else { rel };
+    let data = EmbeddedUi::get(rel).or_else(|| EmbeddedUi::get("index.html"))?;
+    let mime = liber_core::archive::mime_for(rel, None);
+    Some((data.data.into_owned(), mime))
+}
 
 pub mod api;
 pub mod auth;
@@ -104,6 +119,27 @@ async fn health() -> &'static str {
     "ok"
 }
 
+fn fallback_embedded(path: &str) -> axum::response::Response {
+    let _ = path;
+    #[cfg(embed_frontend)]
+    if let Some((data, mime)) = embedded_file(path) {
+        return (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, mime)],
+            data,
+        )
+            .into_response();
+    }
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(axum::http::header::CONTENT_TYPE, "text/plain")],
+        "liber API is running, but no web UI is bundled with this build. \
+         Serve a frontend with --static-dir, or rebuild with EMBED_UI=1 \
+         after running pnpm build in frontend/.\n",
+    )
+        .into_response()
+}
+
 async fn frontend_fallback(
     axum::extract::State(state): axum::extract::State<AppState>,
     req: axum::extract::Request,
@@ -119,7 +155,7 @@ async fn frontend_fallback(
             .into_response();
     }
     let Some(dir) = &state.static_dir else {
-        return (StatusCode::NOT_FOUND, "not found").into_response();
+        return fallback_embedded(&path);
     };
     let rel = path.trim_start_matches('/');
     let candidate = dir.join(if rel.is_empty() { "index.html" } else { rel });
@@ -129,7 +165,7 @@ async fn frontend_fallback(
         dir.join("index.html")
     };
     if !file.is_file() {
-        return (StatusCode::NOT_FOUND, "not found").into_response();
+        return fallback_embedded(&path);
     }
     let mime = liber_core::archive::mime_for(file.to_string_lossy().as_ref(), None);
     match tokio::fs::read(&file).await {
