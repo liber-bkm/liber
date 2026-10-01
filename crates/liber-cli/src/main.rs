@@ -34,6 +34,7 @@ enum Cmd {
     Auto(AutoArgs),
     History(HistoryArgs),
     Check(CheckArgs),
+    Archive(ArchiveArgs),
     Sync(SyncArgs),
     Config(ConfigArgs),
     Pick(PickArgs),
@@ -204,6 +205,13 @@ struct CheckArgs {
 }
 
 #[derive(clap::Args)]
+struct ArchiveArgs {
+    spec: String,
+    #[arg(long)]
+    backend: Option<String>,
+}
+
+#[derive(clap::Args)]
 struct SyncArgs {
     #[arg(long)]
     merge: bool,
@@ -341,6 +349,17 @@ fn run_add(a: AddArgs) -> anyhow::Result<()> {
                     "  markdown: {}",
                     store.cfg.markdown_dir().join(rel).display()
                 );
+            }
+            if a.archive {
+                match liber_core::archive::archive_bookmark(&mut store, &b.uuid, None) {
+                    Ok(warnings) => {
+                        for w in warnings {
+                            println!("warning: {w}");
+                        }
+                        println!("  archive: attached");
+                    }
+                    Err(e) => println!("warning: archive failed: {e}"),
+                }
             }
             Ok(())
         }
