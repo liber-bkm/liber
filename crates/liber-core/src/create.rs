@@ -40,6 +40,9 @@ pub fn create_bookmark(
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| url.clone());
+    let rules = store.list_rules()?;
+    let (folder, tags, applied) =
+        crate::automation::resolve_for_new(&rules, &url, &title, folder, tags);
     let uuid = Uuid::new_v4();
     let base = format!("{uuid}-{}", slug_or_fallback(&title));
     let html_rel = rel_path(&folder, &format!("{base}.html"));
@@ -64,7 +67,7 @@ pub fn create_bookmark(
         last_opened_at: None,
         last_checked_at: None,
         check_status: None,
-        applied_rules: vec![],
+        applied_rules: applied.clone(),
     };
     write_html_bookmark(&store.cfg.html_dir().join(&html_rel), &preview)
         .map_err(|e| CoreError::Storage(format!("writing html bookmark: {e}")))?;
@@ -83,6 +86,7 @@ pub fn create_bookmark(
         html_file: html_rel,
         markdown_file: md_rel,
         archive_file: None,
+        applied_rules: applied,
     })
 }
 
