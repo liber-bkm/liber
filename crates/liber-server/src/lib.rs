@@ -9,6 +9,7 @@ pub mod auth;
 pub mod bookmarks;
 pub mod check;
 pub mod library;
+pub mod reindex;
 pub mod rules;
 pub mod sync;
 pub mod taxonomy;
@@ -76,6 +77,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v2/sync/export", post(sync::export_oplog))
         .route("/api/v2/sync/import", post(sync::import_oplog))
         .route("/api/v2/sync/prune", post(sync::prune_oplog_ep))
+        .route("/api/v2/reindex", post(reindex::reindex_ep))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
