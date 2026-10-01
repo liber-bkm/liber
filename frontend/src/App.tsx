@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./theme";
 import { Layout, type View } from "./components/Layout";
 import { Library } from "./screens/Library";
+import { FoldersPage, TagsPage } from "./screens/Taxonomy";
 import { Login } from "./screens/Login";
 import { AddDialog, DetailDrawer } from "./components/Detail";
 import { Empty } from "./components/ui";
@@ -40,6 +41,8 @@ function Shell() {
       {view === "history" && (
         <Empty title="History" hint="Recently opened bookmarks will appear here." />
       )}
+      {view === "tags" && <TagsPage />}
+      {view === "folders" && <FoldersPage />}
       {openUuid && (
         <DetailDrawer
           uuid={openUuid}
