@@ -342,3 +342,110 @@ pub fn reindex(store: &mut Store, flags: ReindexFlags) -> Result<ReindexReport, 
 
     Ok(rep)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::create::{create_bookmark, CreateOptions};
+    use crate::store::Config;
+
+    fn test_store(base: &std::path::Path) -> Store {
+        Store::open(Config {
+            base_dir: base.to_path_buf(),
+            device_id: "test-device".to_string(),
+            ..Default::default()
+        })
+        .unwrap()
+    }
+
+    fn add(store: &mut Store, url: &str) {
+        create_bookmark(
+            store,
+            url,
+            CreateOptions {
+                title: Some(url.to_string()),
+                markdown: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn sweeps_conflicts_and_reports_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = test_store(dir.path());
+        add(&mut s, "https://example.com/a");
+        let b = s.list().unwrap().remove(0);
+        std::fs::remove_file(s.cfg.html_dir().join(&b.html_file)).unwrap();
+        std::fs::write(
+            s.cfg.html_dir().join("x.sync-conflict-1.html"),
+            "<html></html>",
+        )
+        .unwrap();
+        let rep = reindex(&mut s, ReindexFlags::default()).unwrap();
+        assert_eq!(rep.swept_conflicts, 1);
+        assert_eq!(rep.pending, vec![b.uuid.to_string()]);
+        assert!(s.get(&b.uuid).unwrap().is_some());
+    }
+
+    #[test]
+    fn prune_drops_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = test_store(dir.path());
+        add(&mut s, "https://example.com/a");
+        let b = s.list().unwrap().remove(0);
+        std::fs::remove_file(s.cfg.html_dir().join(&b.html_file)).unwrap();
+        let rep = reindex(&mut s, ReindexFlags { prune: true }).unwrap();
+        assert_eq!(rep.pruned, 1);
+        assert!(s.get(&b.uuid).unwrap().is_none());
+        let ops = s.oplog_entries().unwrap();
+        assert!(ops.iter().any(|e| e.op == "delete"));
+    }
+
+    #[test]
+    fn adopts_orphans_and_skips_duplicates() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = test_store(dir.path());
+        add(&mut s, "https://example.com/a");
+        std::fs::write(
+            s.cfg.html_dir().join("orphan.html"),
+            "<html><head><title>Orphan</title><meta name=\"liber:url\" content=\"https://example.com/orphan\"></head></html>",
+        )
+        .unwrap();
+        std::fs::write(
+            s.cfg.html_dir().join("dup.html"),
+            "<html><head><title>Dup</title><meta name=\"liber:url\" content=\"https://example.com/a\"></head></html>",
+        )
+        .unwrap();
+        std::fs::write(
+            s.cfg.html_dir().join("junk.html"),
+            "<html><body>no meta</body></html>",
+        )
+        .unwrap();
+        let rep = reindex(&mut s, ReindexFlags::default()).unwrap();
+        assert_eq!(rep.adopted, 1);
+        assert!(s
+            .find_by_url("https://example.com/orphan")
+            .unwrap()
+            .is_some());
+        assert!(dir.path().join("unindexed/html/dup.html").exists());
+        assert!(dir.path().join("unindexed/html/junk.html").exists());
+    }
+
+    #[test]
+    fn relinks_siblings() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = test_store(dir.path());
+        add(&mut s, "https://example.com/a");
+        let b = s.list().unwrap().remove(0);
+        let md = b.markdown_file.clone().unwrap();
+        let mut b2 = b.clone();
+        b2.markdown_file = None;
+        s.update_bookmark(&b2).unwrap();
+        std::fs::write(s.cfg.markdown_dir().join(&md), "notes").unwrap();
+        let rep = reindex(&mut s, ReindexFlags::default()).unwrap();
+        assert_eq!(rep.relinked_markdown, 1);
+        assert!(s.get(&b.uuid).unwrap().unwrap().markdown_file.is_some());
+    }
+}

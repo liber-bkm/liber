@@ -12,6 +12,7 @@ pub mod idspec;
 pub mod import;
 pub mod model;
 pub mod picker;
+pub mod reindex;
 pub mod render;
 pub mod search;
 pub mod slug;
