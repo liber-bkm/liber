@@ -643,6 +643,118 @@ fn applied_counts(
     Ok(counts)
 }
 
+fn run_check(a: CheckArgs) -> anyhow::Result<()> {
+    use liber_core::check::{quarantine_bookmark, CheckStatus};
+    use std::time::Duration;
+
+    let (_, mut store) = load_store()?;
+    let tokens = match &a.spec {
+        Some(s) if !s.trim().is_empty() => Some(liber_core::idspec::parse_id_spec(s)?),
+        _ => None,
+    };
+    let stale = a
+        .stale_hours
+        .map(|h| Duration::from_secs(h.saturating_mul(3600)));
+    let (targets, fresh) =
+        liber_core::check::resolve_check_targets(&store, tokens.as_deref(), stale)?;
+    if fresh > 0 {
+        println!("Skipped {fresh} freshly checked bookmark(s).");
+    }
+    if targets.is_empty() {
+        println!("No bookmarks to check.");
+        return Ok(());
+    }
+    let client = liber_core::check::check_client()?;
+    let outcomes = liber_core::check::scan_targets(&client, targets, a.workers, |done, total| {
+        eprintln!("\rChecking {done}/{total}...");
+    });
+    eprintln!();
+    let mut moved = vec![];
+    let mut dead = vec![];
+    let mut uncertain = vec![];
+    for o in &outcomes {
+        match o.result.status {
+            CheckStatus::Moved => moved.push(o),
+            CheckStatus::Dead => dead.push(o),
+            CheckStatus::Uncertain => uncertain.push(o),
+            CheckStatus::Ok => {}
+        }
+    }
+    for o in &outcomes {
+        store.stamp_check(&o.bookmark.uuid, Some(o.result.status.as_str()))?;
+    }
+    let ok = outcomes.len() - moved.len() - dead.len() - uncertain.len();
+    println!(
+        "{} ok, {} moved, {} dead, {} uncertain (of {} checked)",
+        ok,
+        moved.len(),
+        dead.len(),
+        uncertain.len(),
+        outcomes.len()
+    );
+    for o in &moved {
+        println!(
+            "[{}] {}\n    moved -> {} ({})",
+            &o.bookmark.uuid.to_string()[..8],
+            o.bookmark.title,
+            o.result.target.as_deref().unwrap_or("?"),
+            o.result.detail
+        );
+    }
+    for o in &dead {
+        println!(
+            "[{}] {} dead ({})",
+            &o.bookmark.uuid.to_string()[..8],
+            o.bookmark.title,
+            o.result.detail
+        );
+    }
+    for o in &uncertain {
+        println!(
+            "[{}] {} uncertain ({})",
+            &o.bookmark.uuid.to_string()[..8],
+            o.bookmark.title,
+            o.result.detail
+        );
+    }
+    if !a.apply {
+        return Ok(());
+    }
+    let (mut updated, mut quarantined, mut skipped) = (0, 0, 0);
+    for o in &moved {
+        let target = o.result.target.clone().unwrap_or_default();
+        match liber_core::edit::edit_bookmark(
+            &mut store,
+            &o.bookmark.uuid,
+            liber_core::edit::EditOptions {
+                url: Some(target.clone()),
+                ..Default::default()
+            },
+        ) {
+            Ok(_) => {
+                updated += 1;
+                println!("Updated [{}].", &o.bookmark.uuid.to_string()[..8]);
+            }
+            Err(liber_core::CoreError::Duplicate(_)) => {
+                skipped += 1;
+                println!(
+                    "Skipped [{}]: target URL already bookmarked.",
+                    &o.bookmark.uuid.to_string()[..8]
+                );
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+    for o in &dead {
+        if quarantine_bookmark(&mut store, &o.bookmark.uuid)? {
+            quarantined += 1;
+            println!("Quarantined [{}].", &o.bookmark.uuid.to_string()[..8]);
+        }
+    }
+    println!("Done: {updated} updated, {quarantined} quarantined, {skipped} skipped.");
+    Ok(())
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
