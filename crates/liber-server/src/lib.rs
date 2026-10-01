@@ -7,6 +7,7 @@ use axum::Router;
 pub mod api;
 pub mod auth;
 pub mod bookmarks;
+pub mod check;
 pub mod rules;
 pub mod taxonomy;
 
@@ -62,6 +63,8 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v2/rules/learn",
             get(rules::learn_rules).post(rules::learn_create),
         )
+        .route("/api/v2/check/run", post(check::run_check))
+        .route("/api/v2/check/apply", post(check::apply_check))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
