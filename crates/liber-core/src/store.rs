@@ -404,6 +404,20 @@ impl Store {
         Ok(out)
     }
 
+    pub fn stamp_check(&mut self, uuid: &Uuid, status: Option<&str>) -> Result<(), CoreError> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE bookmarks SET last_checked_at = ?1, check_status = ?2 WHERE uuid = ?3",
+                params![Utc::now().to_rfc3339(), status, uuid.to_string()],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        if n == 0 {
+            return Err(CoreError::NotFound(uuid.to_string()));
+        }
+        Ok(())
+    }
+
     pub fn record_open(&mut self, uuid: &Uuid) -> Result<(), CoreError> {
         let n = self
             .conn
