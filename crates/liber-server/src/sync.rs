@@ -111,4 +111,58 @@ mod tests {
             .body(Body::from(v.to_string()))
             .unwrap()
     }
+
+    #[tokio::test]
+    async fn export_import_roundtrip() {
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        let app_a = test_app(&dir_a);
+        let app_b = test_app(&dir_b);
+        let (status, _) = body(
+            app_a
+                .clone()
+                .oneshot(post(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "https://example.com/a"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
         assert_eq!(status, StatusCode::CREATED);
+
+        let (status, v) = body(
+            app_a
+                .oneshot(post("/api/v2/sync/export", serde_json::json!({})))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let entries = v["entries"].clone();
+
+        let (status, v) = body(
+            app_b
+                .clone()
+                .oneshot(post(
+                    "/api/v2/sync/import",
+                    serde_json::json!({"entries": entries}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["inserted"], 1);
+
+        let (status, v) = body(
+            app_b
+                .oneshot(post("/api/v2/sync/prune", serde_json::json!({"days": 0})))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(v["pruned"].as_u64().unwrap() >= 1);
+    }
+}

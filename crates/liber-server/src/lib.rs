@@ -10,6 +10,7 @@ pub mod bookmarks;
 pub mod check;
 pub mod library;
 pub mod rules;
+pub mod sync;
 pub mod taxonomy;
 
 #[derive(Clone)]
@@ -72,6 +73,9 @@ pub fn build_router(state: AppState) -> Router {
             get(library::export_bookmarks),
         )
         .route("/api/v2/library/export-site", post(library::export_site_ep))
+        .route("/api/v2/sync/export", post(sync::export_oplog))
+        .route("/api/v2/sync/import", post(sync::import_oplog))
+        .route("/api/v2/sync/prune", post(sync::prune_oplog_ep))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
