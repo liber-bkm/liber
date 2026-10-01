@@ -91,7 +91,24 @@
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
           buildInputs = [ pkgs.openssl ];
-          nativeBuildInputs = [ pkgs.pkg-config ];
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.nodejs_22
+            pkgs.pnpm
+            pkgs.pnpmConfigHook
+          ];
+          pnpmDeps = pkgs.fetchPnpmDeps {
+            pname = "liber-frontend";
+            inherit version;
+            src = ./frontend;
+            fetcherVersion = 4;
+            hash = "sha256-728DkKKUaN/HfAYK9U7RZAVh0EaUilySiRsNh69r8ZI=";
+          };
+          pnpmRoot = "frontend";
+          env.EMBED_UI = "1";
+          preBuild = ''
+            (cd frontend && pnpm build)
+          '';
         };
 
         # Default Linux dev+test shell. This is the ONLY shell the agent
