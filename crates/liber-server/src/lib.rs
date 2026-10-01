@@ -8,6 +8,7 @@ use axum::Router;
 pub mod api;
 pub mod auth;
 pub mod bookmarks;
+pub mod bulk;
 pub mod check;
 pub mod library;
 pub mod reindex;
@@ -80,6 +81,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/v2/check/run", post(check::run_check))
         .route("/api/v2/check/apply", post(check::apply_check))
+        .route("/api/v2/bulk", post(bulk::bulk))
         .route("/api/v2/library/import", post(library::import_library))
         .route(
             "/api/v2/library/export-bookmarks",
@@ -129,10 +131,7 @@ async fn frontend_fallback(
     if !file.is_file() {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     }
-    let mime = liber_core::archive::mime_for(
-        file.to_string_lossy().as_ref(),
-        None,
-    );
+    let mime = liber_core::archive::mime_for(file.to_string_lossy().as_ref(), None);
     match tokio::fs::read(&file).await {
         Ok(data) => (
             StatusCode::OK,
