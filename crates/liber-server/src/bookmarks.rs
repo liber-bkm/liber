@@ -10,7 +10,7 @@ use liber_core::store::Store;
 use crate::api::{AddRequest, ApiBookmark, DeleteParams, ListParams, ListResponse, UpdateRequest};
 use crate::AppState;
 
-type ApiErr = (StatusCode, Json<serde_json::Value>);
+pub(crate) type ApiErr = (StatusCode, Json<serde_json::Value>);
 
 fn err(status: StatusCode, msg: impl Into<String>) -> ApiErr {
     (status, Json(serde_json::json!({"error": msg.into()})))
