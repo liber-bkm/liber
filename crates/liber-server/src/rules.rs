@@ -124,3 +124,38 @@ pub async fn edit_rule_ep(
     ))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::{header, Request};
+    use tower::ServiceExt;
+
+    use crate::{build_router, AppState};
+    use liber_core::store::Config;
+
+    fn test_app() -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            base_dir: dir.path().to_path_buf(),
+            device_id: "test-device".to_string(),
+            ..Default::default()
+        };
+        (build_router(AppState::new(cfg, String::new())), dir)
+    }
+
+    async fn body(res: axum::response::Response) -> (StatusCode, serde_json::Value) {
+        let status = res.status();
+        let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or_default())
+    }
+
+    fn post(uri: &str, v: serde_json::Value) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(v.to_string()))
+            .unwrap()
+    }
+
