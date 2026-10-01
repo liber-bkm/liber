@@ -55,6 +55,13 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS applied_oplog (
+    device TEXT NOT NULL,
+    ts TEXT NOT NULL,
+    op TEXT NOT NULL,
+    uuid TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (device, ts, op, uuid)
+);
 ";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -307,7 +314,9 @@ impl Store {
     }
 
     pub fn update_bookmark(&mut self, b: &Bookmark) -> Result<(), CoreError> {
-        let now = Utc::now();
+        let mut stamped = b.clone();
+        stamped.updated_at = Utc::now();
+        let b = &stamped;
         let n = self
             .conn
             .execute(
@@ -324,7 +333,7 @@ impl Store {
                     serde_json::to_string(&b.tags)
                         .map_err(|e| CoreError::Storage(e.to_string()))?,
                     b.folder,
-                    now.to_rfc3339(),
+                    b.updated_at.to_rfc3339(),
                     b.html_file,
                     b.markdown_file,
                     b.archive_file,
@@ -338,6 +347,61 @@ impl Store {
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         if n == 0 {
             return Err(CoreError::NotFound(b.uuid.to_string()));
+        }
+        let payload = serde_json::to_value(b).map_err(|e| CoreError::Storage(e.to_string()))?;
+        self.append_oplog(Some(b.uuid), "upsert", payload)
+    }
+
+    pub fn replace_bookmark_exact(&mut self, b: &Bookmark) -> Result<(), CoreError> {
+        self.conn
+            .execute(
+                "INSERT INTO bookmarks (uuid, url, url_norm, title, description, tags,
+                 folder, created_at, updated_at, html_file, markdown_file, archive_file,
+                 open_count, last_opened_at, last_checked_at, check_status, applied_rules)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                 ON CONFLICT(uuid) DO UPDATE SET url = excluded.url, url_norm = excluded.url_norm,
+                 title = excluded.title, description = excluded.description, tags = excluded.tags,
+                 folder = excluded.folder, created_at = excluded.created_at, updated_at = excluded.updated_at,
+                 html_file = excluded.html_file, markdown_file = excluded.markdown_file,
+                 archive_file = excluded.archive_file, open_count = excluded.open_count,
+                 last_opened_at = excluded.last_opened_at, last_checked_at = excluded.last_checked_at,
+                 check_status = excluded.check_status, applied_rules = excluded.applied_rules",
+                params![
+                    b.uuid.to_string(),
+                    b.url,
+                    normalize_for_dedupe(&b.url),
+                    b.title,
+                    b.description,
+                    serde_json::to_string(&b.tags)
+                        .map_err(|e| CoreError::Storage(e.to_string()))?,
+                    b.folder,
+                    b.created_at.to_rfc3339(),
+                    b.updated_at.to_rfc3339(),
+                    b.html_file,
+                    b.markdown_file,
+                    b.archive_file,
+                    b.open_count as i64,
+                    b.last_opened_at.map(|t| t.to_rfc3339()),
+                    b.last_checked_at.map(|t| t.to_rfc3339()),
+                    b.check_status,
+                    serde_json::to_string(&b.applied_rules)
+                        .map_err(|e| CoreError::Storage(e.to_string()))?,
+                ],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        self.conn
+            .execute(
+                "DELETE FROM attachments WHERE bookmark_uuid = ?1",
+                params![b.uuid.to_string()],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        for at in &b.attachments {
+            self.conn
+                .execute(
+                    "INSERT INTO attachments (bookmark_uuid, name, path) VALUES (?1, ?2, ?3)",
+                    params![b.uuid.to_string(), at.name, at.path],
+                )
+                .map_err(|e| CoreError::Storage(e.to_string()))?;
         }
         let payload = serde_json::to_value(b).map_err(|e| CoreError::Storage(e.to_string()))?;
         self.append_oplog(Some(b.uuid), "upsert", payload)
@@ -551,6 +615,7 @@ impl Store {
     }
 
     pub fn delete_rule(&mut self, id: &str) -> Result<bool, CoreError> {
+        let existing = self.find_rule(id)?;
         let n = self
             .conn
             .execute("DELETE FROM rules WHERE id = ?1", params![id])
@@ -558,31 +623,103 @@ impl Store {
         if n == 0 {
             return Ok(false);
         }
-        let payload = serde_json::json!({"id": id});
+        let payload = serde_json::json!({
+            "id": id,
+            "pattern": existing.map(|r| r.pattern).unwrap_or_default(),
+        });
         self.append_oplog(None, "rule_del", payload)?;
         Ok(true)
     }
 
-    fn append_oplog(
+    pub fn oplog_applied(&self, key: &(String, String, String, String)) -> Result<bool, CoreError> {
+        let n: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM applied_oplog WHERE device = ?1 AND ts = ?2 AND op = ?3 AND uuid = ?4",
+                params![key.0, key.1, key.2, key.3],
+                |row| row.get(0),
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    pub fn oplog_mark_applied(
+        &self,
+        key: &(String, String, String, String),
+    ) -> Result<(), CoreError> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO applied_oplog (device, ts, op, uuid) VALUES (?1, ?2, ?3, ?4)",
+                params![key.0, key.1, key.2, key.3],
+            )
+            .map(|_| ())
+            .map_err(|e| CoreError::Storage(e.to_string()))
+    }
+
+    pub fn add_rule_with_id(&mut self, rule: &AutoRule) -> Result<(), CoreError> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO rules (id, pattern, action_tags, action_folder, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    rule.id,
+                    rule.pattern,
+                    serde_json::to_string(&rule.action_tags)
+                        .map_err(|e| CoreError::Storage(e.to_string()))?,
+                    rule.action_folder,
+                    Utc::now().to_rfc3339(),
+                ],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let payload = serde_json::to_value(rule).map_err(|e| CoreError::Storage(e.to_string()))?;
+        self.append_oplog(None, "rule_put", payload)
+    }
+
+    pub fn delete_rule_quiet(&mut self, id: &str) -> Result<bool, CoreError> {
+        let n = self
+            .conn
+            .execute("DELETE FROM rules WHERE id = ?1", params![id])
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    pub fn prune_oplog_older_than(&mut self, retention_days: i64) -> Result<usize, CoreError> {
+        let cutoff = (Utc::now() - chrono::Duration::days(retention_days)).to_rfc3339();
+        let n = self
+            .conn
+            .execute("DELETE FROM oplog WHERE ts < ?1", params![cutoff])
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(n)
+    }
+
+    pub(crate) fn append_oplog(
         &self,
         uuid: Option<Uuid>,
         op: &str,
         payload: serde_json::Value,
     ) -> Result<(), CoreError> {
+        let device = self.cfg.effective_device_id();
+        let ts = Utc::now().to_rfc3339();
         self.conn
             .execute(
                 "INSERT INTO oplog (uuid, device_id, ts, op, payload)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     uuid.map(|u| u.to_string()),
-                    self.cfg.effective_device_id(),
-                    Utc::now().to_rfc3339(),
+                    device,
+                    ts,
                     op,
                     payload.to_string(),
                 ],
             )
             .map(|_| ())
-            .map_err(|e| CoreError::Storage(e.to_string()))
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        self.oplog_mark_applied(&(
+            device,
+            ts,
+            op.to_string(),
+            uuid.map(|u| u.to_string()).unwrap_or_default(),
+        ))
     }
 
     pub fn oplog_entries(&self) -> Result<Vec<OpLogEntry>, CoreError> {
