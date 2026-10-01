@@ -778,6 +778,30 @@ fn run_check(a: CheckArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_archive(spec: &str, backend: Option<&str>) -> anyhow::Result<()> {
+    let (_, mut store) = load_store()?;
+    let tokens = liber_core::idspec::parse_id_spec(spec)?;
+    let targets = store.resolve_spec(&tokens)?;
+    if targets.is_empty() {
+        return Err(anyhow::anyhow!("no bookmarks matching {spec:?}"));
+    }
+    for b in targets {
+        match liber_core::archive::archive_bookmark(&mut store, &b.uuid, backend) {
+            Ok(warnings) => {
+                for w in warnings {
+                    println!("warning: {w}");
+                }
+                println!("Archived [{}].", &b.uuid.to_string()[..8]);
+            }
+            Err(e) => println!(
+                "warning: archive failed for [{}]: {e}",
+                &b.uuid.to_string()[..8]
+            ),
+        }
+    }
+    Ok(())
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
@@ -786,6 +810,10 @@ fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
             "device_id" => println!("{}", cfg.device_id),
             "archive_backend" => println!("{}", cfg.archive_backend),
             "browser_cmd" => println!("{}", cfg.browser_cmd),
+            "browser_path" => println!("{}", cfg.browser_path),
+            "singlefile_cmd" => println!("{}", cfg.singlefile_cmd),
+            "singlefile_browser_path" => println!("{}", cfg.singlefile_browser_path),
+            "monolith_cmd" => println!("{}", cfg.monolith_cmd),
             "auth_token" => println!("{}", cfg.auth_token),
             _ => return Err(anyhow::anyhow!("unknown key {key:?}")),
         },
@@ -793,15 +821,15 @@ fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
             match key.as_str() {
                 "base_dir" => cfg.base_dir = value.into(),
                 "device_id" => cfg.device_id = value,
-                "archive_backend" => match value.as_str() {
-                    "builtin" | "monolith" | "single-file" => cfg.archive_backend = value,
-                    _ => {
-                        return Err(anyhow::anyhow!(
-                            "invalid archive_backend (expected builtin, monolith, or single-file)"
-                        ))
-                    }
+                "archive_backend" => match liber_core::archive::parse_backend(&value) {
+                    Ok(_) => cfg.archive_backend = value,
+                    Err(e) => return Err(anyhow::anyhow!("{e}")),
                 },
                 "browser_cmd" => cfg.browser_cmd = value,
+                "browser_path" => cfg.browser_path = value,
+                "singlefile_cmd" => cfg.singlefile_cmd = value,
+                "singlefile_browser_path" => cfg.singlefile_browser_path = value,
+                "monolith_cmd" => cfg.monolith_cmd = value,
                 "auth_token" => cfg.auth_token = value,
                 _ => return Err(anyhow::anyhow!("unknown key {key:?}")),
             }
@@ -840,6 +868,7 @@ fn main() -> anyhow::Result<()> {
             Cmd::Folders(a) => run_folders(a.cmd),
             Cmd::Auto(a) => run_auto(a.cmd),
             Cmd::Check(a) => run_check(a),
+            Cmd::Archive(a) => run_archive(&a.spec, a.backend.as_deref()),
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref()),
             _ => {
