@@ -7,6 +7,7 @@ use axum::Router;
 pub mod api;
 pub mod auth;
 pub mod bookmarks;
+pub mod taxonomy;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -41,6 +42,12 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v2/bookmarks/:id/open", post(bookmarks::open_bookmark))
         .route("/login", get(auth::login_page).post(auth::login_submit))
         .route("/logout", get(auth::logout).post(auth::logout))
+        .route("/api/v2/tags", get(taxonomy::list_tags))
+        .route("/api/v2/tags/rename", post(taxonomy::rename_tag_ep))
+        .route("/api/v2/tags/delete", post(taxonomy::delete_tag_ep))
+        .route("/api/v2/folders", get(taxonomy::list_folders))
+        .route("/api/v2/folders/rename", post(taxonomy::rename_folder_ep))
+        .route("/api/v2/folders/delete", post(taxonomy::delete_folder_ep))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
