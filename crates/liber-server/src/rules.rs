@@ -234,3 +234,121 @@ mod tests {
             .unwrap()
     }
 
+    #[tokio::test]
+    async fn rules_flow() {
+        let (app, _dir) = test_app();
+        let (status, _) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "https://example.com/a"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let (status, v) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/rules",
+                    serde_json::json!({"pattern": "host:example.com", "tags": ["news"], "folder": "tech"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let id = v["rule"]["id"].as_str().unwrap().to_string();
+        assert_eq!(v["rule"]["applied_count"], 1);
+
+        let (_, v) = body(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/v2/rules")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(v["rules"][0]["applied_count"], 1);
+
+        let (status, v) = body(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri(format!("/api/v2/rules/{id}"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from("{\"tags\":[\"t2\"],\"reapply\":true}"))
+                        .unwrap(),
+                )
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["reapplied"], 1);
+
+        let (status, v) = body(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("DELETE")
+                        .uri(format!("/api/v2/rules/{id}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["deleted"], id);
+    }
+
+    #[tokio::test]
+    async fn learn_flow() {
+        let (app, _dir) = test_app();
+        for i in 0..3 {
+            let (status, _) = body(
+                app.clone()
+                    .oneshot(post(
+                        "/api/v2/bookmarks",
+                        serde_json::json!({"url": format!("https://example.com/{i}"), "folder": "tech"}),
+                    ))
+                    .await
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+        let (_, v) = body(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/v2/rules/learn?min=2")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(v["suggestions"][0]["host"], "example.com");
+
+        let (status, v) = body(
+            app.oneshot(post("/api/v2/rules/learn", serde_json::json!({"min": 2})))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["created"], 1);
+        assert_eq!(v["applied"], 3);
+    }
+}
