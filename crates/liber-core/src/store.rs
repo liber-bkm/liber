@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS attachments (
 CREATE TABLE IF NOT EXISTS rules (
     id TEXT PRIMARY KEY,
     pattern TEXT NOT NULL UNIQUE,
-    action_tag TEXT,
+    action_tags TEXT NOT NULL DEFAULT '[]',
     action_folder TEXT,
     created_at TEXT NOT NULL
 );
@@ -239,7 +239,7 @@ impl Store {
             last_opened_at: None,
             last_checked_at: None,
             check_status: None,
-            applied_rules: vec![],
+            applied_rules: new.applied_rules,
         };
         self.conn
             .execute(
@@ -441,23 +441,24 @@ impl Store {
     pub fn add_rule(
         &mut self,
         pattern: String,
-        action_tag: Option<String>,
+        action_tags: Vec<String>,
         action_folder: Option<String>,
     ) -> Result<AutoRule, CoreError> {
         let rule = AutoRule {
             id: Uuid::new_v4().to_string(),
             pattern: pattern.clone(),
-            action_tag,
+            action_tags,
             action_folder,
         };
         self.conn
             .execute(
-                "INSERT INTO rules (id, pattern, action_tag, action_folder, created_at)
+                "INSERT INTO rules (id, pattern, action_tags, action_folder, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     rule.id,
                     rule.pattern,
-                    rule.action_tag,
+                    serde_json::to_string(&rule.action_tags)
+                        .map_err(|e| CoreError::Storage(e.to_string()))?,
                     rule.action_folder,
                     Utc::now().to_rfc3339(),
                 ],
@@ -471,20 +472,60 @@ impl Store {
     pub fn list_rules(&self) -> Result<Vec<AutoRule>, CoreError> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, pattern, action_tag, action_folder FROM rules ORDER BY pattern")
+            .prepare("SELECT id, pattern, action_tags, action_folder FROM rules ORDER BY pattern")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
+                let tags_raw: String = row.get(2)?;
                 Ok(AutoRule {
                     id: row.get(0)?,
                     pattern: row.get(1)?,
-                    action_tag: row.get(2)?,
+                    action_tags: serde_json::from_str(&tags_raw).unwrap_or_default(),
                     action_folder: row.get(3)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| CoreError::Storage(e.to_string()))
+    }
+
+    pub fn find_rule(&self, id: &str) -> Result<Option<AutoRule>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, pattern, action_tags, action_folder FROM rules WHERE id = ?1")
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        stmt.query_row(params![id], |row| {
+            let tags_raw: String = row.get(2)?;
+            Ok(AutoRule {
+                id: row.get(0)?,
+                pattern: row.get(1)?,
+                action_tags: serde_json::from_str(&tags_raw).unwrap_or_default(),
+                action_folder: row.get(3)?,
+            })
+        })
+        .optional()
+        .map_err(|e| CoreError::Storage(e.to_string()))
+    }
+
+    pub fn update_rule(&mut self, rule: &AutoRule) -> Result<(), CoreError> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE rules SET pattern = ?1, action_tags = ?2, action_folder = ?3 WHERE id = ?4",
+                params![
+                    rule.pattern,
+                    serde_json::to_string(&rule.action_tags)
+                        .map_err(|e| CoreError::Storage(e.to_string()))?,
+                    rule.action_folder,
+                    rule.id,
+                ],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        if n == 0 {
+            return Err(CoreError::NotFound(rule.id.clone()));
+        }
+        let payload = serde_json::to_value(rule).map_err(|e| CoreError::Storage(e.to_string()))?;
+        self.append_oplog(None, "rule_put", payload)
     }
 
     pub fn delete_rule(&mut self, id: &str) -> Result<bool, CoreError> {
@@ -586,6 +627,7 @@ mod tests {
             html_file: "x.html".to_string(),
             markdown_file: None,
             archive_file: None,
+            applied_rules: vec![],
         }
     }
 
@@ -651,11 +693,12 @@ mod tests {
         let r = s
             .add_rule(
                 "host:example.com".to_string(),
-                None,
+                vec!["news".to_string()],
                 Some("tech".to_string()),
             )
             .unwrap();
         assert_eq!(s.list_rules().unwrap().len(), 1);
+        assert!(s.find_rule(&r.id).unwrap().is_some());
         assert!(s.delete_rule(&r.id).unwrap());
         assert!(s.list_rules().unwrap().is_empty());
     }
