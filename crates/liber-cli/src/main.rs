@@ -497,6 +497,8 @@ fn main() -> anyhow::Result<()> {
             Cmd::Open(a) => run_open(&a.spec),
             Cmd::Edit(a) => run_edit(a),
             Cmd::Delete(a) => run_delete(&a.spec, a.yes),
+            Cmd::Tags(a) => run_tags(a.cmd),
+            Cmd::Folders(a) => run_folders(a.cmd),
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref()),
             _ => {
