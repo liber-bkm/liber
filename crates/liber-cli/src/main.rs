@@ -197,6 +197,10 @@ struct CheckArgs {
     spec: Option<String>,
     #[arg(long)]
     apply: bool,
+    #[arg(long, default_value_t = 12)]
+    workers: usize,
+    #[arg(long)]
+    stale_hours: Option<u64>,
 }
 
 #[derive(clap::Args)]
@@ -816,6 +820,7 @@ fn main() -> anyhow::Result<()> {
             Cmd::Tags(a) => run_tags(a.cmd),
             Cmd::Folders(a) => run_folders(a.cmd),
             Cmd::Auto(a) => run_auto(a.cmd),
+            Cmd::Check(a) => run_check(a),
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref()),
             _ => {
