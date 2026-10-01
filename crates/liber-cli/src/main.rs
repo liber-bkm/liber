@@ -119,7 +119,9 @@ struct ExportArgs {
 struct ImportArgs {
     file: String,
     #[arg(long)]
-    from_go: bool,
+    markdown: bool,
+    #[arg(long)]
+    archive: bool,
 }
 
 #[derive(clap::Args)]
@@ -802,6 +804,53 @@ fn run_archive(spec: &str, backend: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_import(a: ImportArgs) -> anyhow::Result<()> {
+    let (_, mut store) = load_store()?;
+    let data = std::fs::read(&a.file)?;
+    let content = String::from_utf8_lossy(&data);
+    let report = liber_core::import::import_data(&mut store, &content, a.markdown, a.archive)?;
+    for w in &report.warnings {
+        println!("{w}");
+    }
+    if report.added == 0 && report.skipped_dup == 0 && report.skipped_bad == 0 {
+        println!("No bookmarks found in that file, is it a browser bookmark export?");
+        return Ok(());
+    }
+    println!("Imported {} bookmark(s).", report.added);
+    if report.skipped_dup > 0 {
+        println!("Skipped {} already in your collection.", report.skipped_dup);
+    }
+    if report.skipped_bad > 0 {
+        println!("Skipped {} entries with no URL.", report.skipped_bad);
+    }
+    Ok(())
+}
+
+fn run_export(a: ExportArgs) -> anyhow::Result<()> {
+    let (cfg, store) = load_store()?;
+    if a.site {
+        let out_dir = match &a.out {
+            Some(d) => std::path::PathBuf::from(d),
+            None => cfg.profile_dir().join("site"),
+        };
+        let index = liber_core::export::export_site(&store, &out_dir)?;
+        let n = store.list()?.len();
+        println!("Exported {n} bookmark(s) to {}", index.display());
+        return Ok(());
+    }
+    if a.bookmarks {
+        let Some(path) = &a.out else {
+            return Err(anyhow::anyhow!("--bookmarks needs an output file"));
+        };
+        let doc = liber_core::export::write_netscape_export(&store)?;
+        std::fs::write(path, doc)?;
+        let n = store.list()?.len();
+        println!("Exported {n} bookmark(s) to {path}");
+        return Ok(());
+    }
+    Err(anyhow::anyhow!("specify --site or --bookmarks"))
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
@@ -869,6 +918,8 @@ fn main() -> anyhow::Result<()> {
             Cmd::Auto(a) => run_auto(a.cmd),
             Cmd::Check(a) => run_check(a),
             Cmd::Archive(a) => run_archive(&a.spec, a.backend.as_deref()),
+            Cmd::Import(a) => run_import(a),
+            Cmd::Export(a) => run_export(a),
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref()),
             _ => {
