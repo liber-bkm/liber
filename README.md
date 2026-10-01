@@ -62,9 +62,10 @@ Then open the printed address, or run the Tauri app once packaged.
 ## Config
 
 Lives at `~/.config/liber-rs/config.json`, overridable with `LIBER_CONFIG`
-and `LIBER_BASE_DIR`. Key `archive_backend` selects `builtin` (default),
-`monolith`, or `single-file`. Key `auth_token` or env `LIBER_AUTH_TOKEN`
-protects `serve`.
+and `LIBER_BASE_DIR`. Archive backends: `builtin` (default), `browser`,
+`single-file`, `monolith`, `auto` chain. Browser and binary paths via
+`browser_path`, `singlefile_cmd`, `singlefile_browser_path`, `monolith_cmd`.
+Key `auth_token` or env `LIBER_AUTH_TOKEN` protects `serve`.
 
 ## Import from Go liber
 
