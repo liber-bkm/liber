@@ -99,11 +99,7 @@ struct DeleteArgs {
 #[derive(clap::Args)]
 struct ReindexArgs {
     #[arg(long)]
-    merge: bool,
-    #[arg(long)]
     prune: bool,
-    #[arg(long)]
-    compact: bool,
 }
 
 #[derive(clap::Args)]
@@ -916,6 +912,32 @@ fn run_sync(cmd: SyncCmd) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_reindex(prune: bool) -> anyhow::Result<()> {
+    let (_, mut store) = load_store()?;
+    let rep =
+        liber_core::reindex::reindex(&mut store, liber_core::reindex::ReindexFlags { prune })?;
+    println!(
+        "Reindexed: {} adopted, {} markdown relinked, {} archives relinked, {} conflicts swept, {} attachments quarantined, {} indexed.",
+        rep.adopted,
+        rep.relinked_markdown,
+        rep.relinked_archive,
+        rep.swept_conflicts,
+        rep.quarantined_attachments,
+        rep.indexed
+    );
+    if !rep.pending.is_empty() {
+        println!("Pending (missing files, kept):");
+        for uuid in &rep.pending {
+            println!("  {uuid}");
+        }
+        println!("Run with --prune to drop them (files move to unindexed/).");
+    }
+    if rep.pruned > 0 {
+        println!("Pruned {} bookmark(s).", rep.pruned);
+    }
+    Ok(())
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
@@ -985,6 +1007,7 @@ fn main() -> anyhow::Result<()> {
             Cmd::Archive(a) => run_archive(&a.spec, a.backend.as_deref()),
             Cmd::Import(a) => run_import(a),
             Cmd::Export(a) => run_export(a),
+            Cmd::Reindex(a) => run_reindex(a.prune),
             Cmd::Sync(a) => run_sync(a.cmd),
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref()),
