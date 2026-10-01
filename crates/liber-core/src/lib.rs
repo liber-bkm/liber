@@ -20,5 +20,5 @@ pub mod sync;
 pub mod taxonomy;
 
 pub use error::CoreError;
-pub use model::{Attachment, AutoRule, Bookmark, NewBookmark, OpLogEntry};
+pub use model::{AppliedRule, Attachment, AutoRule, Bookmark, NewBookmark, OpLogEntry};
 pub use store::{Config, Store};

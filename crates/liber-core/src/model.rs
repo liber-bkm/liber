@@ -20,7 +20,7 @@ pub struct Bookmark {
     pub last_opened_at: Option<DateTime<Utc>>,
     pub last_checked_at: Option<DateTime<Utc>>,
     pub check_status: Option<String>,
-    pub applied_rules: Vec<String>,
+    pub applied_rules: Vec<AppliedRule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,8 +33,15 @@ pub struct Attachment {
 pub struct AutoRule {
     pub id: String,
     pub pattern: String,
-    pub action_tag: Option<String>,
+    #[serde(default)]
+    pub action_tags: Vec<String>,
     pub action_folder: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppliedRule {
+    pub rule_id: String,
+    pub folder: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,4 +65,5 @@ pub struct NewBookmark {
     pub html_file: String,
     pub markdown_file: Option<String>,
     pub archive_file: Option<String>,
+    pub applied_rules: Vec<AppliedRule>,
 }
