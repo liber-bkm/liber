@@ -215,9 +215,30 @@ struct ArchiveArgs {
 
 #[derive(clap::Args)]
 struct SyncArgs {
-    #[arg(long)]
-    merge: bool,
-    target: Option<String>,
+    #[command(subcommand)]
+    cmd: SyncCmd,
+}
+
+#[derive(Subcommand)]
+enum SyncCmd {
+    Export {
+        file: String,
+        #[arg(long)]
+        since: Option<i64>,
+    },
+    Import {
+        file: String,
+    },
+    Commit {
+        #[arg(long, default_value = "liber sync")]
+        message: String,
+        #[arg(long)]
+        push: bool,
+    },
+    Prune {
+        #[arg(long, default_value_t = 90)]
+        days: i64,
+    },
 }
 
 #[derive(clap::Args)]
@@ -851,6 +872,50 @@ fn run_export(a: ExportArgs) -> anyhow::Result<()> {
     Err(anyhow::anyhow!("specify --site or --bookmarks"))
 }
 
+fn run_sync(cmd: SyncCmd) -> anyhow::Result<()> {
+    use liber_core::sync::{
+        export_bundle, git_snapshot, prune_oplog, read_bundle, replay_entries, write_bundle,
+    };
+    use std::path::PathBuf;
+    let (cfg, mut store) = load_store()?;
+    match cmd {
+        SyncCmd::Export { file, since } => {
+            let entries = export_bundle(&store, since)?;
+            write_bundle(&PathBuf::from(&file), &entries)?;
+            println!(
+                "Exported {} oplog entr{} to {file}.",
+                entries.len(),
+                if entries.len() == 1 { "y" } else { "ies" }
+            );
+        }
+        SyncCmd::Import { file } => {
+            let entries = read_bundle(&PathBuf::from(&file))?;
+            let rep = replay_entries(&mut store, &entries)?;
+            println!(
+                "Merged {}: {} inserted, {} merged, {} deduped, {} deleted, {} rules.",
+                entries.len(),
+                rep.inserted,
+                rep.merged,
+                rep.deduped,
+                rep.deleted,
+                rep.rules
+            );
+        }
+        SyncCmd::Commit { message, push } => {
+            if git_snapshot(&cfg.profile_dir(), &message, push)? {
+                println!("Committed sync snapshot.");
+            } else {
+                println!("Not a git repository, nothing committed (repos are never initialized automatically).");
+            }
+        }
+        SyncCmd::Prune { days } => {
+            let n = prune_oplog(&mut store, days)?;
+            println!("Pruned {n} oplog entries older than {days} days.");
+        }
+    }
+    Ok(())
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
@@ -920,6 +985,7 @@ fn main() -> anyhow::Result<()> {
             Cmd::Archive(a) => run_archive(&a.spec, a.backend.as_deref()),
             Cmd::Import(a) => run_import(a),
             Cmd::Export(a) => run_export(a),
+            Cmd::Sync(a) => run_sync(a.cmd),
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref()),
             _ => {
