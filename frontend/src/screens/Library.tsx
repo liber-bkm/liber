@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownWideNarrow, LayoutGrid, Search, Table2 } from "lucide-react";
 import { ageOf, domainOf, fetchBookmarks, shortUuid, type Bookmark } from "../api";
 import { Badge, Empty, Input, Spinner } from "../components/ui";
+import { BulkBar } from "../components/BulkBar";
 
 const SORTS = [
   { value: "", label: "Relevance" },
@@ -25,11 +26,26 @@ export function Library({
   const [debounced, setDebounced] = useState("");
   const [sort, setSort] = useState("");
   const [table, setTable] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const qc = useQueryClient();
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebounced(q), 250);
     return () => window.clearTimeout(t);
   }, [q]);
+
+  useEffect(() => {
+    setSelected(new Set());
+  }, [debounced, sort, folder, tag]);
+
+  function toggle(uuid: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(uuid)) next.delete(uuid);
+      else next.add(uuid);
+      return next;
+    });
+  }
 
   const query = useQuery({
     queryKey: ["bookmarks", debounced, sort, folder, tag],
@@ -97,13 +113,21 @@ export function Library({
       {query.data && query.data.bookmarks.length > 0 && !table && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {query.data.bookmarks.map((b) => (
-            <Card key={b.uuid} bookmark={b} onOpen={() => onOpen(b)} />
+            <Card key={b.uuid} bookmark={b} selected={selected.has(b.uuid)} onToggle={() => toggle(b.uuid)} onOpen={() => onOpen(b)} />
           ))}
         </div>
       )}
       {query.data && query.data.bookmarks.length > 0 && table && (
-        <Rows bookmarks={query.data.bookmarks} onOpen={onOpen} />
+        <Rows bookmarks={query.data.bookmarks} selected={selected} onToggle={toggle} onOpen={onOpen} />
       )}
+      <BulkBar
+        ids={[...selected]}
+        onClear={() => setSelected(new Set())}
+        onDone={() => {
+          setSelected(new Set());
+          qc.invalidateQueries({ queryKey: ["bookmarks"] });
+        }}
+      />
     </div>
   );
 }
@@ -123,50 +147,61 @@ function StatusDot({ b }: { b: Bookmark }) {
   return <Badge tone={tone as "red" | "amber" | "neutral"}>{b.check_status}</Badge>;
 }
 
-function Card({ bookmark: b, onOpen }: { bookmark: Bookmark; onOpen: () => void }) {
+function Card({ bookmark: b, selected, onToggle, onOpen }: { bookmark: Bookmark; selected: boolean; onToggle: () => void; onOpen: () => void }) {
   return (
-    <button
-      onClick={onOpen}
-      className="flex flex-col gap-2 rounded-2xl border border-neutral-200 bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900"
+    <div
+      className={`relative flex flex-col gap-2 rounded-2xl border bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md dark:bg-neutral-900 ${selected ? "border-accent-500" : "border-neutral-200 dark:border-neutral-800"}`}
     >
-      <div className="flex items-start gap-2.5">
-        <Avatar title={b.title} url={b.url} />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{b.title}</p>
-          <p className="truncate text-xs text-neutral-400">{domainOf(b.url)}</p>
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggle}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute right-3 top-3 h-4 w-4 accent-[#2549a8]"
+        title="Select"
+      />
+      <button onClick={onOpen} className="flex flex-col gap-2 text-left">
+        <div className="flex items-start gap-2.5">
+          <Avatar title={b.title} url={b.url} />
+          <div className="min-w-0 pr-5">
+            <p className="truncate text-sm font-medium">{b.title}</p>
+            <p className="truncate text-xs text-neutral-400">{domainOf(b.url)}</p>
+          </div>
         </div>
-      </div>
-      {b.description && <p className="line-clamp-2 text-sm text-neutral-500">{b.description}</p>}
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
-        {b.folder && <span className="text-xs text-neutral-400">{b.folder}</span>}
-        {(b.tags ?? []).slice(0, 3).map((t) => (
-          <Badge key={t}>#{t}</Badge>
-        ))}
-        <span className="ml-auto flex items-center gap-1.5 text-xs text-neutral-400">
-          <StatusDot b={b} />
-          {b.has_archive && <Badge tone="green">arc</Badge>}
-          {ageOf(b.created_at)}
-        </span>
-      </div>
-    </button>
+        {b.description && <p className="line-clamp-2 text-sm text-neutral-500">{b.description}</p>}
+        <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
+          {b.folder && <span className="text-xs text-neutral-400">{b.folder}</span>}
+          {(b.tags ?? []).slice(0, 3).map((t) => (
+            <Badge key={t}>#{t}</Badge>
+          ))}
+          <span className="ml-auto flex items-center gap-1.5 text-xs text-neutral-400">
+            <StatusDot b={b} />
+            {b.has_archive && <Badge tone="green">arc</Badge>}
+            {ageOf(b.created_at)}
+          </span>
+        </div>
+      </button>
+    </div>
   );
 }
 
-function Rows({ bookmarks, onOpen }: { bookmarks: Bookmark[]; onOpen: (b: Bookmark) => void }) {
+function Rows({ bookmarks, selected, onToggle, onOpen }: { bookmarks: Bookmark[]; selected: Set<string>; onToggle: (uuid: string) => void; onOpen: (b: Bookmark) => void }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
       {bookmarks.map((b) => (
-        <button
+        <div
           key={b.uuid}
-          onClick={() => onOpen(b)}
-          className="flex w-full items-center gap-3 border-b border-neutral-100 px-4 py-2 text-left text-sm last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/50"
+          className={`flex w-full items-center gap-3 border-b border-neutral-100 px-4 py-2 text-left text-sm last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/50 ${selected.has(b.uuid) ? "bg-accent-50 dark:bg-accent-700/10" : ""}`}
         >
-          <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{shortUuid(b.uuid)}</span>
-          <span className="min-w-0 flex-1 truncate font-medium">{b.title}</span>
-          <span className="hidden max-w-48 truncate text-xs text-neutral-400 sm:block">{domainOf(b.url)}</span>
-          <StatusDot b={b} />
-          <span className="w-16 shrink-0 text-right text-xs text-neutral-400">{ageOf(b.created_at)}</span>
-        </button>
+          <input type="checkbox" checked={selected.has(b.uuid)} onChange={() => onToggle(b.uuid)} className="h-4 w-4 shrink-0 accent-[#2549a8]" title="Select" />
+          <button onClick={() => onOpen(b)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+            <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{shortUuid(b.uuid)}</span>
+            <span className="min-w-0 flex-1 truncate font-medium">{b.title}</span>
+            <span className="hidden max-w-48 truncate text-xs text-neutral-400 sm:block">{domainOf(b.url)}</span>
+            <StatusDot b={b} />
+            <span className="w-16 shrink-0 text-right text-xs text-neutral-400">{ageOf(b.created_at)}</span>
+          </button>
+        </div>
       ))}
     </div>
   );
