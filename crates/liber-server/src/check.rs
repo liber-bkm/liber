@@ -163,3 +163,91 @@ pub async fn apply_check(
     })))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::{header, Request};
+    use tower::ServiceExt;
+
+    use crate::{build_router, AppState};
+    use liber_core::store::Config;
+
+    fn test_app() -> (axum::Router, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            base_dir: dir.path().to_path_buf(),
+            device_id: "test-device".to_string(),
+            ..Default::default()
+        };
+        (build_router(AppState::new(cfg, String::new())), dir)
+    }
+
+    async fn body(res: axum::response::Response) -> (StatusCode, serde_json::Value) {
+        let status = res.status();
+        let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or_default())
+    }
+
+    fn post(uri: &str, v: serde_json::Value) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(v.to_string()))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn run_marks_uncertain_and_apply_quarantines() {
+        let (app, _dir) = test_app();
+        let (status, v) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "http://127.0.0.1:1/unreachable"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let uuid = v["uuid"].as_str().unwrap().to_string();
+
+        let (status, v) = body(
+            app.clone()
+                .oneshot(post("/api/v2/check/run", serde_json::json!({})))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["checked"], 1);
+        assert_eq!(v["rows"][0]["status"], "uncertain");
+
+        let (status, v) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/check/apply",
+                    serde_json::json!({"quarantine": [uuid]}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["quarantined"], 1);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v2/bookmarks/{uuid}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (_, v) = body(res).await;
+        assert_eq!(v["folder"], "quarantine");
+    }
+}
