@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     last_opened_at TEXT,
     last_checked_at TEXT,
     check_status TEXT,
-    applied_rules TEXT NOT NULL DEFAULT '[]'
+    applied_rules TEXT NOT NULL DEFAULT '[]',
+    short_id INTEGER UNIQUE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bookmarks_url_norm ON bookmarks(url_norm);
 CREATE INDEX IF NOT EXISTS idx_bookmarks_folder ON bookmarks(folder);
@@ -178,7 +179,64 @@ fn row_bookmark(row: &Row) -> rusqlite::Result<Bookmark> {
             })?,
         check_status: row.get("check_status")?,
         applied_rules: serde_json::from_str(&rules_raw).unwrap_or_default(),
+        short_id: row.get("short_id")?,
     })
+}
+
+fn next_short_id(conn: &Connection) -> Result<i64, CoreError> {
+    let cur: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'next_short_id'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+    match cur {
+        Some(v) => {
+            let n: i64 = v
+                .parse()
+                .map_err(|e| CoreError::Storage(format!("bad short id counter: {e}")))?;
+            conn.execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'next_short_id'",
+                params![(n + 1).to_string()],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+            Ok(n)
+        }
+        None => {
+            let max: Option<i64> = conn
+                .query_row("SELECT MAX(short_id) FROM bookmarks", [], |row| row.get(0))
+                .map_err(|e| CoreError::Storage(e.to_string()))?;
+            let n = max.unwrap_or(0) + 1;
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('next_short_id', ?1)",
+                params![(n + 1).to_string()],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+            Ok(n)
+        }
+    }
+}
+
+fn bump_counter_above(conn: &Connection, n: i64) -> Result<(), CoreError> {
+    let cur: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'next_short_id'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+    let cur: i64 = cur.and_then(|v| v.parse().ok()).unwrap_or(1);
+    if cur <= n {
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('next_short_id', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![(n + 1).to_string()],
+        )
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+    }
+    Ok(())
 }
 
 fn sync_tags(conn: &Connection, uuid: &Uuid, tags: &[String]) -> Result<(), CoreError> {
@@ -199,7 +257,8 @@ fn sync_tags(conn: &Connection, uuid: &Uuid, tags: &[String]) -> Result<(), Core
 
 const BOOKMARK_COLS: &str = "uuid, url, title, description, tags, folder,
     created_at, updated_at, html_file, markdown_file, archive_file,
-    open_count, last_opened_at, last_checked_at, check_status, applied_rules";
+    open_count, last_opened_at, last_checked_at, check_status, applied_rules,
+    short_id";
 
 impl Store {
     fn connect(path: Option<&std::path::Path>) -> Result<Connection, CoreError> {
@@ -280,13 +339,14 @@ impl Store {
             last_checked_at: None,
             check_status: None,
             applied_rules: new.applied_rules,
+            short_id: Some(next_short_id(&self.conn)?),
         };
         self.conn
             .execute(
                 "INSERT INTO bookmarks (uuid, url, url_norm, title, description, tags,
                  folder, created_at, updated_at, html_file, markdown_file, archive_file,
-                 open_count, applied_rules)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13)",
+                 open_count, applied_rules, short_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13, ?14)",
                 params![
                     b.uuid.to_string(),
                     b.url,
@@ -303,6 +363,7 @@ impl Store {
                     b.archive_file,
                     serde_json::to_string(&b.applied_rules)
                         .map_err(|e| CoreError::Storage(e.to_string()))?,
+                    b.short_id,
                 ],
             )
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -382,19 +443,42 @@ impl Store {
     }
 
     pub fn replace_bookmark_exact(&mut self, b: &Bookmark) -> Result<(), CoreError> {
+        let mut owned = b.clone();
+        let taken: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT uuid FROM bookmarks WHERE short_id = ?1",
+                params![owned.short_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        if let Some(other) = taken {
+            if other != owned.uuid.to_string() {
+                owned.short_id = Some(next_short_id(&self.conn)?);
+            }
+        }
+        if owned.short_id.is_none() {
+            owned.short_id = Some(next_short_id(&self.conn)?);
+        } else if let Some(n) = owned.short_id {
+            bump_counter_above(&self.conn, n)?;
+        }
+        let b = &owned;
         self.conn
             .execute(
                 "INSERT INTO bookmarks (uuid, url, url_norm, title, description, tags,
                  folder, created_at, updated_at, html_file, markdown_file, archive_file,
-                 open_count, last_opened_at, last_checked_at, check_status, applied_rules)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                 open_count, last_opened_at, last_checked_at, check_status, applied_rules,
+                 short_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
                  ON CONFLICT(uuid) DO UPDATE SET url = excluded.url, url_norm = excluded.url_norm,
                  title = excluded.title, description = excluded.description, tags = excluded.tags,
                  folder = excluded.folder, created_at = excluded.created_at, updated_at = excluded.updated_at,
                  html_file = excluded.html_file, markdown_file = excluded.markdown_file,
                  archive_file = excluded.archive_file, open_count = excluded.open_count,
                  last_opened_at = excluded.last_opened_at, last_checked_at = excluded.last_checked_at,
-                 check_status = excluded.check_status, applied_rules = excluded.applied_rules",
+                 check_status = excluded.check_status, applied_rules = excluded.applied_rules,
+                 short_id = excluded.short_id",
                 params![
                     b.uuid.to_string(),
                     b.url,
@@ -415,6 +499,7 @@ impl Store {
                     b.check_status,
                     serde_json::to_string(&b.applied_rules)
                         .map_err(|e| CoreError::Storage(e.to_string()))?,
+                    b.short_id,
                 ],
             )
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -435,6 +520,30 @@ impl Store {
         sync_tags(&self.conn, &b.uuid, &b.tags)?;
         let payload = serde_json::to_value(b).map_err(|e| CoreError::Storage(e.to_string()))?;
         self.append_oplog(Some(b.uuid), "upsert", payload)
+    }
+
+    pub fn backfill_short_ids(&mut self) -> Result<usize, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT uuid FROM bookmarks WHERE short_id IS NULL ORDER BY created_at, uuid")
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let uuids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| CoreError::Storage(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        drop(stmt);
+        let first = next_short_id(&self.conn)?;
+        for (i, uuid) in uuids.iter().enumerate() {
+            self.conn
+                .execute(
+                    "UPDATE bookmarks SET short_id = ?1 WHERE uuid = ?2 AND short_id IS NULL",
+                    params![first + i as i64, uuid],
+                )
+                .map_err(|e| CoreError::Storage(e.to_string()))?;
+        }
+        bump_counter_above(&self.conn, first + uuids.len() as i64)?;
+        Ok(uuids.len())
     }
 
     pub fn delete_bookmark(&mut self, uuid: &Uuid) -> Result<bool, CoreError> {
@@ -663,6 +772,22 @@ impl Store {
     pub fn resolve_spec(&self, tokens: &[String]) -> Result<Vec<Bookmark>, CoreError> {
         let mut out = Vec::new();
         for t in tokens {
+            if let Ok(n) = t.trim().parse::<i64>() {
+                let mut stmt = self
+                    .conn
+                    .prepare(&format!(
+                        "SELECT {BOOKMARK_COLS} FROM bookmarks WHERE short_id = ?1"
+                    ))
+                    .map_err(|e| CoreError::Storage(e.to_string()))?;
+                let found: Option<Bookmark> = stmt
+                    .query_row(params![n], row_bookmark)
+                    .optional()
+                    .map_err(|e| CoreError::Storage(e.to_string()))?;
+                if let Some(b) = found {
+                    out.push(self.with_attachments(b)?);
+                    continue;
+                }
+            }
             let prefix = t.to_lowercase();
             let mut stmt = self
                 .conn
