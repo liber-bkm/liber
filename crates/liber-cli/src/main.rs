@@ -68,6 +68,8 @@ struct ListArgs {
     query: Option<String>,
     #[arg(long)]
     sort: Option<String>,
+    #[arg(long)]
+    deep: bool,
 }
 
 #[derive(clap::Args)]
@@ -345,8 +347,20 @@ fn open_in_browser(cfg: &liber_core::store::Config, url: &str) -> anyhow::Result
 
 fn run_add(a: AddArgs) -> anyhow::Result<()> {
     let (_, mut store) = load_store()?;
+    let title = match a.title {
+        Some(t) if !t.trim().is_empty() => Some(t),
+        _ => {
+            println!("Fetching title for {} ...", a.url);
+            let fetched = liber_core::create::fetch_title(&liber_core::slug::normalize_url(&a.url));
+            if fetched.trim().is_empty() {
+                None
+            } else {
+                Some(fetched)
+            }
+        }
+    };
     let opts = liber_core::create::CreateOptions {
-        title: a.title,
+        title,
         description: a.description.unwrap_or_default(),
         tags: a.tags,
         folder: a.folder.unwrap_or_default(),
