@@ -253,3 +253,66 @@ export function learnSuggestions(min = 3): Promise<{ suggestions: Suggestion[] }
 export function learnCreate(min = 3): Promise<{ created: number; applied: number }> {
   return request("/api/v2/rules/learn", { method: "POST", body: JSON.stringify({ min }) });
 }
+
+export interface CheckRow {
+  uuid: string;
+  title: string;
+  url: string;
+  status: string;
+  detail: string;
+  target?: string;
+}
+
+export interface CheckReport {
+  checked: number;
+  ok: number;
+  fresh_skipped: number;
+  rows: CheckRow[];
+}
+
+export function checkRun(spec?: string): Promise<CheckReport> {
+  return request("/api/v2/check/run", {
+    method: "POST",
+    body: JSON.stringify({ spec }),
+  });
+}
+
+export function checkApply(updates: { uuid: string; url: string }[], quarantine: string[]): Promise<{ updated: number; quarantined: number; skipped: unknown[] }> {
+  return request("/api/v2/check/apply", {
+    method: "POST",
+    body: JSON.stringify({ updates, quarantine }),
+  });
+}
+
+export interface ReindexReport {
+  adopted: number;
+  relinked_markdown: number;
+  relinked_archive: number;
+  swept_conflicts: number;
+  quarantined_attachments: number;
+  pending: string[];
+  pruned: number;
+  indexed: number;
+}
+
+export function runReindex(prune: boolean): Promise<ReindexReport> {
+  return request("/api/v2/reindex", { method: "POST", body: JSON.stringify({ prune }) });
+}
+
+export function importLibrary(content: string, markdown = false): Promise<{ added: number; skipped_dup: number; skipped_bad: number }> {
+  return request("/api/v2/library/import", { method: "POST", body: JSON.stringify({ content, markdown }) });
+}
+
+export function exportSite(): Promise<{ index: string }> {
+  return request("/api/v2/library/export-site", { method: "POST", body: JSON.stringify({}) });
+}
+
+export type Settings = Record<string, string | null>;
+
+export function fetchSettings(): Promise<Settings> {
+  return request("/api/v2/settings");
+}
+
+export function setSetting(key: string, value: string): Promise<{ ok: boolean }> {
+  return request("/api/v2/settings", { method: "PUT", body: JSON.stringify({ key, value }) });
+}
