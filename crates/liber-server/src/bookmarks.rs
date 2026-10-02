@@ -46,9 +46,27 @@ pub async fn list_bookmarks(
     let per_page = p.per_page.unwrap_or(50).clamp(1, 500);
     let page = p.page.unwrap_or(1).max(1);
     let start = (page - 1) * per_page;
-    let (found, total) = store
+    let (mut found, mut total) = store
         .query_bookmarks(&filter, sort, per_page, start)
         .map_err(core_err)?;
+    if p.deep.unwrap_or(false) {
+        if let Some(q) = &p.q {
+            if !q.trim().is_empty() {
+                let mut seen: std::collections::HashSet<uuid::Uuid> =
+                    found.iter().map(|b| b.uuid).collect();
+                let deep =
+                    liber_core::search::deep_search_uuids(&store, q, 200).map_err(core_err)?;
+                for uuid in deep {
+                    if seen.insert(uuid) {
+                        if let Some(b) = store.get(&uuid).map_err(core_err)? {
+                            found.push(b);
+                            total += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
     let fields = SearchFields::all();
     let ordered = order_results(found, p.q.as_deref().unwrap_or(""), &fields, sort);
     let slice: Vec<ApiBookmark> = ordered.iter().map(ApiBookmark::from).collect();
@@ -69,8 +87,23 @@ pub async fn add_bookmark(
     }
     let _guard = state.write_mu.lock().await;
     let mut store = open_store(&state)?;
+    let title = match input.title {
+        Some(t) if !t.trim().is_empty() => Some(t),
+        _ => {
+            let url = liber_core::slug::normalize_url(&input.url);
+            let fetched =
+                tokio::task::spawn_blocking(move || liber_core::create::fetch_title(&url))
+                    .await
+                    .unwrap_or_default();
+            if fetched.trim().is_empty() {
+                None
+            } else {
+                Some(fetched)
+            }
+        }
+    };
     let opts = CreateOptions {
-        title: input.title,
+        title,
         description: input.description.unwrap_or_default(),
         tags: input.tags,
         folder: input.folder.unwrap_or_default(),
