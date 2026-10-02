@@ -146,6 +146,39 @@ export function shortUuid(uuid: string): string {
   return uuid.slice(0, 8);
 }
 
+export async function fetchNotes(uuid: string): Promise<{ body: string | null }> {
+  return request(`/api/v2/bookmarks/${uuid}/notes`);
+}
+
+export async function saveNotes(uuid: string, body: string): Promise<{ ok: boolean }> {
+  return request(`/api/v2/bookmarks/${uuid}/notes`, {
+    method: "PUT",
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function archiveUrl(uuid: string): string {
+  return `/api/v2/bookmarks/${uuid}/archive`;
+}
+
+export async function uploadAttachment(uuid: string, name: string, dataUrl: string): Promise<{ name: string }> {
+  const base64 = dataUrl.includes(",") ? dataUrl.split(",").slice(1).join(",") : dataUrl;
+  return request(`/api/v2/bookmarks/${uuid}/attachments`, {
+    method: "POST",
+    body: JSON.stringify({ name, content: base64 }),
+  });
+}
+
+export type ArchiveView = "embed" | "tab";
+
+export function getArchiveView(): ArchiveView {
+  return localStorage.getItem("liber-archive-view") === "tab" ? "tab" : "embed";
+}
+
+export function setArchiveView(v: ArchiveView) {
+  localStorage.setItem("liber-archive-view", v);
+}
+
 export interface BulkResult {
   deleted?: number;
   updated?: number;
