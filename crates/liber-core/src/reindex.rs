@@ -19,6 +19,7 @@ pub struct ReindexReport {
     pub pending: Vec<String>,
     pub pruned: usize,
     pub indexed: usize,
+    pub short_ids_assigned: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -222,6 +223,7 @@ pub fn reindex(store: &mut Store, flags: ReindexFlags) -> Result<ReindexReport, 
             last_checked_at: None,
             check_status: None,
             applied_rules: vec![],
+            short_id: None,
         };
         let nb = NewBookmark {
             uuid: bookmark.uuid,
@@ -318,6 +320,7 @@ pub fn reindex(store: &mut Store, flags: ReindexFlags) -> Result<ReindexReport, 
             }
         }
     }
+    rep.short_ids_assigned = store.backfill_short_ids()?;
     if let Ok(index) = SearchIndex::open_or_create(&store.cfg.tantivy_dir()) {
         let mut docs = Vec::new();
         for b in store.list()? {

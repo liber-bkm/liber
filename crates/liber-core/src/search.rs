@@ -343,6 +343,7 @@ mod tests {
             last_checked_at: None,
             check_status: None,
             applied_rules: vec![],
+            short_id: None,
         }
     }
 

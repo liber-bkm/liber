@@ -127,6 +127,7 @@ pub fn create_bookmark(
         last_checked_at: None,
         check_status: None,
         applied_rules: applied.clone(),
+        short_id: None,
     };
     write_html_bookmark(&store.cfg.html_dir().join(&html_rel), &preview)
         .map_err(|e| CoreError::Storage(format!("writing html bookmark: {e}")))?;
