@@ -206,6 +206,11 @@ export function ageOf(iso: string): string {
   if (months < 12) return `${months}mo ago`;
   return `${Math.floor(months / 12)}y ago`;
 }
+
+export function fetchHistory(): Promise<BookmarkList> {
+  return request<BookmarkList>("/api/v2/history?per_page=100");
+}
+
 export interface Rule {
   id: string;
   pattern: string;
