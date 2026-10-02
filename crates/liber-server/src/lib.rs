@@ -28,6 +28,7 @@ pub mod check;
 pub mod library;
 pub mod reindex;
 pub mod rules;
+pub mod settings;
 pub mod sync;
 pub mod taxonomy;
 
@@ -69,6 +70,7 @@ pub fn build_router(state: AppState) -> Router {
                 .delete(bookmarks::delete_bookmark),
         )
         .route("/api/v2/bookmarks/:id/open", post(bookmarks::open_bookmark))
+        .route("/api/v2/history", get(bookmarks::history))
         .route(
             "/api/v2/bookmarks/:id/attachments/:name",
             get(bookmarks::download_attachment),
@@ -106,6 +108,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v2/sync/export", post(sync::export_oplog))
         .route("/api/v2/sync/import", post(sync::import_oplog))
         .route("/api/v2/sync/prune", post(sync::prune_oplog_ep))
+        .route(
+            "/api/v2/settings",
+            get(settings::get_settings).put(settings::set_setting),
+        )
         .route("/api/v2/reindex", post(reindex::reindex_ep))
         .fallback(frontend_fallback)
         .layer(middleware::from_fn_with_state(
