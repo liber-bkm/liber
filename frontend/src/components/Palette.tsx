@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Command } from "cmdk";
 import { useQuery } from "@tanstack/react-query";
-import { fetchBookmarks, type Bookmark } from "../api";
+import { type Bookmark } from "../api";
+import { listBookmarks } from "../tauri";
 
 export function Palette({
   onOpen,
@@ -17,7 +18,7 @@ export function Palette({
   const [q, setQ] = useState("");
   const results = useQuery({
     queryKey: ["palette", q],
-    queryFn: () => fetchBookmarks({ q: q || undefined, per_page: 8 }),
+    queryFn: () => listBookmarks({ q: q || undefined, per_page: 8 }),
     enabled: q.trim().length > 0,
   });
 

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownWideNarrow, LayoutGrid, Search, Table2 } from "lucide-react";
-import { ageOf, domainOf, fetchBookmarks, shortUuid, type Bookmark } from "../api";
+import { ageOf, domainOf, shortUuid, type Bookmark } from "../api";
+import { listBookmarks } from "../tauri";
 import { Badge, Empty, Input, Spinner } from "../components/ui";
 import { BulkBar } from "../components/BulkBar";
 
@@ -50,7 +51,7 @@ export function Library({
   const query = useQuery({
     queryKey: ["bookmarks", debounced, sort, folder, tag],
     queryFn: () =>
-      fetchBookmarks({
+      listBookmarks({
         q: debounced || undefined,
         sort: sort || undefined,
         folder: folder ?? undefined,
