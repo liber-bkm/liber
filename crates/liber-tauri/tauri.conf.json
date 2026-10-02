@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "liber",
+  "version": "0.1.0",
+  "identifier": "rs.liber.app",
+  "build": {
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../../frontend/dist",
+    "beforeDevCommand": "pnpm --dir ../frontend dev",
+    "beforeBuildCommand": "pnpm --dir ../frontend build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "liber",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 360,
+        "minHeight": 480
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "category": "Utility",
+    "shortDescription": "Local-first bookmark manager",
+    "linux": {
+      "deb": {},
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    }
+  }
+}

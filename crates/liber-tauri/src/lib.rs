@@ -1,9 +1,69 @@
-use liber_core::CoreError;
+use std::sync::{Arc, Mutex};
 
-pub fn version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
+use liber_core::store::{Config, Store};
+use serde::Serialize;
+
+pub struct AppState {
+    pub cfg: Config,
+    pub write_mu: Arc<Mutex<()>>,
 }
 
-pub fn placeholder() -> Result<(), CoreError> {
-    Err(CoreError::Invalid("not implemented".to_string()))
+impl AppState {
+    pub fn new(cfg: Config) -> Self {
+        Self {
+            cfg,
+            write_mu: Arc::new(Mutex::new(())),
+        }
+    }
+}
+
+pub fn open_store(state: &AppState) -> Result<Store, String> {
+    Store::open(state.cfg.clone()).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TauriBookmark {
+    pub uuid: String,
+    pub url: String,
+    pub title: String,
+    pub description: String,
+    pub tags: Vec<String>,
+    pub folder: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub has_markdown: bool,
+    pub has_archive: bool,
+    pub open_count: u64,
+}
+
+impl From<&liber_core::model::Bookmark> for TauriBookmark {
+    fn from(b: &liber_core::model::Bookmark) -> Self {
+        Self {
+            uuid: b.uuid.to_string(),
+            url: b.url.clone(),
+            title: b.title.clone(),
+            description: b.description.clone(),
+            tags: b.tags.clone(),
+            folder: b.folder.clone(),
+            created_at: b.created_at.to_rfc3339(),
+            updated_at: b.updated_at.to_rfc3339(),
+            has_markdown: b.markdown_file.is_some(),
+            has_archive: b.archive_file.is_some(),
+            open_count: b.open_count,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct ListResponse {
+    pub total: usize,
+    pub page: usize,
+    pub per_page: usize,
+    pub bookmarks: Vec<TauriBookmark>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AddResult {
+    pub status: String,
+    pub bookmark: TauriBookmark,
 }
