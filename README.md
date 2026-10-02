@@ -21,26 +21,39 @@ nix build .#default
 
 ## Building
 
-Four flavors, pick one:
+Everything builds from inside `nix develop` (run from `project-liber/`).
+End users never build anything: release artifacts ship complete.
 
-* **Dev backend only** (fast, no UI): `nix develop --command bash -c
-  'cargo build -p liber-cli'`. Serves API-only; `/` explains how to add
-  the UI.
-* **Dev with UI**: build the frontend once (`cd frontend &&
-  pnpm install && pnpm build`), then `EMBED_UI=1 cargo build` to bake it
-  in, or point any build at it with `liber serve --static-dir
-  ./frontend/dist`. For UI iteration prefer `pnpm dev` (proxies `/api`
-  to a local `liber serve`).
-* **Release locally**: `cd frontend && pnpm install && pnpm build`,
-  then `EMBED_UI=1 cargo build --release -p liber-cli`. The binary serves
-  the UI with zero flags. Without `EMBED_UI=1` the build stays API-only
-  even in release mode, by design, so stale `dist` output never ships
-  silently.
-* **Nix package**: `nix build .#default` builds the frontend offline
-  from the lockfile, then the release binary with the UI embedded.
+* **CLI plus server (dev, fast, no UI)**: `cargo build -p liber-cli`.
+  Serves API-only; `/` explains how to add the UI.
+* **Web UI (dev)**: `cd frontend && pnpm install && pnpm build` once,
+  then either `EMBED_UI=1 cargo build` to bake it in, or point any build
+  at it with `liber serve --static-dir ./frontend/dist`. For UI iteration
+  prefer `pnpm dev` (proxies `/api` to a local `liber serve`).
+* **CLI plus server (release, local)**: build the frontend as above, then
+  `EMBED_UI=1 cargo build --release -p liber-cli`. The binary serves the
+  UI with zero flags. Without `EMBED_UI=1` the build stays API-only even
+  in release mode, by design, so stale `dist` output never ships silently.
+* **Nix package (`nix build .#default`)**: builds the frontend offline
+  from the lockfile, then the release `liber` plus `liber-serve` binaries
+  with the UI embedded. Scoped to CLI plus server only: the Tauri GUI
+  binary is excluded (it has its own bundle pipeline below) via
+  `cargoBuildFlags`, and tests via `cargoTestFlags`, so system webkit is
+  never required.
+* **Tauri desktop app**: `cd crates/liber-tauri &&` run the frontend-local
+  CLI (`../../frontend/node_modules/.bin/tauri`) `build --debug` for an
+  unoptimized bundle, or `build` for release. Produces `.deb`/`.rpm`
+  (plus AppImage targets where configured) using the embedded frontend.
+  Frontend hook commands run with `crates/` as cwd. Needs the flake dev
+  shell for webkit system deps; a display for running, not for building.
 
 Serving order is always explicit `--static-dir`, then the embedded
 bundle, then an API-only notice.
+
+If `nix build .#default` fails with `ERR_PNPM_NO_OFFLINE_TARBALL`, the
+`pnpmDeps.hash` in `flake.nix` is stale (frontend deps changed since it
+was pinned). Fix: set the hash to `""`, rebuild, copy the `got: sha256-…`
+value from the mismatch error back into the flake.
 
 ## Quickstart
 
