@@ -16,6 +16,7 @@ pub struct MergeReport {
     pub deduped: usize,
     pub deleted: usize,
     pub rules: usize,
+    pub renumbered: usize,
 }
 
 fn entry_key(
@@ -221,7 +222,12 @@ fn replay_upsert(
         let mut updated = incoming.clone();
         updated.created_at = updated.created_at.min(local.created_at);
         merge_fields(&mut updated, &local);
+        let before = updated.short_id;
         store.replace_bookmark_exact(&updated)?;
+        let after = store.get(&updated.uuid)?.and_then(|b| b.short_id);
+        if before.is_some() && before != after {
+            rep.renumbered += 1;
+        }
         rep.merged += 1;
         return Ok(());
     }
@@ -231,8 +237,12 @@ fn replay_upsert(
         rep.deduped += 1;
         return Ok(());
     }
-    let _ = norm;
+    let before = incoming.short_id;
     store.replace_bookmark_exact(incoming)?;
+    let after = store.get(&incoming.uuid)?.and_then(|b| b.short_id);
+    if before.is_some() && before != after {
+        rep.renumbered += 1;
+    }
     rep.inserted += 1;
     Ok(())
 }
@@ -442,6 +452,24 @@ mod tests {
         let rep = replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
         assert_eq!(rep.deleted, 1);
         assert!(b.get(&ba.uuid).unwrap().is_none());
+    }
+
+    #[test]
+    fn short_id_collision_renumbers_loser() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        let ba = add(&mut a, "https://example.com/a", "A");
+        let bb = add(&mut b, "https://example.com/b", "B");
+        assert_eq!(ba.short_id, Some(1));
+        assert_eq!(bb.short_id, Some(1));
+        let rep = replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        assert_eq!(rep.inserted, 1);
+        assert_eq!(rep.renumbered, 1);
+        let got = b.get(&ba.uuid).unwrap().unwrap();
+        assert_eq!(got.short_id, Some(2));
+        assert_eq!(b.get(&bb.uuid).unwrap().unwrap().short_id, Some(1));
+        assert!(b.resolve_spec(&["2".to_string()]).unwrap()[0].uuid == ba.uuid);
     }
 
     #[test]
