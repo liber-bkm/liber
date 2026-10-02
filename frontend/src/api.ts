@@ -4,6 +4,7 @@ export interface Attachment {
 
 export interface Bookmark {
   uuid: string;
+  short_id?: number;
   url: string;
   title: string;
   description?: string;
@@ -146,6 +147,10 @@ export function shortUuid(uuid: string): string {
   return uuid.slice(0, 8);
 }
 
+export function displayId(b: { uuid: string; short_id?: number }): string {
+  return b.short_id != null ? String(b.short_id) : shortUuid(b.uuid);
+}
+
 export async function fetchNotes(uuid: string): Promise<{ body: string | null }> {
   return request(`/api/v2/bookmarks/${uuid}/notes`);
 }
@@ -167,6 +172,27 @@ export async function uploadAttachment(uuid: string, name: string, dataUrl: stri
     method: "POST",
     body: JSON.stringify({ name, content: base64 }),
   });
+}
+
+export async function deleteAttachment(uuid: string, name: string): Promise<{ detached: string }> {
+  return request(`/api/v2/bookmarks/${uuid}/attachments/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function deleteNotes(uuid: string): Promise<{ ok: boolean }> {
+  return request(`/api/v2/bookmarks/${uuid}/notes`, { method: "DELETE" });
+}
+
+export async function createArchive(uuid: string, backend?: string): Promise<{ ok: boolean; warnings: string[] }> {
+  return request(`/api/v2/bookmarks/${uuid}/archive`, {
+    method: "POST",
+    body: JSON.stringify({ backend }),
+  });
+}
+
+export async function deleteArchive(uuid: string): Promise<{ ok: boolean }> {
+  return request(`/api/v2/bookmarks/${uuid}/archive`, { method: "DELETE" });
 }
 
 export type ArchiveView = "embed" | "tab";
