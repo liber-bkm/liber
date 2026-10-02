@@ -1369,4 +1369,43 @@ mod tests {
         assert_eq!(s.list().unwrap().len(), 1);
         assert!(dir.path().join(".liber").join("store.db").exists());
     }
+
+    #[test]
+    fn short_ids_assign_monotonically_without_reuse() {
+        let mut s = mem_store();
+        let a = s.add_bookmark(sample("https://example.com/a")).unwrap();
+        let b = s.add_bookmark(sample("https://example.com/b")).unwrap();
+        assert_eq!(a.short_id, Some(1));
+        assert_eq!(b.short_id, Some(2));
+        s.delete_bookmark(&b.uuid).unwrap();
+        let c = s.add_bookmark(sample("https://example.com/c")).unwrap();
+        assert_eq!(c.short_id, Some(3));
+    }
+
+    #[test]
+    fn resolve_prefers_short_id() {
+        let mut s = mem_store();
+        let a = s.add_bookmark(sample("https://example.com/a")).unwrap();
+        let hits = s.resolve_spec(&["1".to_string()]).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].uuid, a.uuid);
+        assert!(s.resolve_spec(&["99".to_string()]).is_err());
+    }
+
+    #[test]
+    fn backfill_assigns_in_creation_order() {
+        let mut s = mem_store();
+        s.conn
+            .execute("INSERT INTO bookmarks (uuid, url, url_norm, created_at, updated_at) VALUES ('11111111-1111-1111-1111-111111111111', 'https://example.com/old', 'https://example.com/old', '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z')", [])
+            .unwrap();
+        let b = s.add_bookmark(sample("https://example.com/new")).unwrap();
+        assert_eq!(b.short_id, Some(1));
+        assert_eq!(s.backfill_short_ids().unwrap(), 1);
+        let old = s
+            .get(&uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(old.short_id, Some(2));
+        assert_eq!(s.backfill_short_ids().unwrap(), 0);
+    }
 }
