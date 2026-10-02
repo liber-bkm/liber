@@ -95,6 +95,9 @@ Elegant library interface built from scratch (no Go UI carried over):
 * Add dialog with live duplicate detection ("add anyway" or open existing)
 * Bulk bar: multi-select delete (confirmed), set tags, move folder
 * Tags and folders management with merge semantics
+* Rules with learn suggestions, check center with run plus per-row apply
+* Real history page, settings (archive backends, reindex, import/export)
+* Command palette (`Ctrl+K`): fuzzy search plus navigation and actions
 * Token login page; 401s redirect with `next` preserved
 
 Remaining screens: rules with learn, check center, history, settings,
