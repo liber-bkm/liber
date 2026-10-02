@@ -60,6 +60,7 @@ pub async fn import_oplog(
         "deduped": rep.deduped,
         "deleted": rep.deleted,
         "rules": rep.rules,
+        "renumbered": rep.renumbered,
     })))
 }
 

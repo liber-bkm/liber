@@ -24,6 +24,7 @@ pub fn open_store(state: &AppState) -> Result<Store, String> {
 #[derive(Debug, Clone, Serialize)]
 pub struct TauriBookmark {
     pub uuid: String,
+    pub short_id: Option<i64>,
     pub url: String,
     pub title: String,
     pub description: String,
@@ -40,6 +41,7 @@ impl From<&liber_core::model::Bookmark> for TauriBookmark {
     fn from(b: &liber_core::model::Bookmark) -> Self {
         Self {
             uuid: b.uuid.to_string(),
+            short_id: b.short_id,
             url: b.url.clone(),
             title: b.title.clone(),
             description: b.description.clone(),
