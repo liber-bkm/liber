@@ -13,5 +13,12 @@ liber-core = { path = "../liber-core" }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
-# Tauri 2 dependency lands with the Tauri phase (desktop/mobile).
-# Kept out of the scaffold so `cargo check` stays fast and offline-friendly.
+tauri.workspace = true
+tauri-plugin-opener.workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[[bin]]
+name = "liber-tauri"
+path = "src/main.rs"
