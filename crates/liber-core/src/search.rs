@@ -302,11 +302,27 @@ fn map_err<E: std::fmt::Display>(e: E) -> CoreError {
     CoreError::Storage(e.to_string())
 }
 
+pub fn deep_search_uuids(
+    store: &crate::store::Store,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<Uuid>, CoreError> {
+    let dir = store.cfg.tantivy_dir();
+    if !dir.join("meta.json").exists() {
+        return Ok(Vec::new());
+    }
+    let index = SearchIndex::open_or_create(&dir)?;
+    Ok(index
+        .search(query, limit)?
+        .into_iter()
+        .map(|(uuid, _)| uuid)
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::Utc;
-
     fn bookmark(title: &str, url: &str) -> Bookmark {
         let now = Utc::now();
         Bookmark {
