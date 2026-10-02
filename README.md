@@ -5,8 +5,8 @@ Tauri desktop and mobile. Rust port of liber (see parent directory) with
 clean break storage; every Go capability is available in enhanced form,
 not cloned.
 
-Status: core complete (81 automated tests), web UI in progress. See
-`local/PARITY.md` for the capability tracker.
+Status: core and web UI complete (102 Rust plus 2 UI tests), Tauri desktop
+phase 1 done. See `local/PARITY.md` for the capability tracker.
 
 ## Install
 
@@ -70,15 +70,18 @@ given `--static-dir` (see Building).
 
 ## CLI
 
-Bookmarks are addressed by UUID prefix (at least the leading characters
-needed to be unique). Specs accept comma separated prefixes.
+Bookmarks are addressed by short numeric ID (`edit 3`) or UUID prefix.
+Numbers are display aliases assigned at creation, never reused, and survive
+sync without renames; `--uuid` shows full UUIDs instead. Specs accept
+comma separated IDs.
 
 | Command | Purpose |
 |---|---|
 | `add <url>` | Add bookmark (`--title -t --folder --description --markdown --archive --attach`) |
 | `list [query]` | Search and list (`--sort newest\|oldest\|visited\|title`) |
 | `open <spec>` | Open in browser, records history (falls back to search on miss) |
-| `edit <spec>` | Update url, title, description, tags, folder (`--markdown --attach --detach`) |
+| `edit <spec>` | Update url, title, description, tags, folder (`--markdown --attach --detach`); with no flags opens the full TUI editor |
+| `pick [query]` | Fuzzy TUI picker, then an open-or-edit menu (prints the URL when piped) |
 | `delete <spec>` | Delete with confirm (`--yes` skips it) |
 | `attachments <spec>` | List attachments with numbers |
 | `archive <spec>` | Archive page (`--backend builtin\|browser\|single-file\|monolith\|auto`) |
@@ -100,7 +103,7 @@ needed to be unique). Specs accept comma separated prefixes.
 | `completion <shell>` | Shell completions (bash, zsh, fish, powershell, elvish) |
 | `serve` | Self host API plus web UI (`--addr --auth-token --static-dir`) |
 
-Planned but not yet implemented: `pick`.
+All CLI commands are implemented.
 
 ## Web UI
 
@@ -115,10 +118,12 @@ Elegant library interface built from scratch (no Go UI carried over):
 * Real history page, settings (archive backends, reindex, import/export)
 * Command palette (`Ctrl+K`): fuzzy search plus navigation and actions
 * Token login page; 401s redirect with `next` preserved
+* Detail content tabs: notes editor, archive viewer (inline or new tab),
+  attachment upload
 
-Remaining screens: rules with learn, check center, history, settings,
-command palette. Served by `liber serve --static-dir`; the same bundle
-targets Tauri desktop and mobile later.
+Served embedded with zero flags in release and nix builds; `--static-dir`
+overrides for development. The same bundle targets Tauri desktop and
+mobile.
 
 ## API
 
