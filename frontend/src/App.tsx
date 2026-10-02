@@ -3,10 +3,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./theme";
 import { Layout, type View } from "./components/Layout";
 import { Library } from "./screens/Library";
-import { FoldersPage, TagsPage } from "./screens/Taxonomy";
 import { Login } from "./screens/Login";
 import { AddDialog, DetailDrawer } from "./components/Detail";
-import { Empty } from "./components/ui";
+import { FoldersPage, TagsPage } from "./screens/Taxonomy";
+import { RulesPage } from "./screens/Rules";
+import { CheckPage } from "./screens/Check";
+import { HistoryPage } from "./screens/History";
+import { SettingsPage } from "./screens/Settings";
+import { Palette } from "./components/Palette";
 import type { Bookmark } from "./api";
 import "./index.css";
 
@@ -18,7 +22,19 @@ function Shell() {
   const [tag, setTag] = useState<string | null>(null);
   const [openUuid, setOpenUuid] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [palette, setPalette] = useState(false);
   const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((p) => !p);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <Layout
@@ -38,11 +54,20 @@ function Shell() {
           onOpen={(b: Bookmark) => setOpenUuid(b.uuid)}
         />
       )}
-      {view === "history" && (
-        <Empty title="History" hint="Recently opened bookmarks will appear here." />
-      )}
+      {view === "history" && <HistoryPage onOpen={(b: Bookmark) => setOpenUuid(b.uuid)} />}
       {view === "tags" && <TagsPage />}
       {view === "folders" && <FoldersPage />}
+      {view === "rules" && <RulesPage />}
+      {view === "check" && <CheckPage />}
+      {view === "settings" && <SettingsPage />}
+      {palette && (
+        <Palette
+          onOpen={(b: Bookmark) => setOpenUuid(b.uuid)}
+          onAdd={() => setAdding(true)}
+          onNavigate={(v) => setView(v as View)}
+          onClose={() => setPalette(false)}
+        />
+      )}
       {openUuid && (
         <DetailDrawer
           uuid={openUuid}
