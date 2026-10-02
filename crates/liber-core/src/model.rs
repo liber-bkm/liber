@@ -5,6 +5,8 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bookmark {
     pub uuid: Uuid,
+    #[serde(default)]
+    pub short_id: Option<i64>,
     pub url: String,
     pub title: String,
     pub description: String,
