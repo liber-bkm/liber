@@ -88,3 +88,55 @@ pub async fn set_setting(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::{header, Request};
+    use tower::ServiceExt;
+
+    use crate::{build_router, AppState};
+    use liber_core::store::Config;
+
+    #[tokio::test]
+    async fn settings_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("LIBER_CONFIG", dir.path().join("config.json"));
+        let cfg = Config {
+            base_dir: dir.path().to_path_buf(),
+            device_id: "test-device".to_string(),
+            ..Default::default()
+        };
+        let app = build_router(AppState::new(cfg, String::new()));
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/settings")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v2/settings")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        "{\"key\":\"archive_backend\",\"value\":\"builtin\"}",
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["ok"], true);
+        std::env::remove_var("LIBER_CONFIG");
+    }
+}
