@@ -102,10 +102,12 @@
             inherit version;
             src = ./frontend;
             fetcherVersion = 4;
-            hash = "sha256-728DkKKUaN/HfAYK9U7RZAVh0EaUilySiRsNh69r8ZI=";
+            hash = "sha256-VRR+Ky196ZIAkB0VeuzKgdQtPDCBNOUa+CC0Qk1zucU=";
           };
           pnpmRoot = "frontend";
           env.EMBED_UI = "1";
+          cargoBuildFlags = [ "--bin" "liber" "--bin" "liber-serve" ];
+          cargoTestFlags = [ "-p" "liber-cli" "-p" "liber-server" ];
           preBuild = ''
             (cd frontend && pnpm build)
           '';
