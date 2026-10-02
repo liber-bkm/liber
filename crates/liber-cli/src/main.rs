@@ -1022,6 +1022,102 @@ fn run_attachments(spec: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_history() -> anyhow::Result<()> {
+    use liber_core::search::SortMode;
+    use liber_core::store::BookmarkFilter;
+    let (_, store) = load_store()?;
+    let filter = BookmarkFilter {
+        opened_only: true,
+        ..Default::default()
+    };
+    let (found, _) = store.query_bookmarks(&filter, SortMode::Visited, usize::MAX / 2, 0)?;
+    if found.is_empty() {
+        println!("Nothing opened yet.");
+        return Ok(());
+    }
+    for b in found {
+        println!(
+            "[{}] {} ({}) {} ({}x)",
+            &b.uuid.to_string()[..8],
+            b.title,
+            display_folder(&b.folder),
+            b.url,
+            b.open_count
+        );
+    }
+    Ok(())
+}
+
+fn run_profile(cmd: Option<ProfileCmd>) -> anyhow::Result<()> {
+    let (mut cfg, path) = liber_core::config::load_config()?;
+    match cmd {
+        None | Some(ProfileCmd::List) => {
+            let mut names = vec!["default".to_string()];
+            if let Ok(entries) = std::fs::read_dir(&cfg.base_dir) {
+                for entry in entries.flatten() {
+                    if !entry.path().is_dir() {
+                        continue;
+                    }
+                    if entry.path().join(".liber").join("store.db").exists() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            names.push(name.to_string());
+                        }
+                    }
+                }
+            }
+            names.sort();
+            names.dedup();
+            let active = cfg.active_profile.as_deref().unwrap_or("default");
+            println!("Profiles:");
+            for name in names {
+                let mark = if name == active { "*" } else { " " };
+                println!("  {mark} {name}");
+            }
+        }
+        Some(ProfileCmd::Switch { name }) => {
+            let name = name.trim().to_string();
+            if name.is_empty() || name == "default" {
+                cfg.active_profile = None;
+            } else if name.contains('/') || name == "." || name == ".." {
+                return Err(anyhow::anyhow!("invalid profile name {name:?}"));
+            } else {
+                cfg.active_profile = Some(name.clone());
+            }
+            std::fs::create_dir_all(cfg.profile_dir()).map_err(|e| anyhow::anyhow!("{e}"))?;
+            liber_core::config::save_config_to(&path, &cfg)?;
+            match &cfg.active_profile {
+                Some(active) => println!("Switched to profile {active:?}."),
+                None => println!("Switched to the default profile."),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run_completion(shell: &str) -> anyhow::Result<()> {
+    use clap::CommandFactory;
+    use clap_complete::{generate, shells};
+    let mut cmd = Cli::command();
+    match shell.to_lowercase().as_str() {
+        "bash" => generate(shells::Bash, &mut cmd, "liber", &mut std::io::stdout()),
+        "zsh" => generate(shells::Zsh, &mut cmd, "liber", &mut std::io::stdout()),
+        "fish" => generate(shells::Fish, &mut cmd, "liber", &mut std::io::stdout()),
+        "powershell" => generate(
+            shells::PowerShell,
+            &mut cmd,
+            "liber",
+            &mut std::io::stdout(),
+        ),
+        "elvish" => generate(shells::Elvish, &mut cmd, "liber", &mut std::io::stdout()),
+        other => {
+            return Err(anyhow::anyhow!(
+                "unknown shell {other:?} (bash, zsh, fish, powershell, elvish)"
+            ))
+        }
+    }
+    Ok(())
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
