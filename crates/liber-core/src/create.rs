@@ -2,6 +2,65 @@ use uuid::Uuid;
 
 use crate::dedupe::normalize_for_dedupe;
 use crate::model::{Bookmark, NewBookmark};
+
+pub fn fetch_title(url: &str) -> String {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (compatible; liber-bookmark-manager/1.0)")
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+    let resp = match client.get(url).send() {
+        Ok(r) => r,
+        Err(_) => return String::new(),
+    };
+    if resp.status().as_u16() >= 400 {
+        return String::new();
+    }
+    let text = {
+        use std::io::Read;
+        let mut data = Vec::new();
+        let mut chunk = [0u8; 8192];
+        let mut reader = resp;
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    data.extend_from_slice(&chunk[..n]);
+                    if data.len() >= 300 * 1024 {
+                        data.truncate(300 * 1024);
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        String::from_utf8_lossy(&data).into_owned()
+    };
+    extract_title(&text)
+}
+
+fn extract_title(html: &str) -> String {
+    let lower = html.to_lowercase();
+    let Some(start) = lower.find("<title") else {
+        return String::new();
+    };
+    let Some(tag_end) = lower[start..].find('>') else {
+        return String::new();
+    };
+    let body = &html[start + tag_end + 1..];
+    let end = body.to_lowercase().find("</title>").unwrap_or(body.len());
+    let title = body[..end].trim();
+    let title = title
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'");
+    title.split_whitespace().collect::<Vec<_>>().join(" ")
+}
 use crate::render::{write_html_bookmark, write_markdown_bookmark};
 use crate::slug::{dedupe_strings, normalize_url, sanitize_folder, slug_or_fallback};
 use crate::store::Store;
@@ -102,6 +161,18 @@ mod tests {
             ..Default::default()
         })
         .unwrap()
+    }
+
+    #[test]
+    fn title_extraction_vectors() {
+        assert_eq!(
+            extract_title("<html><head><title>  Hello &amp;  World\n</title></head>"),
+            "Hello & World"
+        );
+        assert_eq!(extract_title("<TITLE>Up</TITLE>"), "Up");
+        assert_eq!(extract_title("<html><body>no title</body></html>"), "");
+        assert_eq!(extract_title("not html at all"), "");
+        assert_eq!(extract_title("<title>unclosed"), "unclosed");
     }
 
     #[test]
