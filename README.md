@@ -82,9 +82,12 @@ needed to be unique). Specs accept comma separated prefixes.
 | `sync commit [--push]` | Git snapshot of the base dir (never inits a repo) |
 | `sync prune [--days N]` | Drop oplog entries older than N days (default 90) |
 | `config get\|set\|list` | See Config below |
+| `history` | Recently opened with open counts |
+| `profile list\|switch` | Named base-dir profiles sharing one config |
+| `completion <shell>` | Shell completions (bash, zsh, fish, powershell, elvish) |
 | `serve` | Self host API plus web UI (`--addr --auth-token --static-dir`) |
 
-Planned but not yet implemented: `history`, `pick`, `profile`, `completion`.
+Planned but not yet implemented: `pick`.
 
 ## Web UI
 
