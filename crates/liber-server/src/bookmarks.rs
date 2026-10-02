@@ -249,6 +249,91 @@ pub async fn download_attachment(
         .into_response())
 }
 
+pub async fn upload_attachment(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<UploadBody>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    use base64::Engine;
+    if input.name.trim().is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "name is required"));
+    }
+    if input.content.len() > 32 << 20 {
+        return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "attachment too large"));
+    }
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(input.content.as_bytes())
+        .map_err(|_| err(StatusCode::BAD_REQUEST, "content is not valid base64"))?;
+    let target = resolve_one(&state, &id).await?;
+    let _guard = state.write_mu.lock().await;
+    let mut store = open_store(&state)?;
+    let at = liber_core::attach::attach_bytes(&mut store, &target.uuid, input.name.trim(), &data)
+        .map_err(core_err)?;
+    Ok(Json(serde_json::json!({"name": at.name})))
+}
+
+#[derive(serde::Deserialize)]
+pub struct UploadBody {
+    pub name: String,
+    #[serde(default)]
+    pub content: String,
+}
+
+pub async fn get_notes(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let target = resolve_one(&state, &id).await?;
+    let store = open_store(&state)?;
+    let body = liber_core::edit::read_note_body(&store, &target.uuid).map_err(core_err)?;
+    Ok(Json(serde_json::json!({ "body": body })))
+}
+
+#[derive(serde::Deserialize)]
+pub struct NotesBody {
+    #[serde(default)]
+    pub body: String,
+}
+
+pub async fn put_notes(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<NotesBody>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let target = resolve_one(&state, &id).await?;
+    let _guard = state.write_mu.lock().await;
+    let mut store = open_store(&state)?;
+    liber_core::edit::save_note_body(&mut store, &target.uuid, &input.body).map_err(core_err)?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn get_archive(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<axum::response::Response, ApiErr> {
+    use axum::body::Body;
+    use axum::http::header;
+    let target = resolve_one(&state, &id).await?;
+    let Some(rel) = &target.archive_file else {
+        return Err(err(StatusCode::NOT_FOUND, "no archive for this bookmark"));
+    };
+    let store = open_store(&state)?;
+    let data = std::fs::read(store.cfg.archive_dir().join(rel))
+        .map_err(|_| err(StatusCode::NOT_FOUND, "archive file missing"))?;
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "sandbox allow-same-origin".to_string(),
+            ),
+        ],
+        Body::from(data),
+    )
+        .into_response())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,6 +427,100 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(v["total"], 1);
         assert_eq!(v["bookmarks"][0]["uuid"], uuid);
+    }
+
+    #[tokio::test]
+    async fn notes_archive_upload_flow() {
+        let (app, _dir) = test_state("");
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(post_json(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "https://example.com/a", "markdown": true}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let uuid = v["uuid"].as_str().unwrap().to_string();
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v2/bookmarks/{uuid}/notes"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(v["body"].as_str().unwrap().contains("Visit original"));
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/v2/bookmarks/{uuid}/notes"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{\"body\":\"my notes here\"}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v2/bookmarks/{uuid}/notes"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["body"], "my notes here");
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v2/bookmarks/{uuid}/archive"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+        let res = app
+            .clone()
+            .oneshot(post_json(
+                &format!("/api/v2/bookmarks/{uuid}/attachments"),
+                serde_json::json!({"name": "n.txt", "content": "aGVsbG8="}),
+            ))
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["name"], "n.txt");
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v2/bookmarks/{uuid}/attachments/n.txt"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
     }
 
     #[tokio::test]
