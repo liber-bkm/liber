@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Pencil, Trash2, Upload, X } from "lucide-react";
-import { archiveUrl, deleteBookmark, domainOf, fetchBookmark, fetchNotes, getArchiveView, openBookmark, saveNotes, setArchiveView, shortUuid, updateBookmark, addBookmark, uploadAttachment, ApiError, type Bookmark } from "../api";
+import { archiveUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, displayId, domainOf, fetchBookmark, fetchNotes, getArchiveView, openBookmark, saveNotes, setArchiveView, shortUuid, updateBookmark, addBookmark, uploadAttachment, ApiError, type Bookmark } from "../api";
 import { Badge, Button, Field, Input, Modal, Spinner } from "./ui";
 
 type Tab = "details" | "notes" | "archive";
@@ -43,7 +43,9 @@ export function DetailDrawer({ uuid, onClose, onChanged }: { uuid: string; onClo
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">
-          <p className="font-mono text-xs text-neutral-400">{shortUuid(uuid)}</p>
+          <p className="font-mono text-xs text-neutral-400" title={uuid}>
+            [{detail.data ? displayId(detail.data) : shortUuid(uuid)}] {uuid}
+          </p>
           <button onClick={onClose} className="rounded-lg p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800">
             <X className="h-4 w-4" />
           </button>
@@ -219,7 +221,7 @@ function NotesTab({ uuid, hasNotes }: { uuid: string; hasNotes: boolean }) {
 function ArchiveTab({ bookmark: b }: { bookmark: Bookmark }) {
   const [view, setView] = useState(getArchiveView());
   if (!b.has_archive) {
-    return <p className="text-sm text-neutral-400">No archived copy. Add one from the edit form or CLI.</p>;
+    return <p className="text-sm text-neutral-400">No archived copy. Add one from the edit form below.</p>;
   }
   const url = archiveUrl(b.uuid);
   return (
@@ -290,11 +292,104 @@ function EditForm({ bookmark: b, onDone }: { bookmark: Bookmark; onDone: () => v
       <Field label="Folder">
         <Input value={folder} onChange={(e) => setFolder(e.target.value)} />
       </Field>
+      <ArtifactSection bookmark={b} />
       <div>
         <Button onClick={() => save.mutate()} disabled={save.isPending}>
           {save.isPending ? "Saving..." : "Save"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+const BACKENDS = ["auto", "builtin", "browser", "single-file", "monolith"];
+
+function ArtifactSection({ bookmark: b }: { bookmark: Bookmark }) {
+  const qc = useQueryClient();
+  const [error, setError] = useState("");
+  const [backend, setBackend] = useState("auto");
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    await qc.invalidateQueries({ queryKey: ["bookmark", b.uuid] });
+    qc.invalidateQueries({ queryKey: ["bookmarks"] });
+  }
+
+  async function run(fn: () => Promise<unknown>) {
+    setError("");
+    setBusy(true);
+    try {
+      await fn();
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
+      <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Artifacts</p>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="w-20 text-neutral-500">Notes</span>
+        {b.has_markdown ? (
+          <Button variant="outline" onClick={() => run(() => deleteNotes(b.uuid))} disabled={busy}>
+            Remove notes
+          </Button>
+        ) : (
+          <Button variant="outline" onClick={() => run(() => saveNotes(b.uuid, ""))} disabled={busy}>
+            Start notes
+          </Button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="w-20 text-neutral-500">Archive</span>
+        {b.has_archive ? (
+          <>
+            <Button variant="outline" onClick={() => run(() => createArchive(b.uuid, backend))} disabled={busy}>
+              Re-archive
+            </Button>
+            <Button variant="ghost" onClick={() => run(() => deleteArchive(b.uuid))} disabled={busy}>
+              Remove
+            </Button>
+          </>
+        ) : (
+          <>
+            <select
+              value={backend}
+              onChange={(e) => setBackend(e.target.value)}
+              className="rounded-lg border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+            >
+              {BACKENDS.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+            <Button variant="outline" onClick={() => run(() => createArchive(b.uuid, backend))} disabled={busy}>
+              Archive now
+            </Button>
+          </>
+        )}
+      </div>
+      {(b.attachments ?? []).length > 0 && (
+        <div className="flex flex-col gap-1 text-sm">
+          {b.attachments!.map((a) => (
+            <div key={a.name} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate">{a.name}</span>
+              <button
+                onClick={() => run(() => deleteAttachment(b.uuid, a.name))}
+                disabled={busy}
+                className="rounded-lg px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
