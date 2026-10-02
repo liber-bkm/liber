@@ -5,30 +5,11 @@ use crate::store::Store;
 use crate::CoreError;
 
 pub fn tag_counts(store: &Store) -> Result<Vec<(String, usize)>, CoreError> {
-    let mut counts = std::collections::HashMap::new();
-    for b in store.list()? {
-        for t in &b.tags {
-            *counts.entry(t.clone()).or_insert(0) += 1;
-        }
-    }
-    let mut out: Vec<(String, usize)> = counts.into_iter().collect();
-    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    Ok(out)
+    store.tag_counts_sql()
 }
 
 pub fn folder_counts(store: &Store) -> Result<Vec<(String, usize)>, CoreError> {
-    let mut counts = std::collections::HashMap::new();
-    for b in store.list()? {
-        let label = if b.folder.is_empty() {
-            "/".to_string()
-        } else {
-            b.folder.clone()
-        };
-        *counts.entry(label).or_insert(0) += 1;
-    }
-    let mut out: Vec<(String, usize)> = counts.into_iter().collect();
-    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    Ok(out)
+    store.folder_counts_sql()
 }
 
 fn index_of_fold(tags: &[String], target: &str) -> Option<usize> {
@@ -187,7 +168,7 @@ mod tests {
         add(&mut s, "https://example.com/b", vec!["rust"], "");
         let changed = rename_tag(&mut s, "RUST", "go").unwrap();
         assert_eq!(changed.len(), 2);
-        let counts = tag_counts(&mut s).unwrap();
+        let counts = tag_counts(&s).unwrap();
         assert_eq!(counts, vec![("go".to_string(), 2), ("x".to_string(), 1)]);
         assert!(rename_tag(&mut s, "go", "GO").is_err());
         assert!(rename_tag(&mut s, "missing", "go").unwrap().is_empty());
@@ -213,7 +194,7 @@ mod tests {
         add(&mut s, "https://example.com/c", vec![], "other");
         let changed = rename_folder(&mut s, "tech", "dev").unwrap();
         assert_eq!(changed.len(), 2);
-        let counts = folder_counts(&mut s).unwrap();
+        let counts = folder_counts(&s).unwrap();
         assert!(counts.contains(&("dev".to_string(), 1)));
         assert!(counts.contains(&("dev/rust".to_string(), 1)));
         assert!(s.cfg.html_dir().join(&changed[0].html_file).exists());

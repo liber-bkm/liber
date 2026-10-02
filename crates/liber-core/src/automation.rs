@@ -458,11 +458,11 @@ mod tests {
             add(&mut s, &format!("https://example.com/{i}"), "tech");
         }
         add(&mut s, "https://other.com/1", "misc");
-        let out = suggest_rules(&mut s, 2).unwrap();
+        let out = suggest_rules(&s, 2).unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].host, "example.com");
         assert_eq!(out[0].folder, "tech");
-        assert!(suggest_rules(&mut s, 9).unwrap().is_empty());
+        assert!(suggest_rules(&s, 9).unwrap().is_empty());
     }
 
     #[test]

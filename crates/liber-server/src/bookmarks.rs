@@ -4,7 +4,7 @@ use axum::response::{IntoResponse, Json};
 
 use liber_core::create::{create_bookmark, CreateOptions};
 use liber_core::edit::{delete_bookmark_with_files, edit_bookmark, EditOptions};
-use liber_core::search::{bookmark_matches, order_results, parse_sort_mode, SearchFields};
+use liber_core::search::{order_results, parse_sort_mode, SearchFields};
 use liber_core::store::Store;
 
 use crate::api::{AddRequest, ApiBookmark, DeleteParams, ListParams, ListResponse, UpdateRequest};
@@ -34,33 +34,24 @@ pub async fn list_bookmarks(
     State(state): State<AppState>,
     Query(p): Query<ListParams>,
 ) -> Result<Json<ListResponse>, (StatusCode, Json<serde_json::Value>)> {
+    use liber_core::store::BookmarkFilter;
     let store = open_store(&state)?;
-    let mut found = store.list().map_err(core_err)?;
-    if let Some(q) = &p.q {
-        if !q.trim().is_empty() {
-            let fields = SearchFields::all();
-            found.retain(|b| bookmark_matches(b, q, &fields));
-        }
-    }
-    if let Some(tag) = &p.tag {
-        found.retain(|b| b.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)));
-    }
-    if let Some(folder) = &p.folder {
-        found.retain(|b| b.folder == *folder);
-    }
     let sort = parse_sort_mode(p.sort.as_deref().unwrap_or("")).map_err(core_err)?;
-    let fields = SearchFields::all();
-    let ordered = order_results(found, p.q.as_deref().unwrap_or(""), &fields, sort);
-    let total = ordered.len();
+    let filter = BookmarkFilter {
+        folder: p.folder.clone(),
+        tag: p.tag.clone(),
+        query: p.q.clone(),
+        opened_only: false,
+    };
     let per_page = p.per_page.unwrap_or(50).clamp(1, 500);
     let page = p.page.unwrap_or(1).max(1);
     let start = (page - 1) * per_page;
-    let slice: Vec<ApiBookmark> = ordered
-        .iter()
-        .skip(start)
-        .take(per_page)
-        .map(ApiBookmark::from)
-        .collect();
+    let (found, total) = store
+        .query_bookmarks(&filter, sort, per_page, start)
+        .map_err(core_err)?;
+    let fields = SearchFields::all();
+    let ordered = order_results(found, p.q.as_deref().unwrap_or(""), &fields, sort);
+    let slice: Vec<ApiBookmark> = ordered.iter().map(ApiBookmark::from).collect();
     Ok(Json(ListResponse {
         total,
         page,
@@ -200,6 +191,32 @@ pub async fn open_bookmark(
     Ok(Json(serde_json::json!({"url": target.url})))
 }
 
+pub async fn history(
+    State(state): State<AppState>,
+    Query(p): Query<ListParams>,
+) -> Result<Json<ListResponse>, ApiErr> {
+    use liber_core::search::SortMode;
+    use liber_core::store::BookmarkFilter;
+    let store = open_store(&state)?;
+    let filter = BookmarkFilter {
+        opened_only: true,
+        ..Default::default()
+    };
+    let per_page = p.per_page.unwrap_or(50).clamp(1, 500);
+    let page = p.page.unwrap_or(1).max(1);
+    let start = (page - 1) * per_page;
+    let (found, total) = store
+        .query_bookmarks(&filter, SortMode::Visited, per_page, start)
+        .map_err(core_err)?;
+    let slice: Vec<ApiBookmark> = found.iter().map(ApiBookmark::from).collect();
+    Ok(Json(ListResponse {
+        total,
+        page,
+        per_page,
+        bookmarks: slice,
+    }))
+}
+
 pub async fn download_attachment(
     State(state): State<AppState>,
     Path((id, name)): Path<(String, String)>,
@@ -267,6 +284,64 @@ mod tests {
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(v.to_string()))
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn history_orders_by_open() {
+        let (app, _dir) = test_state("");
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(post_json(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "https://example.com/a"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let uuid = v["uuid"].as_str().unwrap().to_string();
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/history")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["total"], 0);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v2/bookmarks/{uuid}/open"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/history")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["total"], 1);
+        assert_eq!(v["bookmarks"][0]["uuid"], uuid);
     }
 
     #[tokio::test]
