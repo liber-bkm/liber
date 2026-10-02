@@ -393,4 +393,36 @@ mod tests {
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].0, a.uuid);
     }
+
+    #[test]
+    fn deep_search_respects_index_presence() {
+        use crate::create::{create_bookmark, CreateOptions};
+        use crate::store::{Config, Store};
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(Config {
+            base_dir: dir.path().to_path_buf(),
+            device_id: "test-device".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+        assert!(deep_search_uuids(&store, "anything", 10)
+            .unwrap()
+            .is_empty());
+        let b = create_bookmark(
+            &mut store,
+            "https://example.com/a",
+            CreateOptions {
+                title: Some("Plain title".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let index = SearchIndex::open_or_create(&store.cfg.tantivy_dir()).unwrap();
+        index.index_bookmark(&b, "obscurecontentword").unwrap();
+        let hits = deep_search_uuids(&store, "obscurecontentword", 10).unwrap();
+        assert_eq!(hits, vec![b.uuid]);
+        assert!(deep_search_uuids(&store, "nomatchword", 10)
+            .unwrap()
+            .is_empty());
+    }
 }
