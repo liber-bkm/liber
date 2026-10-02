@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, Clock3, FolderTree, Moon, Plus, Sun, Tags } from "lucide-react";
+import { BookOpen, CheckCircle2, Clock3, FolderTree, Moon, Plus, Settings as SettingsIcon, Sparkles, Sun, Tags } from "lucide-react";
 import { fetchFolders, fetchTags } from "../api";
 import { useTheme } from "../theme";
 
-export type View = "library" | "history" | "tags" | "folders";
+export type View = "library" | "history" | "tags" | "folders" | "rules" | "check" | "settings";
 
 export function Layout({
   view,
@@ -50,7 +50,10 @@ export function Layout({
         <NavItem active={view === "library" && !folder && !tag} onClick={() => { setView("library"); setFolder(null); setTag(null); }} icon={<BookOpen className="h-4 w-4" />} label="Library" />
         <NavItem active={view === "tags"} onClick={() => setView("tags")} icon={<Tags className="h-4 w-4" />} label="Tags" />
         <NavItem active={view === "folders"} onClick={() => setView("folders")} icon={<FolderTree className="h-4 w-4" />} label="Folders" />
+        <NavItem active={view === "rules"} onClick={() => setView("rules")} icon={<Sparkles className="h-4 w-4" />} label="Rules" />
+        <NavItem active={view === "check"} onClick={() => setView("check")} icon={<CheckCircle2 className="h-4 w-4" />} label="Check" />
         <NavItem active={view === "history"} onClick={() => setView("history")} icon={<Clock3 className="h-4 w-4" />} label="History" />
+        <NavItem active={view === "settings"} onClick={() => setView("settings")} icon={<SettingsIcon className="h-4 w-4" />} label="Settings" />
         <SectionTitle icon={<FolderTree className="h-3.5 w-3.5" />} label="Folders" />
         {(folders.data?.folders ?? []).map((f) => (
           <FilterRow
