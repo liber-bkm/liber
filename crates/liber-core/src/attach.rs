@@ -51,19 +51,35 @@ pub fn attach_file(store: &mut Store, uuid: &Uuid, src: &Path) -> Result<Attachm
             src.display()
         )));
     }
-    let Some(b) = store.get(uuid)? else {
+    let Some(_) = store.get(uuid)? else {
         return Err(CoreError::NotFound(uuid.to_string()));
     };
     let name = src
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "attachment".to_string());
+    let data =
+        std::fs::read(src).map_err(|e| CoreError::Storage(format!("reading attachment: {e}")))?;
+    attach_bytes(store, uuid, &name, &data)
+}
+
+pub fn attach_bytes(
+    store: &mut Store,
+    uuid: &Uuid,
+    name: &str,
+    data: &[u8],
+) -> Result<Attachment, CoreError> {
+    let Some(b) = store.get(uuid)? else {
+        return Err(CoreError::NotFound(uuid.to_string()));
+    };
+    let name = sanitize_filename(name.trim());
     let rel = unique_rel(store, &b, &name);
     let dst = store.cfg.attachment_dir().join(&rel);
     if let Some(parent) = dst.parent() {
         std::fs::create_dir_all(parent).map_err(|e| CoreError::Storage(e.to_string()))?;
     }
-    std::fs::copy(src, &dst).map_err(|e| CoreError::Storage(format!("copying attachment: {e}")))?;
+    std::fs::write(&dst, data)
+        .map_err(|e| CoreError::Storage(format!("writing attachment: {e}")))?;
     store.add_attachment(uuid, name.clone(), rel.clone())?;
     Ok(Attachment { name, path: rel })
 }
