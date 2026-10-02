@@ -426,7 +426,22 @@ fn run_list(a: ListArgs) -> anyhow::Result<()> {
         query: a.query.clone(),
         ..Default::default()
     };
-    let (found, _) = store.query_bookmarks(&filter, sort, usize::MAX / 2, 0)?;
+    let (mut found, _) = store.query_bookmarks(&filter, sort, usize::MAX / 2, 0)?;
+    if a.deep {
+        if let Some(q) = &a.query {
+            if !q.trim().is_empty() {
+                let mut seen: std::collections::HashSet<uuid::Uuid> =
+                    found.iter().map(|b| b.uuid).collect();
+                for uuid in liber_core::search::deep_search_uuids(&store, q, 200)? {
+                    if seen.insert(uuid) {
+                        if let Some(b) = store.get(&uuid)? {
+                            found.push(b);
+                        }
+                    }
+                }
+            }
+        }
+    }
     let fields = liber_core::search::SearchFields::all();
     let query = a.query.unwrap_or_default();
     let ordered = liber_core::search::order_results(found, &query, &fields, sort);
