@@ -9,6 +9,8 @@ pub struct ApiAttachment {
 #[derive(Debug, Clone, Serialize)]
 pub struct ApiBookmark {
     pub uuid: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_id: Option<i64>,
     pub url: String,
     pub title: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -33,6 +35,7 @@ impl From<&Bookmark> for ApiBookmark {
     fn from(b: &Bookmark) -> Self {
         Self {
             uuid: b.uuid.to_string(),
+            short_id: b.short_id,
             url: b.url.clone(),
             title: b.title.clone(),
             description: b.description.clone(),

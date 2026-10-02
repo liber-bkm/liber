@@ -73,7 +73,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v2/history", get(bookmarks::history))
         .route(
             "/api/v2/bookmarks/:id/attachments/:name",
-            get(bookmarks::download_attachment),
+            get(bookmarks::download_attachment).delete(bookmarks::delete_attachment),
         )
         .route(
             "/api/v2/bookmarks/:id/attachments",
@@ -81,9 +81,16 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/api/v2/bookmarks/:id/notes",
-            get(bookmarks::get_notes).put(bookmarks::put_notes),
+            get(bookmarks::get_notes)
+                .put(bookmarks::put_notes)
+                .delete(bookmarks::delete_notes),
         )
-        .route("/api/v2/bookmarks/:id/archive", get(bookmarks::get_archive))
+        .route(
+            "/api/v2/bookmarks/:id/archive",
+            get(bookmarks::get_archive)
+                .post(bookmarks::post_archive)
+                .delete(bookmarks::delete_archive),
+        )
         .route("/login", get(auth::login_page).post(auth::login_submit))
         .route("/logout", get(auth::logout).post(auth::logout))
         .route("/api/v2/tags", get(taxonomy::list_tags))

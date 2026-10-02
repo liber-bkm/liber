@@ -367,6 +367,86 @@ pub async fn get_archive(
         .into_response())
 }
 
+#[derive(serde::Deserialize)]
+pub struct ArchiveBody {
+    pub backend: Option<String>,
+}
+
+pub async fn post_archive(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<ArchiveBody>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let target = resolve_one(&state, &id).await?;
+    let _guard = state.write_mu.lock().await;
+    let mut store = open_store(&state)?;
+    let applied = liber_core::edit::apply_edit(
+        &mut store,
+        &target.uuid,
+        liber_core::edit::EditDraft {
+            archive: liber_core::edit::ArchiveAction::Add {
+                backend: input.backend,
+            },
+            ..Default::default()
+        },
+    )
+    .map_err(core_err)?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "warnings": applied.warnings,
+    })))
+}
+
+pub async fn delete_archive(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let target = resolve_one(&state, &id).await?;
+    let _guard = state.write_mu.lock().await;
+    let mut store = open_store(&state)?;
+    liber_core::edit::apply_edit(
+        &mut store,
+        &target.uuid,
+        liber_core::edit::EditDraft {
+            archive: liber_core::edit::ArchiveAction::Remove,
+            ..Default::default()
+        },
+    )
+    .map_err(core_err)?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn delete_notes(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let target = resolve_one(&state, &id).await?;
+    let _guard = state.write_mu.lock().await;
+    let mut store = open_store(&state)?;
+    liber_core::edit::apply_edit(
+        &mut store,
+        &target.uuid,
+        liber_core::edit::EditDraft {
+            markdown: liber_core::edit::MarkdownAction::Remove,
+            ..Default::default()
+        },
+    )
+    .map_err(core_err)?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn delete_attachment(
+    State(state): State<AppState>,
+    Path((id, name)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let target = resolve_one(&state, &id).await?;
+    let _guard = state.write_mu.lock().await;
+    let mut store = open_store(&state)?;
+    let detached =
+        liber_core::attach::detach_attachment(&mut store, &target.uuid, &name).map_err(core_err)?;
+    Ok(Json(serde_json::json!({"detached": detached})))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,6 +634,74 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn artifact_remove_endpoints() {
+        let (app, _dir) = test_state("");
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(post_json(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "https://example.com/a", "markdown": true}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let uuid = v["uuid"].as_str().unwrap().to_string();
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/v2/bookmarks/{uuid}/notes"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/v2/bookmarks/{uuid}/notes"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(v["body"].is_null());
+
+        let res = app
+            .clone()
+            .oneshot(post_json(
+                &format!("/api/v2/bookmarks/{uuid}/attachments"),
+                serde_json::json!({"name": "n.txt", "content": "aGVsbG8="}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/v2/bookmarks/{uuid}/attachments/n.txt"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["detached"], "n.txt");
     }
 
     #[tokio::test]
