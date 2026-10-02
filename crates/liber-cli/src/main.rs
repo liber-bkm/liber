@@ -1165,6 +1165,7 @@ fn main() -> anyhow::Result<()> {
                 run_list(ListArgs {
                     query: None,
                     sort: None,
+                    deep: false,
                 })
             } else if cli.serve {
                 println!("serve: not implemented");
@@ -1192,6 +1193,9 @@ fn main() -> anyhow::Result<()> {
             Cmd::Sync(a) => run_sync(a.cmd),
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref(), a.static_dir.clone()),
+            Cmd::History(_) => run_history(),
+            Cmd::Profile(a) => run_profile(a.cmd),
+            Cmd::Completion(a) => run_completion(&a.shell),
             _ => {
                 println!("not implemented");
                 Ok(())
