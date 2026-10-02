@@ -13,6 +13,8 @@
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.51.0",
     "@tanstack/react-table": "^8.19.0",
+    "@tauri-apps/api": "^2.12.1",
+    "@tauri-apps/plugin-opener": "^2.7.0",
     "cmdk": "^1.1.1",
     "lucide-react": "^1.49.0",
     "react": "^18.3.1",
@@ -20,6 +22,7 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
