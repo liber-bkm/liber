@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+mod pick_tui;
+
 #[derive(Parser)]
 #[command(name = "liber", version, about = "Local first bookmark manager")]
 struct Cli {
@@ -1118,6 +1120,42 @@ fn run_completion(shell: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_pick(query: Option<&str>) -> anyhow::Result<()> {
+    use std::io::IsTerminal;
+    let (_, store) = load_store()?;
+    let targets = match query {
+        Some(q) if !q.trim().is_empty() => liber_core::picker::search_targets(&store, q)?,
+        _ => store.list()?,
+    };
+    if targets.is_empty() {
+        return Err(anyhow::anyhow!(
+            "no bookmarks matching {:?}",
+            query.unwrap_or("")
+        ));
+    }
+    if targets.len() == 1 {
+        println!("{}", targets[0].url);
+        return Ok(());
+    }
+    let shown: Vec<_> = targets.into_iter().take(100).collect();
+    if !std::io::stdin().is_terminal() {
+        return match pick_tui::confirm_numbered(&shown)? {
+            Some(b) => {
+                println!("{}", b.url);
+                Ok(())
+            }
+            None => Err(anyhow::anyhow!("no bookmark picked")),
+        };
+    }
+    match pick_tui::run_tui(shown, query.unwrap_or(""))? {
+        Some(b) => {
+            println!("{}", b.url);
+            Ok(())
+        }
+        None => Err(anyhow::anyhow!("no bookmark picked")),
+    }
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
@@ -1192,14 +1230,11 @@ fn main() -> anyhow::Result<()> {
             Cmd::Reindex(a) => run_reindex(a.prune),
             Cmd::Sync(a) => run_sync(a.cmd),
             Cmd::Config(a) => run_config(a.cmd),
+            Cmd::Pick(a) => run_pick(a.query.as_deref()),
             Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref(), a.static_dir.clone()),
             Cmd::History(_) => run_history(),
             Cmd::Profile(a) => run_profile(a.cmd),
             Cmd::Completion(a) => run_completion(&a.shell),
-            _ => {
-                println!("not implemented");
-                Ok(())
-            }
         },
     }
 }
