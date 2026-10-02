@@ -18,6 +18,153 @@ pub struct EditOptions {
     pub add_markdown: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum MarkdownAction {
+    #[default]
+    Keep,
+    Add,
+    Remove,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum ArchiveAction {
+    #[default]
+    Keep,
+    Add {
+        backend: Option<String>,
+    },
+    Remove,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EditDraft {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub folder: Option<String>,
+    pub url: Option<String>,
+    pub markdown: MarkdownAction,
+    pub archive: ArchiveAction,
+    pub attach_paths: Vec<std::path::PathBuf>,
+    pub detach: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EditApplied {
+    pub bookmark: Bookmark,
+    pub warnings: Vec<String>,
+}
+
+pub fn apply_edit(
+    store: &mut Store,
+    uuid: &Uuid,
+    draft: EditDraft,
+) -> Result<EditApplied, CoreError> {
+    let mut warnings = Vec::new();
+    let mut b = store
+        .get(uuid)?
+        .ok_or_else(|| CoreError::NotFound(uuid.to_string()))?;
+
+    if let Some(url) = draft.url {
+        let url = normalize_url(&url);
+        if let Some(other) = store.find_by_url(&url)? {
+            if other.uuid != *uuid {
+                return Err(CoreError::Duplicate(other.uuid.to_string()));
+            }
+        }
+        b.url = url;
+    }
+    if let Some(title) = draft.title {
+        if !title.trim().is_empty() {
+            b.title = title.trim().to_string();
+        }
+    }
+    if let Some(description) = draft.description {
+        b.description = description;
+    }
+    if let Some(tags) = draft.tags {
+        b.tags = dedupe_strings(tags);
+    }
+
+    let mut folder_changed = false;
+    if let Some(folder) = draft.folder {
+        let folder = sanitize_folder(&folder);
+        folder_changed = folder != b.folder;
+        b.folder = folder;
+    }
+
+    if folder_changed {
+        move_bookmark_files(store, &mut b)?;
+    }
+
+    match draft.markdown {
+        MarkdownAction::Keep => {
+            rewrite_bookmark_files(store, &mut b, false)?;
+        }
+        MarkdownAction::Add => {
+            rewrite_bookmark_files(store, &mut b, true)?;
+        }
+        MarkdownAction::Remove => {
+            if let Some(rel) = b.markdown_file.take() {
+                let _ = std::fs::remove_file(store.cfg.markdown_dir().join(&rel));
+            }
+            if !b.html_file.is_empty() {
+                write_html_bookmark(&store.cfg.html_dir().join(&b.html_file), &b)?;
+            }
+        }
+    }
+
+    match draft.archive {
+        ArchiveAction::Keep => {
+            store.update_bookmark(&b)?;
+        }
+        ArchiveAction::Add { backend } => {
+            store.update_bookmark(&b)?;
+            match crate::archive::archive_bookmark(store, &b.uuid, backend.as_deref()) {
+                Ok(warns) => warnings.extend(warns),
+                Err(e) => warnings.push(format!("archive failed: {e}")),
+            }
+            b = store
+                .get(uuid)?
+                .ok_or_else(|| CoreError::NotFound(uuid.to_string()))?;
+        }
+        ArchiveAction::Remove => {
+            if let Some(rel) = b.archive_file.take() {
+                let _ = std::fs::remove_file(store.cfg.archive_dir().join(&rel));
+            }
+            store.update_bookmark(&b)?;
+            b = store
+                .get(uuid)?
+                .ok_or_else(|| CoreError::NotFound(uuid.to_string()))?;
+        }
+    }
+
+    for path in &draft.attach_paths {
+        match crate::attach::attach_file(store, &b.uuid, path) {
+            Ok(at) => warnings.push(format!("attached {}", at.name)),
+            Err(e) => warnings.push(format!("could not attach {}: {e}", path.display())),
+        }
+    }
+    for which in &draft.detach {
+        match crate::attach::detach_attachment(store, &b.uuid, which) {
+            Ok(name) => warnings.push(format!("detached {name}")),
+            Err(e) => warnings.push(format!("detach failed: {e}")),
+        }
+    }
+
+    b = store
+        .get(uuid)?
+        .ok_or_else(|| CoreError::NotFound(uuid.to_string()))?;
+    store.update_bookmark(&b)?;
+    let b = store
+        .get(uuid)?
+        .ok_or_else(|| CoreError::NotFound(uuid.to_string()))?;
+    Ok(EditApplied {
+        bookmark: b,
+        warnings,
+    })
+}
+
 fn move_file(src: &Path, dst: &Path) -> Result<(), CoreError> {
     if src == dst || !src.exists() {
         return Ok(());
@@ -52,46 +199,26 @@ pub fn edit_bookmark(
     uuid: &Uuid,
     opts: EditOptions,
 ) -> Result<Bookmark, CoreError> {
-    let mut b = store
-        .get(uuid)?
-        .ok_or_else(|| CoreError::NotFound(uuid.to_string()))?;
-
-    if let Some(url) = opts.url {
-        let url = normalize_url(&url);
-        if let Some(other) = store.find_by_url(&url)? {
-            if other.uuid != *uuid {
-                return Err(CoreError::Duplicate(other.uuid.to_string()));
-            }
-        }
-        b.url = url;
-    }
-    if let Some(title) = opts.title {
-        if !title.trim().is_empty() {
-            b.title = title.trim().to_string();
-        }
-    }
-    if let Some(description) = opts.description {
-        b.description = description;
-    }
-    if let Some(tags) = opts.tags {
-        b.tags = dedupe_strings(tags);
-    }
-
-    let mut folder_changed = false;
-    if let Some(folder) = opts.folder {
-        let folder = sanitize_folder(&folder);
-        folder_changed = folder != b.folder;
-        b.folder = folder;
-    }
-
-    if folder_changed {
-        move_bookmark_files(store, &mut b)?;
-    }
-
-    rewrite_bookmark_files(store, &mut b, opts.add_markdown)?;
-
-    store.update_bookmark(&b)?;
-    Ok(b)
+    Ok(apply_edit(
+        store,
+        uuid,
+        EditDraft {
+            title: opts.title,
+            description: opts.description,
+            tags: opts.tags,
+            folder: opts.folder,
+            url: opts.url,
+            markdown: if opts.add_markdown {
+                MarkdownAction::Add
+            } else {
+                MarkdownAction::Keep
+            },
+            archive: ArchiveAction::Keep,
+            attach_paths: Vec::new(),
+            detach: Vec::new(),
+        },
+    )?
+    .bookmark)
 }
 
 pub(crate) fn move_bookmark_files(store: &Store, b: &mut Bookmark) -> Result<(), CoreError> {
@@ -316,5 +443,54 @@ mod tests {
         assert!(!delete_bookmark_with_files(&mut s, &b.uuid).unwrap());
         let ops = s.oplog_entries().unwrap();
         assert!(ops.iter().any(|e| e.op == "delete"));
+    }
+
+    #[test]
+    fn draft_applies_fields_and_markdown_remove() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = mem_store(dir.path());
+        let b = created(&mut s, "https://example.com/a", "tech");
+        let md_rel = b.markdown_file.clone().unwrap();
+        assert!(s.cfg.markdown_dir().join(&md_rel).exists());
+        let applied = apply_edit(
+            &mut s,
+            &b.uuid,
+            EditDraft {
+                title: Some("Renamed".to_string()),
+                markdown: MarkdownAction::Remove,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(applied.bookmark.title, "Renamed");
+        assert!(applied.bookmark.markdown_file.is_none());
+        assert!(!s.cfg.markdown_dir().join(&md_rel).exists());
+        let stored = s.get(&b.uuid).unwrap().unwrap();
+        assert_eq!(stored.title, "Renamed");
+        assert!(stored.markdown_file.is_none());
+    }
+
+    #[test]
+    fn draft_archive_remove_clears_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = mem_store(dir.path());
+        let b = created(&mut s, "https://example.com/a", "tech");
+        let rel = "tech/manual-archive.html";
+        std::fs::create_dir_all(s.cfg.archive_dir().join("tech")).unwrap();
+        std::fs::write(s.cfg.archive_dir().join(rel), "<html></html>").unwrap();
+        let mut with_arch = s.get(&b.uuid).unwrap().unwrap();
+        with_arch.archive_file = Some(rel.to_string());
+        s.update_bookmark(&with_arch).unwrap();
+        let applied = apply_edit(
+            &mut s,
+            &b.uuid,
+            EditDraft {
+                archive: ArchiveAction::Remove,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(applied.bookmark.archive_file.is_none());
+        assert!(!s.cfg.archive_dir().join(rel).exists());
     }
 }
