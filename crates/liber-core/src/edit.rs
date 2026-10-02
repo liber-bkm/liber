@@ -163,6 +163,48 @@ pub fn delete_bookmark_with_files(store: &mut Store, uuid: &Uuid) -> Result<bool
     store.delete_bookmark(uuid)
 }
 
+pub fn read_note_body(store: &Store, uuid: &Uuid) -> Result<Option<String>, CoreError> {
+    let Some(b) = store.get(uuid)? else {
+        return Err(CoreError::NotFound(uuid.to_string()));
+    };
+    let Some(rel) = &b.markdown_file else {
+        return Ok(None);
+    };
+    let path = store.cfg.markdown_dir().join(rel);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = std::fs::read_to_string(&path).map_err(|e| CoreError::Storage(e.to_string()))?;
+    Ok(Some(crate::render::markdown_body(&raw)))
+}
+
+pub fn save_note_body(store: &mut Store, uuid: &Uuid, body: &str) -> Result<(), CoreError> {
+    let Some(mut b) = store.get(uuid)? else {
+        return Err(CoreError::NotFound(uuid.to_string()));
+    };
+    if b.markdown_file.is_none() && !b.html_file.is_empty() {
+        let rel = join_folder(
+            &b.folder,
+            &format!("{}.md", trim_ext(&file_base(&b.html_file))),
+        );
+        b.markdown_file = Some(rel);
+    }
+    let Some(rel) = b.markdown_file.clone() else {
+        return Err(CoreError::Invalid(
+            "bookmark has no html file to base notes on".to_string(),
+        ));
+    };
+    let doc = crate::render::render_markdown(&b, body);
+    let path = store.cfg.markdown_dir().join(&rel);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| CoreError::Storage(e.to_string()))?;
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, doc).map_err(|e| CoreError::Storage(e.to_string()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| CoreError::Storage(e.to_string()))?;
+    store.update_bookmark(&b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
