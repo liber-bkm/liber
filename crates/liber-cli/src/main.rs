@@ -19,6 +19,9 @@ struct Cli {
 
     #[arg(long)]
     auth_token: Option<String>,
+
+    #[arg(long, global = true)]
+    uuid: bool,
 }
 
 #[derive(Subcommand)]
@@ -312,6 +315,16 @@ fn display_folder(f: &str) -> &str {
     }
 }
 
+fn show_id(b: &liber_core::model::Bookmark, full: bool) -> String {
+    if full {
+        return b.uuid.to_string();
+    }
+    match b.short_id {
+        Some(n) => n.to_string(),
+        None => b.uuid.to_string()[..8].to_string(),
+    }
+}
+
 fn confirm(prompt: &str) -> bool {
     use std::io::{self, Write};
     print!("{prompt} [y/N] ");
@@ -347,7 +360,7 @@ fn open_in_browser(cfg: &liber_core::store::Config, url: &str) -> anyhow::Result
     Ok(())
 }
 
-fn run_add(a: AddArgs) -> anyhow::Result<()> {
+fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
     let (_, mut store) = load_store()?;
     let title = match a.title {
         Some(t) if !t.trim().is_empty() => Some(t),
@@ -375,7 +388,7 @@ fn run_add(a: AddArgs) -> anyhow::Result<()> {
                 .unwrap();
             println!(
                 "Already bookmarked: [{}] {} (folder: {})",
-                &dup.uuid.to_string()[..8],
+                show_id(&dup, full),
                 dup.title,
                 display_folder(&dup.folder)
             );
@@ -388,7 +401,7 @@ fn run_add(a: AddArgs) -> anyhow::Result<()> {
         }
         Err(e) => Err(e.into()),
         Ok(b) => {
-            println!("\nSaved [{}] {}", &b.uuid.to_string()[..8], b.title);
+            println!("\nSaved [{}] {}", show_id(&b, full), b.title);
             println!(
                 "  html: {}",
                 store.cfg.html_dir().join(&b.html_file).display()
@@ -421,7 +434,7 @@ fn run_add(a: AddArgs) -> anyhow::Result<()> {
     }
 }
 
-fn run_list(a: ListArgs) -> anyhow::Result<()> {
+fn run_list(a: ListArgs, full: bool) -> anyhow::Result<()> {
     let (_, store) = load_store()?;
     let sort = liber_core::search::parse_sort_mode(a.sort.as_deref().unwrap_or(""))?;
     let filter = liber_core::store::BookmarkFilter {
@@ -450,7 +463,7 @@ fn run_list(a: ListArgs) -> anyhow::Result<()> {
     for b in ordered {
         println!(
             "[{}] {} ({}) {}",
-            &b.uuid.to_string()[..8],
+            show_id(&b, full),
             b.title,
             display_folder(&b.folder),
             b.url
@@ -484,12 +497,37 @@ fn run_open(spec: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_edit(a: EditArgs) -> anyhow::Result<()> {
+fn run_edit(a: EditArgs, full: bool) -> anyhow::Result<()> {
+    use std::io::IsTerminal;
     let (_, mut store) = load_store()?;
     let tokens = liber_core::idspec::parse_id_spec(&a.spec)?;
     let targets = store.resolve_spec(&tokens)?;
     if targets.is_empty() {
         return Err(anyhow::anyhow!("no bookmarks matching {:?}", a.spec));
+    }
+    let has_flags = a.url.is_some()
+        || a.title.is_some()
+        || a.description.is_some()
+        || a.tags.is_some()
+        || a.folder.is_some()
+        || a.markdown
+        || !a.attach.is_empty()
+        || !a.detach.is_empty();
+    if !has_flags {
+        if !std::io::stdin().is_terminal() {
+            return Err(anyhow::anyhow!(
+                "edit needs flags or a terminal (see `liber edit --help`)"
+            ));
+        }
+        let chosen = if targets.len() == 1 {
+            targets[0].clone()
+        } else {
+            match pick_tui::run_tui(targets, "")? {
+                Some(b) => b,
+                None => return Err(anyhow::anyhow!("no bookmark picked")),
+            }
+        };
+        return run_edit_tui_flow(&mut store, &chosen.uuid);
     }
     for b in targets {
         let opts = liber_core::edit::EditOptions {
@@ -513,12 +551,12 @@ fn run_edit(a: EditArgs) -> anyhow::Result<()> {
                 Err(e) => println!("warning: {e}"),
             }
         }
-        println!("Updated [{}] {}", &out.uuid.to_string()[..8], out.title);
+        println!("Updated [{}] {}", show_id(&out, full), out.title);
     }
     Ok(())
 }
 
-fn run_delete(spec: &str, yes: bool) -> anyhow::Result<()> {
+fn run_delete(spec: &str, yes: bool, full: bool) -> anyhow::Result<()> {
     let (_, mut store) = load_store()?;
     let tokens = liber_core::idspec::parse_id_spec(spec)?;
     let targets = store.resolve_spec(&tokens)?;
@@ -527,20 +565,14 @@ fn run_delete(spec: &str, yes: bool) -> anyhow::Result<()> {
     }
     if targets.len() == 1 {
         let b = &targets[0];
-        if !yes
-            && !confirm(&format!(
-                "Delete [{}] {}?",
-                &b.uuid.to_string()[..8],
-                b.title
-            ))
-        {
+        if !yes && !confirm(&format!("Delete [{}] {}?", show_id(b, full), b.title)) {
             println!("Cancelled.");
             return Ok(());
         }
     } else {
         println!("About to delete {} bookmarks:", targets.len());
         for b in &targets {
-            println!("  [{}] {}", &b.uuid.to_string()[..8], b.title);
+            println!("  [{}] {}", show_id(b, full), b.title);
         }
         if !yes && !confirm(&format!("Delete all {}?", targets.len())) {
             println!("Cancelled.");
@@ -553,7 +585,7 @@ fn run_delete(spec: &str, yes: bool) -> anyhow::Result<()> {
     if targets.len() == 1 {
         println!(
             "Deleted [{}] {}",
-            &targets[0].uuid.to_string()[..8],
+            show_id(&targets[0], full),
             targets[0].title
         );
     } else {
@@ -752,7 +784,7 @@ fn applied_counts(
     Ok(counts)
 }
 
-fn run_check(a: CheckArgs) -> anyhow::Result<()> {
+fn run_check(a: CheckArgs, full: bool) -> anyhow::Result<()> {
     use liber_core::check::{quarantine_bookmark, CheckStatus};
     use std::time::Duration;
 
@@ -804,7 +836,7 @@ fn run_check(a: CheckArgs) -> anyhow::Result<()> {
     for o in &moved {
         println!(
             "[{}] {}\n    moved -> {} ({})",
-            &o.bookmark.uuid.to_string()[..8],
+            show_id(&o.bookmark, full),
             o.bookmark.title,
             o.result.target.as_deref().unwrap_or("?"),
             o.result.detail
@@ -813,7 +845,7 @@ fn run_check(a: CheckArgs) -> anyhow::Result<()> {
     for o in &dead {
         println!(
             "[{}] {} dead ({})",
-            &o.bookmark.uuid.to_string()[..8],
+            show_id(&o.bookmark, full),
             o.bookmark.title,
             o.result.detail
         );
@@ -821,7 +853,7 @@ fn run_check(a: CheckArgs) -> anyhow::Result<()> {
     for o in &uncertain {
         println!(
             "[{}] {} uncertain ({})",
-            &o.bookmark.uuid.to_string()[..8],
+            show_id(&o.bookmark, full),
             o.bookmark.title,
             o.result.detail
         );
@@ -842,13 +874,13 @@ fn run_check(a: CheckArgs) -> anyhow::Result<()> {
         ) {
             Ok(_) => {
                 updated += 1;
-                println!("Updated [{}].", &o.bookmark.uuid.to_string()[..8]);
+                println!("Updated [{}].", show_id(&o.bookmark, full));
             }
             Err(liber_core::CoreError::Duplicate(_)) => {
                 skipped += 1;
                 println!(
                     "Skipped [{}]: target URL already bookmarked.",
-                    &o.bookmark.uuid.to_string()[..8]
+                    show_id(&o.bookmark, full)
                 );
             }
             Err(e) => return Err(e.into()),
@@ -857,14 +889,14 @@ fn run_check(a: CheckArgs) -> anyhow::Result<()> {
     for o in &dead {
         if quarantine_bookmark(&mut store, &o.bookmark.uuid)? {
             quarantined += 1;
-            println!("Quarantined [{}].", &o.bookmark.uuid.to_string()[..8]);
+            println!("Quarantined [{}].", show_id(&o.bookmark, full));
         }
     }
     println!("Done: {updated} updated, {quarantined} quarantined, {skipped} skipped.");
     Ok(())
 }
 
-fn run_archive(spec: &str, backend: Option<&str>) -> anyhow::Result<()> {
+fn run_archive(spec: &str, backend: Option<&str>, full: bool) -> anyhow::Result<()> {
     let (_, mut store) = load_store()?;
     let tokens = liber_core::idspec::parse_id_spec(spec)?;
     let targets = store.resolve_spec(&tokens)?;
@@ -877,7 +909,7 @@ fn run_archive(spec: &str, backend: Option<&str>) -> anyhow::Result<()> {
                 for w in warnings {
                     println!("warning: {w}");
                 }
-                println!("Archived [{}].", &b.uuid.to_string()[..8]);
+                println!("Archived [{}].", show_id(&b, full));
             }
             Err(e) => println!(
                 "warning: archive failed for [{}]: {e}",
@@ -1005,7 +1037,7 @@ fn run_reindex(prune: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_attachments(spec: &str) -> anyhow::Result<()> {
+fn run_attachments(spec: &str, full: bool) -> anyhow::Result<()> {
     let (_, store) = load_store()?;
     let tokens = liber_core::idspec::parse_id_spec(spec)?;
     let targets = store.resolve_spec(&tokens)?;
@@ -1013,7 +1045,7 @@ fn run_attachments(spec: &str) -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("no bookmarks matching {spec:?}"));
     }
     for b in targets {
-        println!("[{}] {}", &b.uuid.to_string()[..8], b.title);
+        println!("[{}] {}", show_id(&b, full), b.title);
         if b.attachments.is_empty() {
             println!("  (none)");
         }
@@ -1024,7 +1056,7 @@ fn run_attachments(spec: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_history() -> anyhow::Result<()> {
+fn run_history(full: bool) -> anyhow::Result<()> {
     use liber_core::search::SortMode;
     use liber_core::store::BookmarkFilter;
     let (_, store) = load_store()?;
@@ -1040,7 +1072,7 @@ fn run_history() -> anyhow::Result<()> {
     for b in found {
         println!(
             "[{}] {} ({}) {} ({}x)",
-            &b.uuid.to_string()[..8],
+            show_id(&b, full),
             b.title,
             display_folder(&b.folder),
             b.url,
