@@ -63,6 +63,7 @@ pub struct ListParams {
     pub folder: Option<String>,
     pub page: Option<usize>,
     pub per_page: Option<usize>,
+    pub deep: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
