@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ageOf, domainOf, fetchHistory, shortUuid, type Bookmark } from "../api";
+import { ageOf, displayId, domainOf, fetchHistory, type Bookmark } from "../api";
 import { Empty, Spinner } from "../components/ui";
 
 export function HistoryPage({ onOpen }: { onOpen: (b: Bookmark) => void }) {
@@ -23,7 +23,7 @@ export function HistoryPage({ onOpen }: { onOpen: (b: Bookmark) => void }) {
             onClick={() => onOpen(b)}
             className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-left text-sm hover:shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
           >
-            <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{shortUuid(b.uuid)}</span>
+            <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{displayId(b)}</span>
             <span className="min-w-0 flex-1">
               <span className="block truncate font-medium">{b.title}</span>
               <span className="block truncate text-xs text-neutral-400">{domainOf(b.url)}</span>

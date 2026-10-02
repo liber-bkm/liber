@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Play } from "lucide-react";
-import { checkApply, checkRun, shortUuid, type CheckRow } from "../api";
+import { checkApply, checkRun, displayId, type CheckRow } from "../api";
 import { Badge, Button, Empty, Spinner } from "../components/ui";
 
 export function CheckPage() {
@@ -89,7 +89,7 @@ export function CheckPage() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{r.title}</p>
                     <p className="truncate text-xs text-neutral-400">
-                      [{shortUuid(r.uuid)}] {r.detail}
+                      [{displayId(r)}] {r.detail}
                       {r.target ? ` → ${r.target}` : ""}
                     </p>
                   </div>

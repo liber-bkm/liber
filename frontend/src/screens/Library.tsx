@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownWideNarrow, LayoutGrid, Search, Table2 } from "lucide-react";
-import { ageOf, domainOf, shortUuid, type Bookmark } from "../api";
+import { ageOf, displayId, domainOf, type Bookmark } from "../api";
 import { listBookmarks } from "../tauri";
 import { Badge, Empty, Input, Spinner } from "../components/ui";
 import { BulkBar } from "../components/BulkBar";
@@ -165,7 +165,10 @@ function Card({ bookmark: b, selected, onToggle, onOpen }: { bookmark: Bookmark;
         <div className="flex items-start gap-2.5">
           <Avatar title={b.title} url={b.url} />
           <div className="min-w-0 pr-5">
-            <p className="truncate text-sm font-medium">{b.title}</p>
+            <p className="truncate text-sm font-medium">
+              <span className="mr-1 font-mono text-xs font-normal text-neutral-400">{displayId(b)}</span>
+              {b.title}
+            </p>
             <p className="truncate text-xs text-neutral-400">{domainOf(b.url)}</p>
           </div>
         </div>
@@ -196,7 +199,7 @@ function Rows({ bookmarks, selected, onToggle, onOpen }: { bookmarks: Bookmark[]
         >
           <input type="checkbox" checked={selected.has(b.uuid)} onChange={() => onToggle(b.uuid)} className="h-4 w-4 shrink-0 accent-[#2549a8]" title="Select" />
           <button onClick={() => onOpen(b)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-            <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{shortUuid(b.uuid)}</span>
+            <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{displayId(b)}</span>
             <span className="min-w-0 flex-1 truncate font-medium">{b.title}</span>
             <span className="hidden max-w-48 truncate text-xs text-neutral-400 sm:block">{domainOf(b.url)}</span>
             <StatusDot b={b} />
