@@ -206,3 +206,45 @@ export function ageOf(iso: string): string {
   if (months < 12) return `${months}mo ago`;
   return `${Math.floor(months / 12)}y ago`;
 }
+export interface Rule {
+  id: string;
+  pattern: string;
+  tags: string[];
+  folder?: string;
+  description: string;
+  applied_count: number;
+}
+
+export function fetchRules(): Promise<{ rules: Rule[] }> {
+  return request("/api/v2/rules");
+}
+
+export function addRule(input: { pattern: string; tags?: string[]; folder?: string }): Promise<{ rule: Rule }> {
+  return request("/api/v2/rules", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function editRule(id: string, input: { pattern?: string; tags?: string[]; folder?: string; reapply?: boolean }): Promise<{ rule: Rule; reapplied: number }> {
+  return request(`/api/v2/rules/${id}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function deleteRule(id: string): Promise<{ deleted: string }> {
+  return request(`/api/v2/rules/${id}`, { method: "DELETE" });
+}
+
+export function applyRules(id?: string): Promise<{ applied: number }> {
+  return request("/api/v2/rules/apply", { method: "POST", body: JSON.stringify({ id }) });
+}
+
+export interface Suggestion {
+  host: string;
+  folder: string;
+  count: number;
+}
+
+export function learnSuggestions(min = 3): Promise<{ suggestions: Suggestion[] }> {
+  return request(`/api/v2/rules/learn?min=${min}`);
+}
+
+export function learnCreate(min = 3): Promise<{ created: number; applied: number }> {
+  return request("/api/v2/rules/learn", { method: "POST", body: JSON.stringify({ min }) });
+}
