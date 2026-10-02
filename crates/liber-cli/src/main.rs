@@ -407,12 +407,12 @@ fn run_add(a: AddArgs) -> anyhow::Result<()> {
 
 fn run_list(a: ListArgs) -> anyhow::Result<()> {
     let (_, store) = load_store()?;
-    let mut found = store.list()?;
-    if let Some(q) = &a.query {
-        let fields = liber_core::search::SearchFields::all();
-        found.retain(|b| liber_core::search::bookmark_matches(b, q, &fields));
-    }
     let sort = liber_core::search::parse_sort_mode(a.sort.as_deref().unwrap_or(""))?;
+    let filter = liber_core::store::BookmarkFilter {
+        query: a.query.clone(),
+        ..Default::default()
+    };
+    let (found, _) = store.query_bookmarks(&filter, sort, usize::MAX / 2, 0)?;
     let fields = liber_core::search::SearchFields::all();
     let query = a.query.unwrap_or_default();
     let ordered = liber_core::search::order_results(found, &query, &fields, sort);
