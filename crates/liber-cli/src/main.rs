@@ -911,10 +911,7 @@ fn run_archive(spec: &str, backend: Option<&str>, full: bool) -> anyhow::Result<
                 }
                 println!("Archived [{}].", show_id(&b, full));
             }
-            Err(e) => println!(
-                "warning: archive failed for [{}]: {e}",
-                &b.uuid.to_string()[..8]
-            ),
+            Err(e) => println!("warning: archive failed for [{}]: {e}", show_id(&b, full)),
         }
     }
     Ok(())
@@ -993,7 +990,8 @@ fn run_sync(cmd: SyncCmd) -> anyhow::Result<()> {
                 rep.merged,
                 rep.deduped,
                 rep.deleted,
-                rep.rules
+                rep.rules,
+                rep.renumbered
             );
         }
         SyncCmd::Commit { message, push } => {
