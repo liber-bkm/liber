@@ -724,4 +724,61 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
+
+    #[tokio::test]
+    async fn deep_search_unions_archive_hits() {
+        use liber_core::search::SearchIndex;
+        use liber_core::store::{Config, Store};
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            base_dir: dir.path().to_path_buf(),
+            device_id: "test-device".to_string(),
+            ..Default::default()
+        };
+        let mut store = Store::open(cfg.clone()).unwrap();
+        let b = {
+            use liber_core::create::{create_bookmark, CreateOptions};
+            create_bookmark(
+                &mut store,
+                "https://example.com/a",
+                CreateOptions {
+                    title: Some("Plain".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        };
+        let index = SearchIndex::open_or_create(&store.cfg.tantivy_dir()).unwrap();
+        index.index_bookmark(&b, "obscurecontentword").unwrap();
+        drop(store);
+        let app = build_router(crate::AppState::new(cfg, String::new()));
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/bookmarks?q=obscurecontentword")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, plain) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(plain["total"], 0);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/bookmarks?q=obscurecontentword&deep=true")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, deep) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(deep["total"], 1);
+        assert_eq!(deep["bookmarks"][0]["uuid"], b.uuid.to_string());
+    }
 }
