@@ -984,7 +984,7 @@ fn run_sync(cmd: SyncCmd) -> anyhow::Result<()> {
             let entries = read_bundle(&PathBuf::from(&file))?;
             let rep = replay_entries(&mut store, &entries)?;
             println!(
-                "Merged {}: {} inserted, {} merged, {} deduped, {} deleted, {} rules.",
+                "Merged {}: {} inserted, {} merged, {} deduped, {} deleted, {} rules, {} renumbered.",
                 entries.len(),
                 rep.inserted,
                 rep.merged,
@@ -1150,6 +1150,33 @@ fn run_completion(shell: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_edit_tui_flow(
+    store: &mut liber_core::store::Store,
+    uuid: &uuid::Uuid,
+) -> anyhow::Result<()> {
+    let Some(b) = store.get(uuid)? else {
+        return Err(anyhow::anyhow!("bookmark gone"));
+    };
+    match pick_tui::run_edit_tui(&b)? {
+        None => {
+            println!("Cancelled.");
+            Ok(())
+        }
+        Some(draft) => {
+            let applied = liber_core::edit::apply_edit(store, uuid, draft)?;
+            for w in &applied.warnings {
+                println!("{w}");
+            }
+            let id = match applied.bookmark.short_id {
+                Some(n) => n.to_string(),
+                None => applied.bookmark.uuid.to_string(),
+            };
+            println!("Updated [{id}] {}", applied.bookmark.title);
+            Ok(())
+        }
+    }
+}
+
 fn run_pick(query: Option<&str>) -> anyhow::Result<()> {
     use std::io::IsTerminal;
     let (_, store) = load_store()?;
@@ -1179,8 +1206,16 @@ fn run_pick(query: Option<&str>) -> anyhow::Result<()> {
     }
     match pick_tui::run_tui(shown, query.unwrap_or(""))? {
         Some(b) => {
-            println!("{}", b.url);
-            Ok(())
+            let (cfg, mut store) = load_store()?;
+            match pick_tui::action_menu(&b)? {
+                None => Err(anyhow::anyhow!("no bookmark picked")),
+                Some(pick_tui::PickAction::Open) => {
+                    store.record_open(&b.uuid)?;
+                    open_in_browser(&cfg, &b.url)?;
+                    Ok(())
+                }
+                Some(pick_tui::PickAction::Edit) => run_edit_tui_flow(&mut store, &b.uuid),
+            }
         }
         None => Err(anyhow::anyhow!("no bookmark picked")),
     }
@@ -1230,11 +1265,14 @@ fn main() -> anyhow::Result<()> {
     match cli.cmd {
         None => {
             if cli.list {
-                run_list(ListArgs {
-                    query: None,
-                    sort: None,
-                    deep: false,
-                })
+                run_list(
+                    ListArgs {
+                        query: None,
+                        sort: None,
+                        deep: false,
+                    },
+                    cli.uuid,
+                )
             } else if cli.serve {
                 println!("serve: not implemented");
                 Ok(())
@@ -1244,17 +1282,17 @@ fn main() -> anyhow::Result<()> {
             }
         }
         Some(cmd) => match cmd {
-            Cmd::Add(a) => run_add(a),
-            Cmd::List(a) => run_list(a),
+            Cmd::Add(a) => run_add(a, cli.uuid),
+            Cmd::List(a) => run_list(a, cli.uuid),
             Cmd::Open(a) => run_open(&a.spec),
-            Cmd::Edit(a) => run_edit(a),
-            Cmd::Delete(a) => run_delete(&a.spec, a.yes),
+            Cmd::Edit(a) => run_edit(a, cli.uuid),
+            Cmd::Delete(a) => run_delete(&a.spec, a.yes, cli.uuid),
             Cmd::Tags(a) => run_tags(a.cmd),
             Cmd::Folders(a) => run_folders(a.cmd),
             Cmd::Auto(a) => run_auto(a.cmd),
-            Cmd::Check(a) => run_check(a),
-            Cmd::Archive(a) => run_archive(&a.spec, a.backend.as_deref()),
-            Cmd::Attachments(a) => run_attachments(&a.spec),
+            Cmd::Check(a) => run_check(a, cli.uuid),
+            Cmd::Archive(a) => run_archive(&a.spec, a.backend.as_deref(), cli.uuid),
+            Cmd::Attachments(a) => run_attachments(&a.spec, cli.uuid),
             Cmd::Import(a) => run_import(a),
             Cmd::Export(a) => run_export(a),
             Cmd::Reindex(a) => run_reindex(a.prune),
@@ -1262,7 +1300,7 @@ fn main() -> anyhow::Result<()> {
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Pick(a) => run_pick(a.query.as_deref()),
             Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref(), a.static_dir.clone()),
-            Cmd::History(_) => run_history(),
+            Cmd::History(_) => run_history(cli.uuid),
             Cmd::Profile(a) => run_profile(a.cmd),
             Cmd::Completion(a) => run_completion(&a.shell),
         },
