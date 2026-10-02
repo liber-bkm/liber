@@ -30,6 +30,15 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     applied_rules TEXT NOT NULL DEFAULT '[]'
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bookmarks_url_norm ON bookmarks(url_norm);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_folder ON bookmarks(folder);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_created ON bookmarks(created_at);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_opened ON bookmarks(last_opened_at);
+CREATE TABLE IF NOT EXISTS bookmark_tags (
+    bookmark_uuid TEXT NOT NULL REFERENCES bookmarks(uuid) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (bookmark_uuid, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_bookmark_tags_tag ON bookmark_tags(tag);
 CREATE TABLE IF NOT EXISTS attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bookmark_uuid TEXT NOT NULL REFERENCES bookmarks(uuid) ON DELETE CASCADE,
@@ -172,6 +181,22 @@ fn row_bookmark(row: &Row) -> rusqlite::Result<Bookmark> {
     })
 }
 
+fn sync_tags(conn: &Connection, uuid: &Uuid, tags: &[String]) -> Result<(), CoreError> {
+    conn.execute(
+        "DELETE FROM bookmark_tags WHERE bookmark_uuid = ?1",
+        params![uuid.to_string()],
+    )
+    .map_err(|e| CoreError::Storage(e.to_string()))?;
+    for t in tags {
+        conn.execute(
+            "INSERT OR IGNORE INTO bookmark_tags (bookmark_uuid, tag) VALUES (?1, ?2)",
+            params![uuid.to_string(), t],
+        )
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+    }
+    Ok(())
+}
+
 const BOOKMARK_COLS: &str = "uuid, url, title, description, tags, folder,
     created_at, updated_at, html_file, markdown_file, archive_file,
     open_count, last_opened_at, last_checked_at, check_status, applied_rules";
@@ -261,7 +286,7 @@ impl Store {
                 "INSERT INTO bookmarks (uuid, url, url_norm, title, description, tags,
                  folder, created_at, updated_at, html_file, markdown_file, archive_file,
                  open_count, applied_rules)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, '[]')",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13)",
                 params![
                     b.uuid.to_string(),
                     b.url,
@@ -276,9 +301,12 @@ impl Store {
                     b.html_file,
                     b.markdown_file,
                     b.archive_file,
+                    serde_json::to_string(&b.applied_rules)
+                        .map_err(|e| CoreError::Storage(e.to_string()))?,
                 ],
             )
             .map_err(|e| CoreError::Storage(e.to_string()))?;
+        sync_tags(&self.conn, &b.uuid, &b.tags)?;
         let payload = serde_json::to_value(&b).map_err(|e| CoreError::Storage(e.to_string()))?;
         self.append_oplog(Some(b.uuid), "upsert", payload)?;
         Ok(b)
@@ -348,6 +376,7 @@ impl Store {
         if n == 0 {
             return Err(CoreError::NotFound(b.uuid.to_string()));
         }
+        sync_tags(&self.conn, &b.uuid, &b.tags)?;
         let payload = serde_json::to_value(b).map_err(|e| CoreError::Storage(e.to_string()))?;
         self.append_oplog(Some(b.uuid), "upsert", payload)
     }
@@ -403,6 +432,7 @@ impl Store {
                 )
                 .map_err(|e| CoreError::Storage(e.to_string()))?;
         }
+        sync_tags(&self.conn, &b.uuid, &b.tags)?;
         let payload = serde_json::to_value(b).map_err(|e| CoreError::Storage(e.to_string()))?;
         self.append_oplog(Some(b.uuid), "upsert", payload)
     }
@@ -440,9 +470,194 @@ impl Store {
         let mut out = Vec::new();
         for b in rows {
             let b = b.map_err(|e| CoreError::Storage(e.to_string()))?;
-            out.push(self.with_attachments(b)?);
+            out.push(b);
+        }
+        self.with_attachments_batch(&mut out)
+    }
+
+    fn with_attachments_batch(
+        &self,
+        items: &mut Vec<Bookmark>,
+    ) -> Result<Vec<Bookmark>, CoreError> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders: Vec<String> = items.iter().map(|_| "?".to_string()).collect();
+        let sql = format!(
+            "SELECT bookmark_uuid, name, path FROM attachments WHERE bookmark_uuid IN ({}) ORDER BY id",
+            placeholders.join(",")
+        );
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let uuids: Vec<String> = items.iter().map(|b| b.uuid.to_string()).collect();
+        let refs: Vec<&dyn rusqlite::ToSql> =
+            uuids.iter().map(|u| u as &dyn rusqlite::ToSql).collect();
+        let rows = stmt
+            .query_map(refs.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    Attachment {
+                        name: row.get(1)?,
+                        path: row.get(2)?,
+                    },
+                ))
+            })
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let mut by_uuid: std::collections::HashMap<String, Vec<Attachment>> =
+            std::collections::HashMap::new();
+        for r in rows {
+            let (uuid, at) = r.map_err(|e| CoreError::Storage(e.to_string()))?;
+            by_uuid.entry(uuid).or_default().push(at);
+        }
+        let mut out = Vec::with_capacity(items.len());
+        for mut b in items.drain(..) {
+            b.attachments = by_uuid.remove(&b.uuid.to_string()).unwrap_or_default();
+            out.push(b);
         }
         Ok(out)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BookmarkFilter {
+    pub folder: Option<String>,
+    pub tag: Option<String>,
+    pub query: Option<String>,
+    pub opened_only: bool,
+}
+
+impl Store {
+    fn like_pattern(q: &str) -> String {
+        let escaped: String = q
+            .chars()
+            .flat_map(|c| match c {
+                '%' | '_' | '\\' => vec!['\\', c],
+                c => vec![c],
+            })
+            .collect();
+        format!("%{escaped}%")
+    }
+
+    pub fn query_bookmarks(
+        &self,
+        filter: &BookmarkFilter,
+        sort: crate::search::SortMode,
+        limit: usize,
+        offset: usize,
+    ) -> Result<(Vec<Bookmark>, usize), CoreError> {
+        use crate::search::SortMode;
+        let mut joins = String::new();
+        let mut conds: Vec<String> = Vec::new();
+        let mut args: Vec<String> = Vec::new();
+        if filter.tag.is_some() {
+            joins.push_str(" JOIN bookmark_tags t ON t.bookmark_uuid = b.uuid");
+        }
+        if let Some(folder) = &filter.folder {
+            conds.push("b.folder = ?".to_string());
+            args.push(folder.clone());
+        }
+        if let Some(tag) = &filter.tag {
+            conds.push("t.tag = ? COLLATE NOCASE".to_string());
+            args.push(tag.clone());
+        }
+        if let Some(q) = &filter.query {
+            let q = q.trim();
+            if !q.is_empty() {
+                conds.push("(b.title LIKE ? ESCAPE '\\' OR b.url LIKE ? ESCAPE '\\' OR b.description LIKE ? ESCAPE '\\' OR b.folder LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM bookmark_tags t2 WHERE t2.bookmark_uuid = b.uuid AND t2.tag LIKE ? ESCAPE '\\'))".to_string());
+                let pat = Self::like_pattern(q);
+                for _ in 0..5 {
+                    args.push(pat.clone());
+                }
+            }
+        }
+        if filter.opened_only {
+            conds.push("b.last_opened_at IS NOT NULL".to_string());
+        }
+        let where_clause = if conds.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", conds.join(" AND "))
+        };
+        let order = match sort {
+            SortMode::Newest => "ORDER BY b.created_at DESC, b.uuid ASC",
+            SortMode::Oldest => "ORDER BY b.created_at ASC, b.uuid ASC",
+            SortMode::Visited => {
+                "ORDER BY b.last_opened_at IS NULL, b.last_opened_at DESC, b.uuid ASC"
+            }
+            SortMode::Title => "ORDER BY b.title COLLATE NOCASE ASC, b.uuid ASC",
+            SortMode::Relevance => "ORDER BY b.created_at ASC, b.uuid ASC",
+        };
+        let count_sql = format!(
+            "SELECT COUNT(DISTINCT b.uuid) FROM bookmarks b{joins}{where_clause}",
+            joins = joins,
+            where_clause = where_clause
+        );
+        let total: i64 = self
+            .conn
+            .query_row(&count_sql, rusqlite::params_from_iter(args.iter()), |row| {
+                row.get(0)
+            })
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let cols: Vec<String> = BOOKMARK_COLS
+            .split(',')
+            .map(|c| format!("b.{}", c.trim()))
+            .collect();
+        let page_sql = format!(
+            "SELECT DISTINCT {} FROM bookmarks b{joins}{where_clause} {order} LIMIT {limit} OFFSET {offset}",
+            cols.join(", "),
+            joins = joins,
+            where_clause = where_clause,
+            order = order,
+            limit = limit,
+            offset = offset
+        );
+        let mut stmt = self
+            .conn
+            .prepare(&page_sql)
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(args.iter()), row_bookmark)
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let mut items = Vec::new();
+        for b in rows {
+            items.push(b.map_err(|e| CoreError::Storage(e.to_string()))?);
+        }
+        let items = self.with_attachments_batch(&mut items)?;
+        Ok((items, total as usize))
+    }
+
+    pub fn tag_counts_sql(&self) -> Result<Vec<(String, usize)>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT tag, COUNT(*) FROM bookmark_tags GROUP BY tag ORDER BY COUNT(*) DESC, tag ASC",
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+            })
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CoreError::Storage(e.to_string()))
+    }
+
+    pub fn folder_counts_sql(&self) -> Result<Vec<(String, usize)>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT CASE WHEN folder = '' THEN '/' ELSE folder END, COUNT(*) FROM bookmarks GROUP BY folder ORDER BY COUNT(*) DESC, folder ASC",
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+            })
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CoreError::Storage(e.to_string()))
     }
 
     pub fn resolve_spec(&self, tokens: &[String]) -> Result<Vec<Bookmark>, CoreError> {
@@ -808,6 +1023,149 @@ mod tests {
         let got = s.get(&b.uuid).unwrap().unwrap();
         assert_eq!(got.url, "https://example.com/a");
         assert_eq!(got.open_count, 0);
+    }
+
+    fn seeded() -> Store {
+        let mut s = mem_store();
+        let rows = [
+            (
+                "https://example.com/rust-guide",
+                "Rust guide",
+                vec!["prog"],
+                "tech",
+            ),
+            (
+                "https://example.com/rust-book",
+                "Rust book",
+                vec!["prog", "read"],
+                "tech",
+            ),
+            (
+                "https://example.com/pasta",
+                "Pasta recipe",
+                vec!["food"],
+                "home",
+            ),
+            (
+                "https://example.com/server",
+                "Server setup",
+                vec![],
+                "tech/ops",
+            ),
+        ];
+        for (url, title, tags, folder) in rows {
+            let mut nb = sample(url);
+            nb.title = title.to_string();
+            nb.tags = tags.into_iter().map(str::to_string).collect();
+            nb.folder = folder.to_string();
+            s.add_bookmark(nb).unwrap();
+        }
+        s
+    }
+
+    #[test]
+    fn query_matches_full_scan() {
+        use crate::search::{bookmark_matches, order_results, parse_sort_mode, SearchFields};
+        let s = seeded();
+        let fields = SearchFields::all();
+        for (q, tag, folder, sort) in [
+            (None, None, None, ""),
+            (Some("rust"), None, None, ""),
+            (Some("rust"), None, None, "title"),
+            (None, Some("prog"), None, "newest"),
+            (None, None, Some("tech"), "oldest"),
+            (Some("example"), Some("read"), None, "visited"),
+        ] {
+            let filter = BookmarkFilter {
+                folder: folder.map(str::to_string),
+                tag: tag.map(str::to_string),
+                query: q.map(str::to_string),
+                opened_only: false,
+            };
+            let mode = parse_sort_mode(sort).unwrap();
+            let (page, total) = s.query_bookmarks(&filter, mode, 50, 0).unwrap();
+            let page = order_results(page, q.unwrap_or(""), &fields, mode);
+            let mut expected: Vec<_> = s
+                .list()
+                .unwrap()
+                .into_iter()
+                .filter(|b| match &filter.folder {
+                    Some(f) => &b.folder == f,
+                    None => true,
+                })
+                .filter(|b| match &filter.tag {
+                    Some(t) => b.tags.iter().any(|x| x.eq_ignore_ascii_case(t)),
+                    None => true,
+                })
+                .filter(|b| match &filter.query {
+                    Some(qq) => bookmark_matches(b, qq, &fields),
+                    None => true,
+                })
+                .collect();
+            expected = order_results(expected, q.unwrap_or(""), &fields, mode);
+            let expected: Vec<_> = expected.into_iter().take(50).collect();
+            assert_eq!(total, expected.len(), "total for {q:?}/{tag:?}/{folder:?}");
+            let got: Vec<String> = page.iter().map(|b| b.uuid.to_string()).collect();
+            let want: Vec<String> = expected.iter().map(|b| b.uuid.to_string()).collect();
+            assert_eq!(got, want, "page for {q:?}/{tag:?}/{folder:?}/{sort}");
+        }
+    }
+
+    #[test]
+    fn query_paginates() {
+        let s = seeded();
+        let filter = BookmarkFilter::default();
+        let (p1, total) = s
+            .query_bookmarks(&filter, crate::search::SortMode::Oldest, 2, 0)
+            .unwrap();
+        let (p2, _) = s
+            .query_bookmarks(&filter, crate::search::SortMode::Oldest, 2, 2)
+            .unwrap();
+        assert_eq!(total, 4);
+        assert_eq!(p1.len(), 2);
+        assert_eq!(p2.len(), 2);
+        assert_ne!(p1[0].uuid, p2[0].uuid);
+    }
+
+    #[test]
+    fn counts_match_full_scan() {
+        use crate::taxonomy::{folder_counts, tag_counts};
+        let s = seeded();
+        assert_eq!(tag_counts(&s).unwrap(), s.tag_counts_sql().unwrap());
+        assert_eq!(folder_counts(&s).unwrap(), s.folder_counts_sql().unwrap());
+    }
+
+    #[test]
+    fn tag_side_table_tracks_writes() {
+        let mut s = mem_store();
+        let mut nb = sample("https://example.com/a");
+        nb.tags = vec!["x".to_string(), "y".to_string()];
+        let b = s.add_bookmark(nb).unwrap();
+        assert_eq!(
+            s.tag_counts_sql().unwrap(),
+            vec![("x".to_string(), 1), ("y".to_string(), 1)]
+        );
+        let mut got = s.get(&b.uuid).unwrap().unwrap();
+        got.tags = vec!["z".to_string()];
+        s.update_bookmark(&got).unwrap();
+        assert_eq!(s.tag_counts_sql().unwrap(), vec![("z".to_string(), 1)]);
+        s.delete_bookmark(&b.uuid).unwrap();
+        assert!(s.tag_counts_sql().unwrap().is_empty());
+    }
+
+    #[test]
+    fn applied_ledger_persists_on_add() {
+        use crate::model::AppliedRule;
+        let mut s = mem_store();
+        let mut nb = sample("https://example.com/a");
+        nb.applied_rules = vec![AppliedRule {
+            rule_id: "r1".to_string(),
+            folder: Some("tech".to_string()),
+        }];
+        let b = s.add_bookmark(nb).unwrap();
+        let got = s.get(&b.uuid).unwrap().unwrap();
+        assert_eq!(got.applied_rules.len(), 1);
+        assert_eq!(got.applied_rules[0].rule_id, "r1");
     }
 
     #[test]
