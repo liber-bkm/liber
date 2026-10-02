@@ -106,6 +106,25 @@ pub fn default_markdown_body(b: &Bookmark) -> String {
     body
 }
 
+pub fn markdown_body(src: &str) -> String {
+    let mut lines = src.lines();
+    if lines.next().map(str::trim) != Some("---") {
+        return src.to_string();
+    }
+    for line in lines.by_ref() {
+        if line.trim() == "---" {
+            break;
+        }
+    }
+    let rest: Vec<_> = lines.collect();
+    let rest = rest.as_slice();
+    let start = rest
+        .iter()
+        .position(|l| !l.trim().is_empty())
+        .unwrap_or(rest.len());
+    rest[start..].join("\n")
+}
+
 fn write_atomic(path: &Path, data: &str) -> Result<(), CoreError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| CoreError::Storage(e.to_string()))?;
