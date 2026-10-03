@@ -113,6 +113,81 @@
           '';
         };
 
+        # Desktop app: the liber-tauri binary with GApps wrapping for the
+        # webkit runtime, plus a .desktop entry and icons. The Tauri
+        # .deb/.rpm bundler does not run here; this is the native Nix way
+        # to install the same app. Needs a display to run, not to build.
+        packages.liber-desktop = pkgs.rustPlatform.buildRustPackage {
+          pname = "liber-desktop";
+          inherit version;
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+          buildInputs = linuxTauriDeps;
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.wrapGAppsHook3
+            pkgs.nodejs_22
+            pkgs.pnpm
+            pkgs.pnpmConfigHook
+          ];
+          pnpmDeps = pkgs.fetchPnpmDeps {
+            pname = "liber-frontend";
+            inherit version;
+            src = ./frontend;
+            fetcherVersion = 4;
+            hash = "sha256-VRR+Ky196ZIAkB0VeuzKgdQtPDCBNOUa+CC0Qk1zucU=";
+          };
+          pnpmRoot = "frontend";
+          cargoBuildFlags = [ "--bin" "liber-tauri" ];
+          cargoTestFlags = [ "-p" "liber-core" ];
+          preBuild = ''
+            (cd frontend && pnpm build)
+          '';
+          postInstall = ''
+            mkdir -p $out/share/applications $out/share/icons/hicolor/32x32/apps $out/share/icons/hicolor/128x128/apps
+            cat > $out/share/applications/liber.desktop <<EOF
+            [Desktop Entry]
+            Type=Application
+            Name=liber
+            Comment=Local-first bookmark manager
+            Exec=liber-tauri
+            Icon=liber
+            Categories=Utility;
+            Terminal=false
+            EOF
+            cp crates/liber-tauri/icons/32x32.png $out/share/icons/hicolor/32x32/apps/liber.png
+            cp crates/liber-tauri/icons/128x128.png $out/share/icons/hicolor/128x128/apps/liber.png
+          '';
+        };
+
+        # All-in-one release tarball: CLI, server, and desktop binaries
+        # plus checksums and install notes. The web UI ships embedded in
+        # liber and liber-serve, so no separate bundle is staged.
+        packages.release-bundle =
+          let
+            cli = self.packages.${system}.default;
+            desktop = self.packages.${system}.liber-desktop;
+          in
+          pkgs.runCommand "liber-rs-${version}-${system}"
+            {
+              nativeBuildInputs = [ pkgs.gnutar ];
+            }
+            ''
+              mkdir -p bundle/liber-rs-${version}
+              cp ${cli}/bin/liber ${cli}/bin/liber-serve bundle/liber-rs-${version}/
+              cp ${desktop}/bin/.liber-tauri-wrapped bundle/liber-rs-${version}/liber-tauri
+              cat > bundle/liber-rs-${version}/INSTALL.txt <<EOF
+              liber-rs ${version} (${system})
+              Run from this directory or add it to PATH:
+                ./liber --help                 CLI bookmark manager
+                ./liber-serve --help           standalone server (API plus web UI)
+                ./liber-tauri                  desktop app (needs a display plus system webkit)
+              Verify with: (cd liber-rs-${version} && sha256sum -c SHA256SUMS)
+              EOF
+              (cd bundle/liber-rs-${version} && sha256sum liber liber-serve liber-tauri > SHA256SUMS)
+              (cd bundle && tar -czf $out liber-rs-${version})
+            '';
+
         # Default Linux dev+test shell. This is the ONLY shell the agent
         # tests in. Cross helpers are installed here so availability is
         # guaranteed, but cross/android builds are not executed by default.
@@ -141,6 +216,7 @@
             echo "cargo $(cargo --version 2>/dev/null || echo missing)"
             echo "Extra targets via: rustup toolchain install stable --target <triple>"
             echo "Android work: use .#android or .#android-fhs instead"
+            echo "Desktop: cd crates/liber-tauri && ../../frontend/node_modules/.bin/tauri dev (needs a display)"
           '';
         };
 
@@ -196,6 +272,10 @@
         };
 
         apps.default = flake-utils.lib.mkApp { drv = self.packages.${system}.default; };
+        apps.liber-desktop = flake-utils.lib.mkApp {
+          drv = self.packages.${system}.liber-desktop;
+          exePath = "/bin/liber-tauri";
+        };
       }
     );
 }
