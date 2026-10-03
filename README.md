@@ -11,8 +11,7 @@ folders, each with REST fallback). See `local/PARITY.md` for the capability trac
 
 ## Install
 
-Requires Nix (flake provides Rust, Node, SQLite) or a local Rust plus Node
-toolchain.
+Fastest path is Nix (flake provides the full toolchain):
 
 ```sh
 cd project-liber
@@ -20,11 +19,27 @@ nix build .#default
 ./result/bin/liber --help
 ```
 
-## Building
+Desktop and all-in-one outputs are also flakes: `nix build .#liber-desktop`
+(the Tauri app, binary plus `.desktop` entry and icons),
+`nix run .#liber-desktop` to launch it, and `nix build .#release-bundle`
+for a tarball with `liber`, `liber-serve`, and `liber-tauri` plus
+checksums.
 
-Everything builds from inside `nix develop` (run from `project-liber/`).
-End users never build anything: release artifacts ship complete.
+Without Nix, install the toolchain in `Building on plain Linux` below,
+then build the components you want.
 
+## Building with Nix
+
+This is the primary path. Everything below runs from `project-liber/`;
+prefix interactive commands with `nix develop --command` or enter the
+shell once with `nix develop`.
+
+* **Everything (CLI plus server plus UI, release)**: `nix build .#default`.
+  Builds the frontend offline from the lockfile, then the release `liber`
+  plus `liber-serve` binaries with the UI embedded. Output lands in
+  `result/bin/`. Scoped to CLI plus server: the Tauri GUI binary is
+  excluded (it has its own bundle pipeline below) via `cargoBuildFlags`,
+  and tests via `cargoTestFlags`, so system webkit is never required.
 * **CLI plus server (dev, fast, no UI)**: `cargo build -p liber-cli`.
   Serves API-only; `/` explains how to add the UI.
 * **Web UI (dev)**: `cd frontend && pnpm install && pnpm build` once,
@@ -35,26 +50,96 @@ End users never build anything: release artifacts ship complete.
   `EMBED_UI=1 cargo build --release -p liber-cli`. The binary serves the
   UI with zero flags. Without `EMBED_UI=1` the build stays API-only even
   in release mode, by design, so stale `dist` output never ships silently.
-* **Nix package (`nix build .#default`)**: builds the frontend offline
-  from the lockfile, then the release `liber` plus `liber-serve` binaries
-  with the UI embedded. Scoped to CLI plus server only: the Tauri GUI
-  binary is excluded (it has its own bundle pipeline below) via
-  `cargoBuildFlags`, and tests via `cargoTestFlags`, so system webkit is
-  never required.
-* **Tauri desktop app**: `cd crates/liber-tauri &&` run the frontend-local
-  CLI (`../../frontend/node_modules/.bin/tauri`) `build --debug` for an
-  unoptimized bundle, or `build` for release. Produces `.deb`/`.rpm`
-  (plus AppImage targets where configured) using the embedded frontend.
-  Frontend hook commands run with `crates/` as cwd. Needs the flake dev
-  shell for webkit system deps; a display for running, not for building.
-
-Serving order is always explicit `--static-dir`, then the embedded
-bundle, then an API-only notice.
+* **Tauri desktop app**: `nix build .#liber-desktop` installs the app
+  natively (binary plus `.desktop` entry and icons, webkit wrapped).
+  `nix run .#liber-desktop` launches it. For debugging, `cd
+  crates/liber-tauri &&` run the frontend-local CLI
+  (`../../frontend/node_modules/.bin/tauri`) `dev` (needs a display;
+  the Vite dev server is pinned to the `devUrl` port 1420) or
+  `build --debug` for an unoptimized bundle, or `build` for release.
+  The raw `build` produces `.deb`/`.rpm` (plus AppImage targets where
+  configured) using the embedded frontend. Frontend hook commands run
+  with `crates/` as cwd. A display is needed for running, not for
+  building.
+* **All-in-one tarball**: `nix build .#release-bundle` packs `liber`,
+  `liber-serve`, and `liber-tauri` with `SHA256SUMS` and install notes.
+  The desktop binary inside is the unwrapped ELF (the `.desktop` install
+  stays with `.#liber-desktop`); outside Nix it needs system webkit.
 
 If `nix build .#default` fails with `ERR_PNPM_NO_OFFLINE_TARBALL`, the
 `pnpmDeps.hash` in `flake.nix` is stale (frontend deps changed since it
 was pinned). Fix: set the hash to `""`, rebuild, copy the `got: sha256-…`
 value from the mismatch error back into the flake.
+
+## Building on plain Linux
+
+No Nix required. Install the toolchain, then the component commands are
+identical to the Nix path above (cargo and pnpm fetch from the network
+normally; the offline `pnpmDeps` pinning is a Nix-only concern).
+
+Prerequisites: stable Rust via rustup (the repo's `rust-toolchain.toml`
+selects the channel, plus rustfmt/clippy components) and Node 22 with
+pnpm (`corepack enable` ships pnpm with Node 22, or install it
+standalone). Only `liber` plus `liber-serve` need nothing else:
+SQLite is bundled (rusqlite) and TLS uses rustls, so no system
+libraries are required for the CLI and server.
+
+The desktop app additionally needs the webkit system stack. Install one
+block (CLI/server-only builders skip this):
+
+* **Ubuntu/Debian**:
+  `sudo apt install build-essential curl wget file pkg-config libssl-dev
+  libdbus-1-dev libgtk-3-dev libsoup-3.0-dev libwebkit2gtk-4.1-dev
+  libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf`
+* **Fedora**:
+  `sudo dnf install gcc curl wget file pkg-config openssl-devel dbus-devel
+  gtk3-devel libsoup3-devel webkit2gtk4.1-devel
+  libappindicator-gtk3-devel librsvg2-devel libxdo-devel patchelf`
+* **Arch**:
+  `sudo pacman -S base-devel curl wget file pkg-config openssl dbus gtk3
+  libsoup3 webkit2gtk-4.1 libappindicator-gtk3 librsvg libxdo patchelf`
+
+Then build from `project-liber/`:
+
+```sh
+rustup toolchain install stable   # honors rust-toolchain.toml
+cargo build -p liber-cli          # CLI plus server, dev, API-only
+cd frontend && pnpm install && pnpm build && cd ..
+EMBED_UI=1 cargo build --release -p liber-cli                 # with UI baked in
+cd crates/liber-tauri && ../../frontend/node_modules/.bin/tauri build  # desktop release
+```
+
+## Components
+
+Four build outputs sharing one core (`crates/liber-core`, where every
+feature lives first). They compile individually (`cargo build -p <crate>`)
+but are not independent: the UI bundle and the API shapes flow into all
+of them.
+
+* **`liber` CLI** (`crates/liber-cli`, bin `liber`): the bookmark CLI
+  (add, list, open, edit, pick TUI, tags, folders, rules, check, sync,
+  history, profiles). Embeds `liber-server` as a library for its `serve`
+  command, so one binary covers terminal and self-hosting use.
+* **`liber-serve`** (`crates/liber-server/src/bin/liber-serve.rs`, bin
+  `liber-serve`): a slim flags-only server (`--addr --auth-token
+  --static-dir`) calling the same `serve` as `liber serve`. For machines
+  that only self-host.
+* **Web UI** (`frontend/`, Vite plus React): not a binary. Baked into
+  `liber`/`liber-serve` via `rust-embed` when `EMBED_UI=1`, overridable
+  per run with `--static-dir`, and bundled unchanged as the desktop
+  frontend (`frontendDist` in `tauri.conf.json`). Serving order is always
+  explicit `--static-dir`, then the embedded bundle, then an API-only
+  notice.
+* **Desktop app** (`crates/liber-tauri`, bin `liber-tauri`): Tauri 2
+  shell calling `liber-core` directly over IPC (no localhost hop).
+  Ships two ways: natively via `nix build .#liber-desktop` (binary plus
+  `.desktop` entry and icons), or through its own bundle pipeline
+  (`tauri build`) to `.deb`/`.rpm`/AppImage.
+
+`nix build .#release-bundle` packs the CLI, server, and desktop
+binaries into one tarball with checksums. Versioned releases with
+installers stay a later step; until then, the flake outputs are the
+distribution.
 
 ## Quickstart
 
