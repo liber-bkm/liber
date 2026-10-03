@@ -81,7 +81,7 @@ stay by default; `reindex --prune --compact-ids` closes them to a dense
 | Command | Purpose |
 |---|---|
 | `add <url>` | Add bookmark (`--title -t --folder --description --markdown --archive --attach`) |
-| `list [query]` | Search and list (`--sort newest\|oldest\|visited\|title`) |
+| `list [query]` | Search and list, newest first by default, relevance ranked when a query is given (`--sort newest\|oldest\|visited\|title` overrides) |
 | `open <spec>` | Open in browser, records history (falls back to search on miss) |
 | `edit <spec>` | Update url, title, description, tags, folder (`--markdown --attach --detach`); with no flags opens the full TUI editor |
 | `pick [query]` | Fuzzy TUI picker, then an open-or-edit menu (prints the URL when piped) |
