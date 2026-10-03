@@ -20,11 +20,13 @@ pub struct ReindexReport {
     pub pruned: usize,
     pub indexed: usize,
     pub short_ids_assigned: usize,
+    pub short_ids_compacted: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ReindexFlags {
     pub prune: bool,
+    pub compact_ids: bool,
 }
 
 fn is_conflict_name(name: &str) -> bool {
@@ -321,6 +323,9 @@ pub fn reindex(store: &mut Store, flags: ReindexFlags) -> Result<ReindexReport, 
         }
     }
     rep.short_ids_assigned = store.backfill_short_ids()?;
+    if flags.prune && flags.compact_ids {
+        rep.short_ids_compacted = store.compact_short_ids()?.len();
+    }
     if let Ok(index) = SearchIndex::open_or_create(&store.cfg.tantivy_dir()) {
         let mut docs = Vec::new();
         for b in store.list()? {
@@ -399,7 +404,14 @@ mod tests {
         add(&mut s, "https://example.com/a");
         let b = s.list().unwrap().remove(0);
         std::fs::remove_file(s.cfg.html_dir().join(&b.html_file)).unwrap();
-        let rep = reindex(&mut s, ReindexFlags { prune: true }).unwrap();
+        let rep = reindex(
+            &mut s,
+            ReindexFlags {
+                prune: true,
+                compact_ids: false,
+            },
+        )
+        .unwrap();
         assert_eq!(rep.pruned, 1);
         assert!(s.get(&b.uuid).unwrap().is_none());
         let ops = s.oplog_entries().unwrap();
@@ -434,6 +446,62 @@ mod tests {
             .is_some());
         assert!(dir.path().join("unindexed/html/dup.html").exists());
         assert!(dir.path().join("unindexed/html/junk.html").exists());
+    }
+
+    #[test]
+    fn compact_ids_requires_prune_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = test_store(dir.path());
+        add(&mut s, "https://example.com/a");
+        add(&mut s, "https://example.com/b");
+        add(&mut s, "https://example.com/c");
+        let all = s.list().unwrap();
+        crate::edit::delete_bookmark_with_files(&mut s, &all[1].uuid).unwrap();
+        let rep = reindex(
+            &mut s,
+            ReindexFlags {
+                prune: false,
+                compact_ids: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(rep.short_ids_compacted, 0);
+        let mut ids: Vec<i64> = s
+            .list()
+            .unwrap()
+            .iter()
+            .map(|b| b.short_id.unwrap())
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec![1, 3]);
+    }
+
+    #[test]
+    fn prune_with_compact_ids_closes_gaps() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = test_store(dir.path());
+        add(&mut s, "https://example.com/a");
+        add(&mut s, "https://example.com/b");
+        add(&mut s, "https://example.com/c");
+        let all = s.list().unwrap();
+        crate::edit::delete_bookmark_with_files(&mut s, &all[1].uuid).unwrap();
+        let rep = reindex(
+            &mut s,
+            ReindexFlags {
+                prune: true,
+                compact_ids: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(rep.short_ids_compacted, 1);
+        let mut ids: Vec<i64> = s
+            .list()
+            .unwrap()
+            .iter()
+            .map(|b| b.short_id.unwrap())
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec![1, 2]);
     }
 
     #[test]
