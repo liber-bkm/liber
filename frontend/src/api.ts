@@ -352,10 +352,11 @@ export interface ReindexReport {
   pending: string[];
   pruned: number;
   indexed: number;
+  short_ids_compacted?: number;
 }
 
-export function runReindex(prune: boolean): Promise<ReindexReport> {
-  return request("/api/v2/reindex", { method: "POST", body: JSON.stringify({ prune }) });
+export function runReindex(prune: boolean, compact_ids = false): Promise<ReindexReport> {
+  return request("/api/v2/reindex", { method: "POST", body: JSON.stringify({ prune, compact_ids }) });
 }
 
 export function importLibrary(content: string, markdown = false): Promise<{ added: number; skipped_dup: number; skipped_bad: number }> {
