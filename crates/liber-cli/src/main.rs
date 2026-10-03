@@ -114,6 +114,8 @@ struct DeleteArgs {
 struct ReindexArgs {
     #[arg(long)]
     prune: bool,
+    #[arg(long, requires = "prune")]
+    compact_ids: bool,
 }
 
 #[derive(clap::Args)]
@@ -1009,10 +1011,12 @@ fn run_sync(cmd: SyncCmd) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_reindex(prune: bool) -> anyhow::Result<()> {
+fn run_reindex(prune: bool, compact_ids: bool) -> anyhow::Result<()> {
     let (_, mut store) = load_store()?;
-    let rep =
-        liber_core::reindex::reindex(&mut store, liber_core::reindex::ReindexFlags { prune })?;
+    let rep = liber_core::reindex::reindex(
+        &mut store,
+        liber_core::reindex::ReindexFlags { prune, compact_ids },
+    )?;
     println!(
         "Reindexed: {} adopted, {} markdown relinked, {} archives relinked, {} conflicts swept, {} attachments quarantined, {} indexed.",
         rep.adopted,
@@ -1031,6 +1035,12 @@ fn run_reindex(prune: bool) -> anyhow::Result<()> {
     }
     if rep.pruned > 0 {
         println!("Pruned {} bookmark(s).", rep.pruned);
+    }
+    if rep.short_ids_compacted > 0 {
+        println!(
+            "Compacted {} bookmark(s) to dense short ids.",
+            rep.short_ids_compacted
+        );
     }
     Ok(())
 }
@@ -1295,7 +1305,7 @@ fn main() -> anyhow::Result<()> {
             Cmd::Attachments(a) => run_attachments(&a.spec, cli.uuid),
             Cmd::Import(a) => run_import(a),
             Cmd::Export(a) => run_export(a),
-            Cmd::Reindex(a) => run_reindex(a.prune),
+            Cmd::Reindex(a) => run_reindex(a.prune, a.compact_ids),
             Cmd::Sync(a) => run_sync(a.cmd),
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Pick(a) => run_pick(a.query.as_deref()),
