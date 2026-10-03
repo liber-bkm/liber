@@ -221,13 +221,10 @@ fn replay_upsert(
         }
         let mut updated = incoming.clone();
         updated.created_at = updated.created_at.min(local.created_at);
+        updated.short_id = local.short_id;
         merge_fields(&mut updated, &local);
-        let before = updated.short_id;
+        updated.short_id = local.short_id;
         store.replace_bookmark_exact(&updated)?;
-        let after = store.get(&updated.uuid)?.and_then(|b| b.short_id);
-        if before.is_some() && before != after {
-            rep.renumbered += 1;
-        }
         rep.merged += 1;
         return Ok(());
     }
@@ -470,6 +467,62 @@ mod tests {
         assert_eq!(got.short_id, Some(2));
         assert_eq!(b.get(&bb.uuid).unwrap().unwrap().short_id, Some(1));
         assert!(b.resolve_spec(&["2".to_string()]).unwrap()[0].uuid == ba.uuid);
+    }
+
+    #[test]
+    fn replay_preserves_local_short_id_on_update() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        let ba = add(&mut a, "https://example.com/a", "A");
+        replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        b.compact_short_ids().unwrap();
+        let before = b.get(&ba.uuid).unwrap().unwrap().short_id;
+        let mut remote = a.get(&ba.uuid).unwrap().unwrap();
+        remote.title = "Remote edit".to_string();
+        remote.updated_at = chrono::Utc::now() + chrono::Duration::seconds(60);
+        remote.short_id = Some(99);
+        let entry = crate::model::OpLogEntry {
+            seq: 999,
+            uuid: Some(remote.uuid),
+            device_id: "a".to_string(),
+            ts: chrono::Utc::now(),
+            op: "upsert".to_string(),
+            payload: serde_json::to_value(&remote).unwrap(),
+        };
+        replay_entries(&mut b, &[entry]).unwrap();
+        let got = b.get(&ba.uuid).unwrap().unwrap();
+        assert_eq!(got.short_id, before);
+        assert_eq!(got.title, "Remote edit");
+    }
+
+    #[test]
+    fn independent_compaction_converges_on_same_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        let x = add(&mut a, "https://example.com/x", "X");
+        let y = add(&mut a, "https://example.com/y", "Y");
+        let z = add(&mut a, "https://example.com/z", "Z");
+        replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        a.delete_bookmark(&y.uuid).unwrap();
+        replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        a.compact_short_ids().unwrap();
+        b.compact_short_ids().unwrap();
+        for uuid in [x.uuid, z.uuid] {
+            assert_eq!(
+                a.get(&uuid).unwrap().unwrap().short_id,
+                b.get(&uuid).unwrap().unwrap().short_id
+            );
+        }
+        let mut ids: Vec<i64> = a
+            .list()
+            .unwrap()
+            .iter()
+            .map(|b| b.short_id.unwrap())
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec![1, 2]);
     }
 
     #[test]
