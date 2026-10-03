@@ -71,9 +71,12 @@ given `--static-dir` (see Building).
 ## CLI
 
 Bookmarks are addressed by short numeric ID (`edit 3`) or UUID prefix.
-Numbers are display aliases assigned at creation, never reused, and survive
-sync without renames; `--uuid` shows full UUIDs instead. Specs accept
-comma separated IDs.
+Numbers are per-device display aliases assigned at creation in
+`(created_at, uuid)` order; sync never renames them (UUIDs are the merge
+key, incoming numbers are ignored for existing rows). Gaps from deletes
+stay by default; `reindex --prune --compact-ids` closes them to a dense
+`1..N` and resets the counter, so references like `[2]` can change meaning.
+`--uuid` shows full UUIDs instead. Specs accept comma separated IDs.
 
 | Command | Purpose |
 |---|---|
@@ -85,7 +88,7 @@ comma separated IDs.
 | `delete <spec>` | Delete with confirm (`--yes` skips it) |
 | `attachments <spec>` | List attachments with numbers |
 | `archive <spec>` | Archive page (`--backend builtin\|browser\|single-file\|monolith\|auto`) |
-| `reindex [--prune]` | Repair: adopt orphans, relink siblings, sweep conflicts, rebuild search |
+| `reindex [--prune --compact-ids]` | Repair: adopt orphans, relink siblings, sweep conflicts, rebuild search; `--compact-ids` (with `--prune`) closes short-id gaps to `1..N` |
 | `export --site [dir]` | Static `index.html` with relative links |
 | `export --bookmarks <file>` | Netscape bookmark file |
 | `import <file>` | Netscape import (`--markdown --archive`), duplicates skipped |
