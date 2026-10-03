@@ -438,7 +438,7 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
 
 fn run_list(a: ListArgs, full: bool) -> anyhow::Result<()> {
     let (_, store) = load_store()?;
-    let sort = liber_core::search::parse_sort_mode(a.sort.as_deref().unwrap_or(""))?;
+    let sort = liber_core::search::resolve_sort_mode(a.sort.as_deref(), a.query.as_deref())?;
     let filter = liber_core::store::BookmarkFilter {
         query: a.query.clone(),
         ..Default::default()
