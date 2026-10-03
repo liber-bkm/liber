@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Pencil, Trash2, Upload, X } from "lucide-react";
-import { archiveUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, displayId, domainOf, fetchBookmark, fetchNotes, getArchiveView, openBookmark, saveNotes, setArchiveView, shortUuid, updateBookmark, addBookmark, uploadAttachment, ApiError, type Bookmark } from "../api";
+import { archiveUrl, createArchive, deleteArchive, deleteAttachment, deleteNotes, displayId, domainOf, fetchNotes, getArchiveView, saveNotes, setArchiveView, shortUuid, uploadAttachment, ApiError, type Bookmark } from "../api";
+import { addBookmark, deleteBookmark, fetchBookmark, openBookmark, openExternal, updateBookmark } from "../tauri";
 import { Badge, Button, Field, Input, Modal, Spinner } from "./ui";
 
 type Tab = "details" | "notes" | "archive";
@@ -29,8 +30,8 @@ export function DetailDrawer({ uuid, onClose, onChanged }: { uuid: string; onClo
 
   const open = useMutation({
     mutationFn: () => openBookmark(uuid),
-    onSuccess: (data) => {
-      window.open(data.url, "_blank", "noopener");
+    onSuccess: async (data) => {
+      await openExternal(data.url);
       invalidate();
     },
   });

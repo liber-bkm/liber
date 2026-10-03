@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, CheckCircle2, Clock3, FolderTree, Moon, Plus, Settings as SettingsIcon, Sparkles, Sun, Tags } from "lucide-react";
-import { fetchFolders, fetchTags } from "../api";
+import { fetchFolders, fetchTags } from "../tauri";
 import { useTheme } from "../theme";
 
 export type View = "library" | "history" | "tags" | "folders" | "rules" | "check" | "settings";

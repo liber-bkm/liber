@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2 } from "lucide-react";
-import { deleteFolder, deleteTag, fetchFolders, fetchTags, renameFolder, renameTag } from "../api";
+import { deleteFolder, deleteTag, fetchFolders, fetchTags, renameFolder, renameTag } from "../tauri";
 import { Badge, Button, Empty, Input, Modal, Spinner } from "../components/ui";
 
 function refresh(qc: ReturnType<typeof useQueryClient>) {
