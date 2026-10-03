@@ -444,24 +444,43 @@ impl Store {
 
     pub fn replace_bookmark_exact(&mut self, b: &Bookmark) -> Result<(), CoreError> {
         let mut owned = b.clone();
-        let taken: Option<String> = self
+        let local: Option<Option<i64>> = self
             .conn
             .query_row(
-                "SELECT uuid FROM bookmarks WHERE short_id = ?1",
-                params![owned.short_id],
-                |row| row.get(0),
+                "SELECT short_id FROM bookmarks WHERE uuid = ?1",
+                params![owned.uuid.to_string()],
+                |row| row.get::<_, Option<i64>>(0),
             )
             .optional()
             .map_err(|e| CoreError::Storage(e.to_string()))?;
-        if let Some(other) = taken {
-            if other != owned.uuid.to_string() {
+        match local {
+            Some(Some(n)) => {
+                owned.short_id = Some(n);
+            }
+            Some(None) => {
                 owned.short_id = Some(next_short_id(&self.conn)?);
             }
-        }
-        if owned.short_id.is_none() {
-            owned.short_id = Some(next_short_id(&self.conn)?);
-        } else if let Some(n) = owned.short_id {
-            bump_counter_above(&self.conn, n)?;
+            None => {
+                let taken: Option<String> = self
+                    .conn
+                    .query_row(
+                        "SELECT uuid FROM bookmarks WHERE short_id = ?1",
+                        params![owned.short_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|e| CoreError::Storage(e.to_string()))?;
+                if let Some(other) = taken {
+                    if other != owned.uuid.to_string() {
+                        owned.short_id = Some(next_short_id(&self.conn)?);
+                    }
+                }
+                if owned.short_id.is_none() {
+                    owned.short_id = Some(next_short_id(&self.conn)?);
+                } else if let Some(n) = owned.short_id {
+                    bump_counter_above(&self.conn, n)?;
+                }
+            }
         }
         let b = &owned;
         self.conn
@@ -544,6 +563,60 @@ impl Store {
         }
         bump_counter_above(&self.conn, first + uuids.len() as i64)?;
         Ok(uuids.len())
+    }
+
+    pub fn compact_short_ids(&mut self) -> Result<Vec<(Uuid, Option<i64>, i64)>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT uuid, short_id FROM bookmarks ORDER BY created_at ASC, uuid ASC")
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let rows: Vec<(String, Option<i64>)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| CoreError::Storage(e.to_string()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        drop(stmt);
+        let total = rows.len() as i64;
+        let mut changed: Vec<(String, Option<i64>, i64)> = Vec::new();
+        for (i, (uuid, old)) in rows.iter().enumerate() {
+            let want = i as i64 + 1;
+            if *old != Some(want) {
+                changed.push((uuid.clone(), *old, want));
+            }
+        }
+        self.conn
+            .execute(
+                "INSERT INTO meta (key, value) VALUES ('next_short_id', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![(total + 1).to_string()],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        if changed.is_empty() {
+            return Ok(Vec::new());
+        }
+        for (uuid, _, _) in &changed {
+            self.conn
+                .execute(
+                    "UPDATE bookmarks SET short_id = NULL WHERE uuid = ?1",
+                    params![uuid],
+                )
+                .map_err(|e| CoreError::Storage(e.to_string()))?;
+        }
+        for (uuid, _, want) in &changed {
+            self.conn
+                .execute(
+                    "UPDATE bookmarks SET short_id = ?1 WHERE uuid = ?2",
+                    params![want, uuid],
+                )
+                .map_err(|e| CoreError::Storage(e.to_string()))?;
+        }
+        changed
+            .into_iter()
+            .map(|(uuid, old, want)| {
+                uuid.parse::<Uuid>()
+                    .map(|u| (u, old, want))
+                    .map_err(|e| CoreError::Storage(e.to_string()))
+            })
+            .collect()
     }
 
     pub fn delete_bookmark(&mut self, uuid: &Uuid) -> Result<bool, CoreError> {
@@ -1407,5 +1480,47 @@ mod tests {
             .unwrap();
         assert_eq!(old.short_id, Some(2));
         assert_eq!(s.backfill_short_ids().unwrap(), 0);
+    }
+
+    #[test]
+    fn compact_closes_gaps_and_resets_counter() {
+        let mut s = mem_store();
+        let a = s.add_bookmark(sample("https://example.com/a")).unwrap();
+        let b = s.add_bookmark(sample("https://example.com/b")).unwrap();
+        let c = s.add_bookmark(sample("https://example.com/c")).unwrap();
+        assert_eq!(
+            (a.short_id, b.short_id, c.short_id),
+            (Some(1), Some(2), Some(3))
+        );
+        s.delete_bookmark(&b.uuid).unwrap();
+        let moved = s.compact_short_ids().unwrap();
+        assert_eq!(moved.len(), 1);
+        assert_eq!(s.get(&a.uuid).unwrap().unwrap().short_id, Some(1));
+        assert_eq!(s.get(&c.uuid).unwrap().unwrap().short_id, Some(2));
+        assert!(s.compact_short_ids().unwrap().is_empty());
+        let d = s.add_bookmark(sample("https://example.com/d")).unwrap();
+        assert_eq!(d.short_id, Some(3));
+    }
+
+    #[test]
+    fn replace_preserves_local_short_id() {
+        let mut s = mem_store();
+        let a = s.add_bookmark(sample("https://example.com/a")).unwrap();
+        assert_eq!(a.short_id, Some(1));
+        let mut remote = a.clone();
+        remote.title = "Remote rename".to_string();
+        remote.short_id = Some(7);
+        s.replace_bookmark_exact(&remote).unwrap();
+        assert_eq!(s.get(&a.uuid).unwrap().unwrap().short_id, Some(1));
+    }
+
+    #[test]
+    fn update_bookmark_keeps_short_id() {
+        let mut s = mem_store();
+        let mut b = s.add_bookmark(sample("https://example.com/a")).unwrap();
+        b.title = "New title".to_string();
+        b.short_id = Some(99);
+        s.update_bookmark(&b).unwrap();
+        assert_eq!(s.get(&b.uuid).unwrap().unwrap().short_id, Some(1));
     }
 }
