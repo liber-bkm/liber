@@ -1,8 +1,17 @@
 use liber_core::create::{create_bookmark, CreateOptions};
+use liber_core::edit::{delete_bookmark_with_files, edit_bookmark, EditOptions};
 use liber_core::search::{order_results, resolve_sort_mode, SearchFields};
-use liber_core::store::BookmarkFilter;
+use liber_core::store::{BookmarkFilter, Store};
 use liber_tauri::{open_store, AddResult, AppState, ListResponse, TauriBookmark};
 use tauri::State;
+
+fn resolve_one(store: &Store, id: &str) -> Result<liber_core::model::Bookmark, String> {
+    let tokens = liber_core::idspec::parse_id_spec(id).map_err(|e| e.to_string())?;
+    let hits = store.resolve_spec(&tokens).map_err(|e| e.to_string())?;
+    hits.into_iter()
+        .next()
+        .ok_or_else(|| "not found".to_string())
+}
 
 #[tauri::command]
 fn list_bookmarks(
@@ -41,12 +50,7 @@ fn list_bookmarks(
 #[tauri::command]
 fn get_bookmark(state: State<'_, AppState>, id: String) -> Result<TauriBookmark, String> {
     let store = open_store(&state)?;
-    let tokens = liber_core::idspec::parse_id_spec(&id).map_err(|e| e.to_string())?;
-    let mut hits = store.resolve_spec(&tokens).map_err(|e| e.to_string())?;
-    match hits.pop() {
-        Some(b) => Ok(TauriBookmark::from(&b)),
-        None => Err("not found".to_string()),
-    }
+    Ok(TauriBookmark::from(&resolve_one(&store, &id)?))
 }
 
 #[tauri::command]
@@ -89,10 +93,173 @@ fn add_bookmark(
                     bookmark: TauriBookmark::from(&dup),
                 });
             }
-            Err("duplicate".to_string())
+            Err(serde_json::json!({
+                "error": "duplicate",
+                "existing": TauriBookmark::from(&dup),
+                "hint": "repeat with confirm_dup true to accept",
+            })
+            .to_string())
         }
         Err(e) => Err(e.to_string()),
     }
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn update_bookmark(
+    state: State<'_, AppState>,
+    id: String,
+    title: Option<String>,
+    description: Option<String>,
+    tags: Option<Vec<String>>,
+    folder: Option<String>,
+    url: Option<String>,
+) -> Result<TauriBookmark, String> {
+    if let Some(t) = &title {
+        if t.trim().is_empty() {
+            return Err("title must not be empty".to_string());
+        }
+    }
+    if let Some(u) = &url {
+        if u.trim().is_empty() {
+            return Err("url must not be empty".to_string());
+        }
+    }
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    let out = edit_bookmark(
+        &mut store,
+        &target.uuid,
+        EditOptions {
+            title,
+            description,
+            tags,
+            folder,
+            url,
+            add_markdown: false,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(TauriBookmark::from(&out))
+}
+
+#[tauri::command]
+fn delete_bookmark(
+    state: State<'_, AppState>,
+    id: String,
+    confirm: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    if !confirm.unwrap_or(false) {
+        return Ok(serde_json::json!({
+            "confirm_required": true,
+            "bookmark": TauriBookmark::from(&target),
+            "hint": "repeat with confirm true to delete",
+        }));
+    }
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    delete_bookmark_with_files(&mut store, &target.uuid).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"deleted": target.uuid.to_string()}))
+}
+
+#[tauri::command]
+fn open_bookmark(state: State<'_, AppState>, id: String) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    store.record_open(&target.uuid).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"url": target.url}))
+}
+
+#[tauri::command]
+fn list_tags(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let counts = liber_core::taxonomy::tag_counts(&store).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "tags": counts.iter().map(|(name, count)| serde_json::json!({"name": name, "count": count})).collect::<Vec<_>>(),
+    }))
+}
+
+#[tauri::command]
+fn list_folders(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let counts = liber_core::taxonomy::folder_counts(&store).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "folders": counts.iter().map(|(name, count)| serde_json::json!({"name": name, "count": count})).collect::<Vec<_>>(),
+    }))
+}
+
+#[tauri::command]
+fn rename_tag(
+    state: State<'_, AppState>,
+    old: String,
+    new_tag: String,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let changed =
+        liber_core::taxonomy::rename_tag(&mut store, &old, &new_tag).map_err(|e| e.to_string())?;
+    if changed.is_empty() {
+        return Err("no bookmarks have that tag".to_string());
+    }
+    Ok(serde_json::json!({"renamed": changed.len()}))
+}
+
+#[tauri::command]
+fn delete_tag(
+    state: State<'_, AppState>,
+    tag: String,
+    confirm: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    if tag.trim().is_empty() {
+        return Err("tag is required".to_string());
+    }
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    if !confirm.unwrap_or(false) {
+        let counts = liber_core::taxonomy::tag_counts(&store).map_err(|e| e.to_string())?;
+        let found = counts
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(tag.trim()));
+        let Some((_, count)) = found else {
+            return Err("no bookmarks have that tag".to_string());
+        };
+        return Ok(serde_json::json!({
+            "confirm_required": true,
+            "count": count,
+            "hint": "repeat with confirm true to delete",
+        }));
+    }
+    let changed = liber_core::taxonomy::delete_tag(&mut store, &tag).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"deleted": changed.len()}))
+}
+
+#[tauri::command]
+fn rename_folder(
+    state: State<'_, AppState>,
+    old: String,
+    new_folder: String,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let changed = liber_core::taxonomy::rename_folder(&mut store, &old, &new_folder)
+        .map_err(|e| e.to_string())?;
+    if changed.is_empty() {
+        return Err("no bookmarks in that folder".to_string());
+    }
+    Ok(serde_json::json!({"renamed": changed.len()}))
+}
+
+#[tauri::command]
+fn delete_folder(state: State<'_, AppState>, folder: String) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let changed =
+        liber_core::taxonomy::delete_folder(&mut store, &folder).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"moved_to_root": changed.len()}))
 }
 
 fn main() {
@@ -105,6 +272,15 @@ fn main() {
             list_bookmarks,
             get_bookmark,
             add_bookmark,
+            update_bookmark,
+            delete_bookmark,
+            open_bookmark,
+            list_tags,
+            list_folders,
+            rename_tag,
+            delete_tag,
+            rename_folder,
+            delete_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error running liber");

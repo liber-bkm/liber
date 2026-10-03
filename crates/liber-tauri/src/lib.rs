@@ -35,6 +35,7 @@ pub struct TauriBookmark {
     pub has_markdown: bool,
     pub has_archive: bool,
     pub open_count: u64,
+    pub attachments: Vec<String>,
 }
 
 impl From<&liber_core::model::Bookmark> for TauriBookmark {
@@ -52,6 +53,7 @@ impl From<&liber_core::model::Bookmark> for TauriBookmark {
             has_markdown: b.markdown_file.is_some(),
             has_archive: b.archive_file.is_some(),
             open_count: b.open_count,
+            attachments: b.attachments.iter().map(|a| a.name.clone()).collect(),
         }
     }
 }
