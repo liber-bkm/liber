@@ -5,8 +5,9 @@ Tauri desktop and mobile. Rust port of liber (see parent directory) with
 clean break storage; every Go capability is available in enhanced form,
 not cloned.
 
-Status: core and web UI complete (102 Rust plus 2 UI tests), Tauri desktop
-phase 1 done. See `local/PARITY.md` for the capability tracker.
+Status: core and web UI complete (111 Rust plus 2 UI tests), Tauri desktop
+IPC batches 1 and 2 done (list/get/add/update/delete/open plus tags and
+folders, each with REST fallback). See `local/PARITY.md` for the capability tracker.
 
 ## Install
 
