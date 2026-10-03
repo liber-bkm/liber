@@ -7,8 +7,8 @@ import { Badge, Empty, Input, Spinner } from "../components/ui";
 import { BulkBar } from "../components/BulkBar";
 
 const SORTS = [
-  { value: "", label: "Relevance" },
   { value: "newest", label: "Newest" },
+  { value: "", label: "Relevance" },
   { value: "oldest", label: "Oldest" },
   { value: "visited", label: "Most visited" },
   { value: "title", label: "Title" },
@@ -25,7 +25,7 @@ export function Library({
 }) {
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
-  const [sort, setSort] = useState("");
+  const [sort, setSort] = useState("newest");
   const [table, setTable] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const qc = useQueryClient();

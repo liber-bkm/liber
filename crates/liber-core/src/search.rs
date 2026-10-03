@@ -32,6 +32,14 @@ pub fn parse_sort_mode(s: &str) -> Result<SortMode, CoreError> {
     }
 }
 
+pub fn resolve_sort_mode(sort: Option<&str>, query: Option<&str>) -> Result<SortMode, CoreError> {
+    match sort.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => parse_sort_mode(s),
+        None if query.map(str::trim).filter(|q| !q.is_empty()).is_some() => Ok(SortMode::Relevance),
+        None => Ok(SortMode::Newest),
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SearchFields {
     pub title: bool,
@@ -352,6 +360,29 @@ mod tests {
         assert_eq!(parse_sort_mode("newest").unwrap(), SortMode::Newest);
         assert_eq!(parse_sort_mode("").unwrap(), SortMode::Relevance);
         assert!(parse_sort_mode("bogus").is_err());
+    }
+
+    #[test]
+    fn resolve_sort_mode_matrix() {
+        assert_eq!(resolve_sort_mode(None, None).unwrap(), SortMode::Newest);
+        assert_eq!(resolve_sort_mode(None, Some("")).unwrap(), SortMode::Newest);
+        assert_eq!(
+            resolve_sort_mode(None, Some("   ")).unwrap(),
+            SortMode::Newest
+        );
+        assert_eq!(
+            resolve_sort_mode(None, Some("rust")).unwrap(),
+            SortMode::Relevance
+        );
+        assert_eq!(
+            resolve_sort_mode(Some("oldest"), Some("rust")).unwrap(),
+            SortMode::Oldest
+        );
+        assert_eq!(
+            resolve_sort_mode(Some("  "), None).unwrap(),
+            SortMode::Newest
+        );
+        assert!(resolve_sort_mode(Some("bogus"), None).is_err());
     }
 
     #[test]

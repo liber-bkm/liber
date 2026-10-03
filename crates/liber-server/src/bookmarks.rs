@@ -4,7 +4,7 @@ use axum::response::{IntoResponse, Json};
 
 use liber_core::create::{create_bookmark, CreateOptions};
 use liber_core::edit::{delete_bookmark_with_files, edit_bookmark, EditOptions};
-use liber_core::search::{order_results, parse_sort_mode, SearchFields};
+use liber_core::search::{order_results, SearchFields};
 use liber_core::store::Store;
 
 use crate::api::{AddRequest, ApiBookmark, DeleteParams, ListParams, ListResponse, UpdateRequest};
@@ -36,7 +36,8 @@ pub async fn list_bookmarks(
 ) -> Result<Json<ListResponse>, (StatusCode, Json<serde_json::Value>)> {
     use liber_core::store::BookmarkFilter;
     let store = open_store(&state)?;
-    let sort = parse_sort_mode(p.sort.as_deref().unwrap_or("")).map_err(core_err)?;
+    let sort = liber_core::search::resolve_sort_mode(p.sort.as_deref(), p.q.as_deref())
+        .map_err(core_err)?;
     let filter = BookmarkFilter {
         folder: p.folder.clone(),
         tag: p.tag.clone(),
@@ -845,6 +846,38 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(v["url"], "https://example.com/dup");
+    }
+
+    #[tokio::test]
+    async fn default_list_order_is_newest_first() {
+        let (app, _dir) = test_state("");
+        for url in ["https://example.com/a", "https://example.com/b"] {
+            let (status, _) = body_json(
+                app.clone()
+                    .oneshot(post_json(
+                        "/api/v2/bookmarks",
+                        serde_json::json!({"url": url}),
+                    ))
+                    .await
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/bookmarks")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["total"], 2);
+        assert_eq!(v["bookmarks"][0]["url"], "https://example.com/b");
+        assert_eq!(v["bookmarks"][1]["url"], "https://example.com/a");
     }
 
     #[tokio::test]

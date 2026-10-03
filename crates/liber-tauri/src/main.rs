@@ -1,5 +1,5 @@
 use liber_core::create::{create_bookmark, CreateOptions};
-use liber_core::search::{order_results, parse_sort_mode, SearchFields};
+use liber_core::search::{order_results, resolve_sort_mode, SearchFields};
 use liber_core::store::BookmarkFilter;
 use liber_tauri::{open_store, AddResult, AppState, ListResponse, TauriBookmark};
 use tauri::State;
@@ -15,7 +15,7 @@ fn list_bookmarks(
     per_page: Option<usize>,
 ) -> Result<ListResponse, String> {
     let store = open_store(&state)?;
-    let mode = parse_sort_mode(sort.as_deref().unwrap_or("")).map_err(|e| e.to_string())?;
+    let mode = resolve_sort_mode(sort.as_deref(), q.as_deref()).map_err(|e| e.to_string())?;
     let filter = BookmarkFilter {
         folder,
         tag,
