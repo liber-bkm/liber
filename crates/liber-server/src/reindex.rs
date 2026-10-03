@@ -13,6 +13,8 @@ use crate::AppState;
 pub struct ReindexBody {
     #[serde(default)]
     pub prune: bool,
+    #[serde(default)]
+    pub compact_ids: bool,
 }
 
 pub async fn reindex_ep(
@@ -26,7 +28,14 @@ pub async fn reindex_ep(
             Json(serde_json::json!({"error": e.to_string()})),
         )
     })?;
-    let rep = reindex(&mut store, ReindexFlags { prune: input.prune }).map_err(|e| {
+    let rep = reindex(
+        &mut store,
+        ReindexFlags {
+            prune: input.prune,
+            compact_ids: input.compact_ids,
+        },
+    )
+    .map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),
@@ -41,5 +50,6 @@ pub async fn reindex_ep(
         "pending": rep.pending,
         "pruned": rep.pruned,
         "indexed": rep.indexed,
+        "short_ids_compacted": rep.short_ids_compacted,
     })))
 }
