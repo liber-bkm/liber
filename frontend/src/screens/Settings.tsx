@@ -10,6 +10,7 @@ export function SettingsPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [prune, setPrune] = useState(false);
+  const [compactIds, setCompactIds] = useState(false);
   const [importText, setImportText] = useState("");
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
@@ -24,9 +25,10 @@ export function SettingsPage() {
   });
 
   const reindex = useMutation({
-    mutationFn: () => runReindex(prune),
+    mutationFn: () => runReindex(prune, compactIds),
     onSuccess: (r) => {
-      setNotice(`Reindexed: ${r.adopted} adopted, ${r.indexed} indexed, ${r.pruned} pruned.`);
+      const compacted = r.short_ids_compacted ? `, ${r.short_ids_compacted} ids compacted` : "";
+      setNotice(`Reindexed: ${r.adopted} adopted, ${r.indexed} indexed, ${r.pruned} pruned${compacted}.`);
       qc.invalidateQueries({ queryKey: ["bookmarks"] });
     },
     onError: (e: Error) => setError(e.message),
@@ -82,6 +84,10 @@ export function SettingsPage() {
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={prune} onChange={(e) => setPrune(e.target.checked)} />
           Prune entries with missing files
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={compactIds} disabled={!prune} onChange={(e) => setCompactIds(e.target.checked)} />
+          Close short-id gaps (renumbers to 1..N)
         </label>
         <div>
           <Button variant="outline" onClick={() => { setError(""); setNotice(""); reindex.mutate(); }} disabled={reindex.isPending}>
