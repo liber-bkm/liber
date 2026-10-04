@@ -2,25 +2,54 @@ import type {
   AddInput,
   Bookmark,
   BookmarkList,
+  BulkResult,
+  CheckReport,
   FolderCount,
   ListParams,
+  ReindexReport,
+  Rule,
+  Settings,
+  Suggestion,
   TagCount,
   UpdateInput,
 } from "./api";
 import {
   addBookmark as restAdd,
+  addRule as restAddRule,
   ApiError,
+  applyRules as restApplyRules,
+  bulkOp as restBulk,
+  checkApply as restCheckApply,
+  checkRun as restCheckRun,
+  createArchive as restCreateArchive,
+  deleteArchive as restDeleteArchive,
+  deleteAttachment as restDeleteAttachment,
   deleteBookmark as restDelete,
   deleteFolder as restDeleteFolder,
+  deleteNotes as restDeleteNotes,
+  deleteRule as restDeleteRule,
   deleteTag as restDeleteTag,
+  editRule as restEditRule,
+  exportSite as restExportSite,
   fetchBookmark as restGet,
   fetchBookmarks as restList,
   fetchFolders as restFolders,
+  fetchHistory as restHistory,
+  fetchNotes as restNotes,
+  fetchRules as restRules,
+  fetchSettings as restSettings,
   fetchTags as restTags,
+  importLibrary as restImport,
+  learnCreate as restLearnCreate,
+  learnSuggestions as restLearn,
   openBookmark as restOpen,
   renameFolder as restRenameFolder,
   renameTag as restRenameTag,
+  runReindex as restReindex,
+  saveNotes as restSaveNotes,
+  setSetting as restSetSetting,
   updateBookmark as restUpdate,
+  uploadAttachment as restUpload,
 } from "./api";
 
 export function isTauri(): boolean {
@@ -50,6 +79,7 @@ interface TauriBookmarkPayload {
   has_markdown: boolean;
   has_archive: boolean;
   open_count: number;
+  last_opened_at?: string | null;
   attachments?: string[];
 }
 
@@ -74,6 +104,7 @@ function toBookmark(b: TauriBookmarkPayload): Bookmark {
     has_markdown: b.has_markdown,
     has_archive: b.has_archive,
     open_count: b.open_count,
+    last_opened_at: b.last_opened_at ?? undefined,
     attachments: (b.attachments ?? []).map((name) => ({ name })),
   };
 }
@@ -218,4 +249,185 @@ export async function renameFolder(old: string, next: string): Promise<{ renamed
 export async function deleteFolder(folder: string): Promise<{ moved_to_root: number }> {
   if (!isTauri()) return restDeleteFolder(folder);
   return invokeCmd<{ moved_to_root: number }>("delete_folder", { folder });
+}
+
+export async function fetchRules(): Promise<{ rules: Rule[] }> {
+  if (!isTauri()) return restRules();
+  return invokeCmd<{ rules: Rule[] }>("list_rules");
+}
+
+export async function addRule(input: {
+  pattern: string;
+  tags?: string[];
+  folder?: string;
+}): Promise<{ rule: Rule }> {
+  if (!isTauri()) return restAddRule(input);
+  return invokeCmd("add_rule", {
+    pattern: input.pattern,
+    tags: input.tags ?? null,
+    folder: input.folder ?? null,
+  });
+}
+
+export async function editRule(
+  id: string,
+  input: { pattern?: string; tags?: string[]; folder?: string; reapply?: boolean }
+): Promise<{ rule: Rule; reapplied: number }> {
+  if (!isTauri()) return restEditRule(id, input);
+  return invokeCmd("edit_rule", {
+    id,
+    pattern: input.pattern ?? null,
+    tags: input.tags ?? null,
+    folder: input.folder ?? null,
+    reapply: input.reapply ?? null,
+  });
+}
+
+export async function deleteRule(id: string): Promise<{ deleted: string }> {
+  if (!isTauri()) return restDeleteRule(id);
+  return invokeCmd("delete_rule", { id });
+}
+
+export async function applyRules(id?: string): Promise<{ applied: number }> {
+  if (!isTauri()) return restApplyRules(id);
+  return invokeCmd("apply_rules", { id: id ?? null });
+}
+
+export async function learnSuggestions(min = 3): Promise<{ suggestions: Suggestion[] }> {
+  if (!isTauri()) return restLearn(min);
+  return invokeCmd("learn_suggestions", { min });
+}
+
+export async function learnCreate(min = 3): Promise<{ created: number; applied: number }> {
+  if (!isTauri()) return restLearnCreate(min);
+  return invokeCmd("learn_create", { min });
+}
+
+export async function fetchHistory(): Promise<BookmarkList> {
+  if (!isTauri()) return restHistory();
+  return toBookmarkList(await invokeCmd<TauriListResponse>("fetch_history"));
+}
+
+export async function fetchSettings(): Promise<Settings> {
+  if (!isTauri()) return restSettings();
+  return invokeCmd<Settings>("fetch_settings");
+}
+
+export async function setSetting(key: string, value: string): Promise<{ ok: boolean }> {
+  if (!isTauri()) return restSetSetting(key, value);
+  return invokeCmd("set_setting", { key, value });
+}
+
+export async function bulkOp(
+  ids: string[],
+  op: string,
+  extra?: { tags?: string[]; folder?: string; confirm?: boolean }
+): Promise<BulkResult> {
+  if (!isTauri()) return restBulk(ids, op, extra);
+  return invokeCmd("bulk_op", {
+    ids,
+    op,
+    tags: extra?.tags ?? null,
+    folder: extra?.folder ?? null,
+    confirm: extra?.confirm ?? null,
+  });
+}
+
+export async function checkRun(spec?: string): Promise<CheckReport> {
+  if (!isTauri()) return restCheckRun(spec);
+  return invokeCmd("check_run", { spec: spec ?? null });
+}
+
+export async function checkApply(
+  updates: { uuid: string; url: string }[],
+  quarantine: string[]
+): Promise<{ updated: number; quarantined: number; skipped: unknown[] }> {
+  if (!isTauri()) return restCheckApply(updates, quarantine);
+  return invokeCmd("check_apply", { updates, quarantine });
+}
+
+export async function runReindex(prune: boolean, compact_ids = false): Promise<ReindexReport> {
+  if (!isTauri()) return restReindex(prune, compact_ids);
+  return invokeCmd("run_reindex", { prune, compact_ids });
+}
+
+export async function fetchNotes(uuid: string): Promise<{ body: string | null }> {
+  if (!isTauri()) return restNotes(uuid);
+  return invokeCmd("fetch_notes", { id: uuid });
+}
+
+export async function saveNotes(uuid: string, body: string): Promise<{ ok: boolean }> {
+  if (!isTauri()) return restSaveNotes(uuid, body);
+  return invokeCmd("save_notes", { id: uuid, body });
+}
+
+export async function deleteNotes(uuid: string): Promise<{ ok: boolean }> {
+  if (!isTauri()) return restDeleteNotes(uuid);
+  return invokeCmd("delete_notes", { id: uuid });
+}
+
+export async function fetchArchive(uuid: string): Promise<{ html: string }> {
+  if (!isTauri()) throw new Error("fetchArchive is Tauri-only; use archiveUrl on web");
+  return invokeCmd("fetch_archive", { id: uuid });
+}
+
+export function archiveUrl(uuid: string): string {
+  return `/api/v2/bookmarks/${uuid}/archive`;
+}
+
+export async function createArchive(
+  uuid: string,
+  backend?: string
+): Promise<{ ok: boolean; warnings: string[] }> {
+  if (!isTauri()) return restCreateArchive(uuid, backend);
+  return invokeCmd("create_archive", { id: uuid, backend: backend ?? null });
+}
+
+export async function deleteArchive(uuid: string): Promise<{ ok: boolean }> {
+  if (!isTauri()) return restDeleteArchive(uuid);
+  return invokeCmd("delete_archive", { id: uuid });
+}
+
+export async function uploadAttachment(
+  uuid: string,
+  name: string,
+  dataUrl: string
+): Promise<{ name: string }> {
+  if (!isTauri()) return restUpload(uuid, name, dataUrl);
+  const base64 = dataUrl.includes(",") ? dataUrl.split(",").slice(1).join(",") : dataUrl;
+  return invokeCmd("upload_attachment", { id: uuid, name, content: base64 });
+}
+
+export async function deleteAttachment(
+  uuid: string,
+  name: string
+): Promise<{ detached: string }> {
+  if (!isTauri()) return restDeleteAttachment(uuid, name);
+  return invokeCmd("delete_attachment", { id: uuid, name });
+}
+
+export async function downloadAttachment(
+  uuid: string,
+  name: string
+): Promise<{ name: string; mime: string; content: string }> {
+  if (!isTauri()) throw new Error("downloadAttachment is Tauri-only; use the download link on web");
+  return invokeCmd("download_attachment", { id: uuid, name });
+}
+
+export async function importLibrary(
+  content: string,
+  markdown = false
+): Promise<{ added: number; skipped_dup: number; skipped_bad: number }> {
+  if (!isTauri()) return restImport(content, markdown);
+  return invokeCmd("import_library", { content, markdown });
+}
+
+export async function exportSite(): Promise<{ index: string }> {
+  if (!isTauri()) return restExportSite();
+  return invokeCmd("export_site", {});
+}
+
+export async function exportBookmarksContent(): Promise<{ content: string }> {
+  if (!isTauri()) throw new Error("exportBookmarksContent is Tauri-only; use the download link on web");
+  return invokeCmd("export_bookmarks", {});
 }

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { ageOf, displayId, domainOf, fetchHistory, type Bookmark } from "../api";
+import { ageOf, displayId, domainOf, type Bookmark } from "../api";
+import { fetchHistory } from "../tauri";
 import { Empty, Spinner } from "../components/ui";
 
 export function HistoryPage({ onOpen }: { onOpen: (b: Bookmark) => void }) {

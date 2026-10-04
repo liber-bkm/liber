@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Play, Sparkles, Trash2 } from "lucide-react";
-import { addRule, applyRules, deleteRule, editRule, fetchRules, learnCreate, learnSuggestions } from "../api";
+import { addRule, applyRules, deleteRule, editRule, fetchRules, learnCreate, learnSuggestions } from "../tauri";
 import { Button, Empty, Field, Input, Modal, Spinner } from "../components/ui";
 
 function refresh(qc: ReturnType<typeof useQueryClient>) {

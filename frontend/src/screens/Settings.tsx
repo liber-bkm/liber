@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RefreshCw, Upload } from "lucide-react";
-import { exportSite, fetchSettings, importLibrary, runReindex, setSetting } from "../api";
+import { exportBookmarksContent, exportSite, fetchSettings, importLibrary, isTauri, runReindex, setSetting } from "../tauri";
 import { Button, Field, Input, Spinner } from "../components/ui";
 
 const BACKENDS = ["auto", "builtin", "browser", "single-file", "monolith"];
@@ -118,11 +118,35 @@ export function SettingsPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <a href="/api/v2/library/export-bookmarks" download>
-            <Button variant="outline">
+          {isTauri() ? (
+            <Button
+              variant="outline"
+              onClick={async () => {
+                setError("");
+                setNotice("");
+                try {
+                  const { content } = await exportBookmarksContent();
+                  const blob = new Blob([content], { type: "text/html;charset=utf-8" });
+                  const href = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = href;
+                  a.download = "liber-bookmarks.html";
+                  a.click();
+                  setTimeout(() => URL.revokeObjectURL(href), 5000);
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "export failed");
+                }
+              }}
+            >
               <Download className="h-4 w-4" /> Bookmarks file
             </Button>
-          </a>
+          ) : (
+            <a href="/api/v2/library/export-bookmarks" download>
+              <Button variant="outline">
+                <Download className="h-4 w-4" /> Bookmarks file
+              </Button>
+            </a>
+          )}
           <Button
             variant="outline"
             onClick={() => { setError(""); setNotice(""); doExportSite.mutate(); }}

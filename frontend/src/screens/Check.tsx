@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Play } from "lucide-react";
-import { checkApply, checkRun, displayId, type CheckRow } from "../api";
+import { displayId, type CheckRow } from "../api";
+import { checkApply, checkRun } from "../tauri";
 import { Badge, Button, Empty, Spinner } from "../components/ui";
 
 export function CheckPage() {
