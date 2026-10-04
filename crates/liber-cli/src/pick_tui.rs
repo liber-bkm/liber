@@ -73,14 +73,15 @@ fn tui_loop(
                         None => b.uuid.to_string()[..8].to_string(),
                     };
                     let mut item = ListItem::new(format!(
-                        "[{}] {}  {}",
+                        "[{}] {}  {}{}",
                         id,
                         b.title,
                         if b.folder.is_empty() {
                             String::new()
                         } else {
                             format!("({})", b.folder)
-                        }
+                        },
+                        crate::artifact_tags(b)
                     ));
                     if i == selected {
                         item = item.style(
@@ -176,7 +177,14 @@ pub fn confirm_numbered(shown: &[Bookmark]) -> anyhow::Result<Option<Bookmark>> 
     let stderr = io::stderr();
     let mut err = stderr.lock();
     for (i, b) in shown.iter().enumerate() {
-        writeln!(err, "[{}] {}\n    {}", i + 1, b.title, b.url)?;
+        writeln!(
+            err,
+            "[{}] {}\n    {}{}",
+            i + 1,
+            b.title,
+            b.url,
+            crate::artifact_tags(b)
+        )?;
     }
     write!(err, "number to pick: ")?;
     err.flush()?;
@@ -190,13 +198,22 @@ pub fn confirm_numbered(shown: &[Bookmark]) -> anyhow::Result<Option<Bookmark>> 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickAction {
     Open,
+    OpenArchive,
+    OpenNotes,
     Edit,
 }
 
 pub fn action_menu(b: &Bookmark) -> anyhow::Result<Option<PickAction>> {
     with_terminal(|terminal| {
         let mut selected = 0;
-        let items = ["Open in browser", "Edit bookmark"];
+        let mut items: Vec<(&str, PickAction)> = vec![("Open in browser", PickAction::Open)];
+        if b.archive_file.is_some() {
+            items.push(("Open archived copy", PickAction::OpenArchive));
+        }
+        if b.markdown_file.is_some() {
+            items.push(("Show notes", PickAction::OpenNotes));
+        }
+        items.push(("Edit bookmark", PickAction::Edit));
         loop {
             terminal.draw(|f| {
                 let area = centered_rect(44, 8, f.area());
@@ -207,7 +224,7 @@ pub fn action_menu(b: &Bookmark) -> anyhow::Result<Option<PickAction>> {
                 let rows: Vec<ListItem> = items
                     .iter()
                     .enumerate()
-                    .map(|(i, label)| {
+                    .map(|(i, (label, _))| {
                         let mut item = ListItem::new((*label).to_string());
                         if i == selected {
                             item = item.style(
@@ -240,11 +257,7 @@ pub fn action_menu(b: &Bookmark) -> anyhow::Result<Option<PickAction>> {
             match key.code {
                 KeyCode::Esc => return Ok(None),
                 KeyCode::Enter => {
-                    return Ok(Some(if selected == 0 {
-                        PickAction::Open
-                    } else {
-                        PickAction::Edit
-                    }))
+                    return Ok(items.get(selected).map(|(_, action)| *action));
                 }
                 KeyCode::Up => selected = selected.saturating_sub(1),
                 KeyCode::Down => {

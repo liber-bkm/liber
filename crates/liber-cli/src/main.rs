@@ -327,6 +327,17 @@ fn show_id(b: &liber_core::model::Bookmark, full: bool) -> String {
     }
 }
 
+pub(crate) fn artifact_tags(b: &liber_core::model::Bookmark) -> String {
+    let mut s = String::new();
+    if b.markdown_file.is_some() {
+        s.push_str(" [md]");
+    }
+    if b.archive_file.is_some() {
+        s.push_str(" [arch]");
+    }
+    s
+}
+
 fn confirm(prompt: &str) -> bool {
     use std::io::{self, Write};
     print!("{prompt} [y/N] ");
@@ -464,11 +475,12 @@ fn run_list(a: ListArgs, full: bool) -> anyhow::Result<()> {
     let ordered = liber_core::search::order_results(found, &query, &fields, sort);
     for b in ordered {
         println!(
-            "[{}] {} ({}) {}",
+            "[{}] {} ({}) {}{}",
             show_id(&b, full),
             b.title,
             display_folder(&b.folder),
-            b.url
+            b.url,
+            artifact_tags(&b)
         );
     }
     Ok(())
@@ -1079,12 +1091,13 @@ fn run_history(full: bool) -> anyhow::Result<()> {
     }
     for b in found {
         println!(
-            "[{}] {} ({}) {} ({}x)",
+            "[{}] {} ({}) {} ({}x){}",
             show_id(&b, full),
             b.title,
             display_folder(&b.folder),
             b.url,
-            b.open_count
+            b.open_count,
+            artifact_tags(&b)
         );
     }
     Ok(())
@@ -1222,6 +1235,23 @@ fn run_pick(query: Option<&str>) -> anyhow::Result<()> {
                 Some(pick_tui::PickAction::Open) => {
                     store.record_open(&b.uuid)?;
                     open_in_browser(&cfg, &b.url)?;
+                    Ok(())
+                }
+                Some(pick_tui::PickAction::OpenArchive) => {
+                    let Some(rel) = &b.archive_file else {
+                        return Err(anyhow::anyhow!("no archived copy for this bookmark"));
+                    };
+                    let path = store.cfg.archive_dir().join(rel);
+                    let url = format!("file://{}", path.to_string_lossy());
+                    store.record_open(&b.uuid)?;
+                    open_in_browser(&cfg, &url)?;
+                    Ok(())
+                }
+                Some(pick_tui::PickAction::OpenNotes) => {
+                    match liber_core::edit::read_note_body(&store, &b.uuid)? {
+                        Some(body) => println!("{body}"),
+                        None => println!("No notes for this bookmark yet."),
+                    }
                     Ok(())
                 }
                 Some(pick_tui::PickAction::Edit) => run_edit_tui_flow(&mut store, &b.uuid),
