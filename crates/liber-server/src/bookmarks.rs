@@ -111,10 +111,28 @@ pub async fn add_bookmark(
         markdown: input.markdown,
     };
     match create_bookmark(&mut store, &input.url, opts) {
-        Ok(b) => Ok((
-            StatusCode::CREATED,
-            Json(serde_json::to_value(ApiBookmark::from(&b)).unwrap_or_default()),
-        )),
+        Ok(b) => {
+            let mut warnings = Vec::new();
+            let b = if input.archive {
+                match liber_core::archive::archive_bookmark(&mut store, &b.uuid, None) {
+                    Ok(w) => {
+                        warnings.extend(w);
+                        store.get(&b.uuid).map_err(core_err)?.unwrap_or(b)
+                    }
+                    Err(e) => {
+                        warnings.push(format!("archive failed: {e}"));
+                        b
+                    }
+                }
+            } else {
+                b
+            };
+            let mut v = serde_json::to_value(ApiBookmark::from(&b)).unwrap_or_default();
+            if !warnings.is_empty() {
+                v["warnings"] = serde_json::to_value(warnings).unwrap_or_default();
+            }
+            Ok((StatusCode::CREATED, Json(v)))
+        }
         Err(liber_core::CoreError::Duplicate(_)) => {
             let dup = store
                 .find_by_url(&liber_core::slug::normalize_url(&input.url))
@@ -846,6 +864,28 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(v["url"], "https://example.com/dup");
+    }
+
+    #[tokio::test]
+    async fn add_with_archive_reports_failure_as_warning() {
+        let (app, _dir) = test_state("");
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(post_json(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "http://127.0.0.1:1/unreachable", "archive": true}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert!(v["warnings"].as_array().is_some());
+        assert!(v["warnings"][0]
+            .as_str()
+            .unwrap()
+            .contains("archive failed"));
+        assert_eq!(v["has_archive"], false);
     }
 
     #[tokio::test]

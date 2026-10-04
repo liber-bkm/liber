@@ -59,7 +59,7 @@ fn find_browser(cfg: &Config) -> Option<PathBuf> {
     if !cfg.browser_path.trim().is_empty() {
         return find_on_path(cfg.browser_path.trim());
     }
-    ["chromium", "chromium-browser", "google-chrome", "firefox"]
+    ["chromium", "chromium-browser", "google-chrome"]
         .into_iter()
         .find_map(find_on_path)
 }
@@ -800,12 +800,25 @@ fn run_external(argv: Vec<String>, out_path: &std::path::Path) -> Result<(), Cor
         .output()
         .map_err(|e| CoreError::Storage(format!("starting {cmd}: {e}")))?;
     if !out.status.success() {
-        let msg = String::from_utf8_lossy(&out.stdout);
-        let msg = msg.trim();
-        if msg.is_empty() {
-            return Err(CoreError::Storage(format!("{cmd} failed")));
+        let detail = String::from_utf8_lossy(&out.stderr);
+        let detail = detail.trim();
+        if detail.is_empty() {
+            return Err(CoreError::Storage(format!(
+                "{cmd} failed with status {}",
+                out.status
+            )));
         }
-        return Err(CoreError::Storage(format!("{cmd} failed: {msg}")));
+        return Err(CoreError::Storage(format!(
+            "{cmd} failed with status {}: {detail}",
+            out.status
+        )));
+    }
+    let size = std::fs::metadata(out_path).map(|m| m.len()).unwrap_or(0);
+    if size < 100 {
+        return Err(CoreError::Storage(format!(
+            "{cmd} produced an empty archive ({size} bytes at {})",
+            out_path.display()
+        )));
     }
     Ok(())
 }
@@ -1001,7 +1014,7 @@ mod tests {
         let fake = bin.join("fake-single-file");
         std::fs::write(
             &fake,
-            "#!/bin/sh\nfor a in \"$@\"; do last=\"$a\"; done\nprintf 'ARCHIVED' > \"$last\"\n",
+            "#!/bin/sh\nfor a in \"$@\"; do last=\"$a\"; done\nprintf '<!DOCTYPE html><html><head><title>Fake</title></head><body><p>ARCHIVED snapshot body with enough bytes to pass the non-empty output gate.</p></body></html>' > \"$last\"\n",
         )
         .unwrap();
         #[cfg(unix)]
@@ -1030,7 +1043,81 @@ mod tests {
         let b = store.get(&b.uuid).unwrap().unwrap();
         let rel = b.archive_file.clone().unwrap();
         let content = std::fs::read_to_string(store.cfg.archive_dir().join(&rel)).unwrap();
-        assert_eq!(content, "ARCHIVED");
+        assert!(content.contains("ARCHIVED snapshot body"));
+    }
+
+    fn fake_tool(dir: &std::path::Path, name: &str, script: &str) -> String {
+        let bin = dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let fake = bin.join(name);
+        std::fs::write(&fake, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        fake.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn external_empty_output_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = fake_tool(
+            dir.path(),
+            "fake-empty",
+            "#!/bin/sh\nfor a in \"$@\"; do last=\"$a\"; done\n: > \"$last\"\n",
+        );
+        let mut store = Store::open_in_memory(Config {
+            base_dir: dir.path().to_path_buf(),
+            device_id: "test-device".to_string(),
+            singlefile_cmd: cmd,
+            ..Default::default()
+        })
+        .unwrap();
+        let b = create_bookmark(
+            &mut store,
+            "https://example.com/x",
+            CreateOptions {
+                title: Some("X".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let err = archive_bookmark(&mut store, &b.uuid, Some("single-file"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("empty archive"), "unexpected: {err}");
+        assert!(store.get(&b.uuid).unwrap().unwrap().archive_file.is_none());
+    }
+
+    #[test]
+    fn external_failure_reports_stderr() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = fake_tool(
+            dir.path(),
+            "fake-fail",
+            "#!/bin/sh\necho 'boom: no such browser' >&2\nexit 3\n",
+        );
+        let mut store = Store::open_in_memory(Config {
+            base_dir: dir.path().to_path_buf(),
+            device_id: "test-device".to_string(),
+            monolith_cmd: cmd,
+            ..Default::default()
+        })
+        .unwrap();
+        let b = create_bookmark(
+            &mut store,
+            "https://example.com/x",
+            CreateOptions {
+                title: Some("X".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let err = archive_bookmark(&mut store, &b.uuid, Some("monolith"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("boom: no such browser"), "unexpected: {err}");
     }
 
     #[test]
