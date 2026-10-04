@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Pencil, Trash2, X } from "lucide-react";
-import { bulkOp } from "../api";
+import { bulkOp } from "../tauri";
 import { Button, Input, Modal } from "./ui";
 
 export function BulkBar({ ids, onDone, onClear }: { ids: string[]; onDone: () => void; onClear: () => void }) {

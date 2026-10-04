@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Pencil, Trash2, Upload, X } from "lucide-react";
-import { archiveUrl, createArchive, deleteArchive, deleteAttachment, deleteNotes, displayId, domainOf, fetchNotes, getArchiveView, saveNotes, setArchiveView, shortUuid, uploadAttachment, ApiError, type Bookmark } from "../api";
-import { addBookmark, deleteBookmark, fetchBookmark, openBookmark, openExternal, updateBookmark } from "../tauri";
+import { displayId, domainOf, getArchiveView, setArchiveView, shortUuid, ApiError, type Bookmark } from "../api";
+import { addBookmark, archiveUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, downloadAttachment, fetchArchive, fetchBookmark, fetchNotes, isTauri, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment } from "../tauri";
 import { Badge, Button, Field, Input, Modal, Spinner } from "./ui";
 
 type Tab = "details" | "notes" | "archive";
@@ -159,13 +159,7 @@ function View({ bookmark: b, onChanged }: { bookmark: Bookmark; onChanged: () =>
         {uploadError && <p className="mb-1 text-xs text-red-600">{uploadError}</p>}
         {(b.attachments ?? []).length === 0 && <p className="text-sm text-neutral-400">None yet.</p>}
         {(b.attachments ?? []).map((a) => (
-          <a
-            key={a.name}
-            href={`/api/v2/bookmarks/${b.uuid}/attachments/${encodeURIComponent(a.name)}`}
-            className="block truncate text-sm text-accent-600 hover:underline"
-          >
-            {a.name}
-          </a>
+          <AttachmentLink key={a.name} uuid={b.uuid} name={a.name} />
         ))}
       </div>
       <p className="text-xs text-neutral-400">
@@ -173,6 +167,46 @@ function View({ bookmark: b, onChanged }: { bookmark: Bookmark; onChanged: () =>
         {b.open_count ? ` · opened ${b.open_count} times` : ""}
       </p>
     </div>
+  );
+}
+
+function AttachmentLink({ uuid, name }: { uuid: string; name: string }) {
+  const [error, setError] = useState("");
+  if (!isTauri()) {
+    return (
+      <a
+        href={`/api/v2/bookmarks/${uuid}/attachments/${encodeURIComponent(name)}`}
+        className="block truncate text-sm text-accent-600 hover:underline"
+      >
+        {name}
+      </a>
+    );
+  }
+  return (
+    <>
+      <button
+        onClick={async () => {
+          setError("");
+          try {
+            const { mime, content } = await downloadAttachment(uuid, name);
+            const bytes = Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
+            const blob = new Blob([bytes as BlobPart], { type: mime });
+            const href = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = href;
+            a.download = name;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(href), 5000);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "download failed");
+          }
+        }}
+        className="block truncate text-left text-sm text-accent-600 hover:underline"
+      >
+        {name}
+      </button>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+    </>
   );
 }
 
@@ -221,8 +255,33 @@ function NotesTab({ uuid, hasNotes }: { uuid: string; hasNotes: boolean }) {
 
 function ArchiveTab({ bookmark: b }: { bookmark: Bookmark }) {
   const [view, setView] = useState(getArchiveView());
+  const remote = useQuery({
+    queryKey: ["archive", b.uuid],
+    queryFn: () => fetchArchive(b.uuid),
+    enabled: isTauri() && b.has_archive,
+  });
   if (!b.has_archive) {
     return <p className="text-sm text-neutral-400">No archived copy. Add one from the edit form below.</p>;
+  }
+  if (isTauri()) {
+    if (remote.isLoading) return <Spinner />;
+    if (remote.error) {
+      return (
+        <p className="text-sm text-red-600">
+          {remote.error instanceof Error ? remote.error.message : "archive failed to load"}
+        </p>
+      );
+    }
+    return (
+      <div className="flex flex-col gap-2">
+        <iframe
+          srcDoc={remote.data?.html ?? ""}
+          sandbox=""
+          title="Archived page"
+          className="h-[60vh] w-full rounded-xl border border-neutral-200 bg-white dark:border-neutral-800"
+        />
+      </div>
+    );
   }
   const url = archiveUrl(b.uuid);
   return (
