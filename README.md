@@ -139,15 +139,38 @@ of them.
   Ships two ways: natively via `nix build .#liber-desktop` (binary plus
   `.desktop` entry and icons), or through its own bundle pipeline
   (`tauri build`) to `.deb`/`.rpm`/AppImage. The same app targets
-  Android (`nix develop .#android-fhs`, then `tauri android init` and
-  `tauri android build`): private storage, `liber://add` share links,
-  and an optional remote mode (server URL plus token in Settings) that
-  talks to a LAN `liber-serve` instead of the local library.
+  Android (see `## Android` below).
 
 `nix build .#release-bundle` packs the CLI, server, and desktop
 binaries into one tarball with checksums. Versioned releases with
 installers stay a later step; until then, the flake outputs are the
 distribution.
+
+## Android
+
+The Tauri app builds for Android from the same codebase. On device it
+uses private storage (config plus `library/` side by side in the app
+sandbox, no `dirs` involved), forces the builtin archiver, and refuses
+git snapshots. Optional remote mode talks to a LAN `liber-serve`
+instead of the local library: set server URL plus token in Settings.
+`liber://add?url=...` links open the add dialog with the URL prefilled.
+
+You build and install it; device work is never done by automation:
+
+```sh
+nix develop .#android-fhs   # FHS shell: JDK 17, Gradle, SDK 35, NDK, licenses pre-accepted
+rustup target add aarch64-linux-android
+cd crates/liber-tauri
+../../frontend/node_modules/.bin/tauri android init   # first time only, creates gen/android/
+../../frontend/node_modules/.bin/tauri android build --target aarch64-linux-android
+adb install path/to/app.apk   # find it under gen/android/app/build/outputs/
+```
+
+For iteration, `tauri android dev` plus `adb reverse tcp:1420 tcp:1420`
+forwards the Vite dev server to the device. Release signing needs your
+own keystore; debug builds sign automatically. System share-sheet SEND
+intents and a native file picker are not wired yet (attachments upload
+through the webview picker, exports download as blobs).
 
 ## Quickstart
 
@@ -251,6 +274,14 @@ Archiving defaults to the builtin snapshot (monolith-class static embed,
 scripts stripped, no external processes). `auto` chains browser pipe (when
 a browser resolves), single-file, monolith, then builtin, warning at each
 fallback. Explicit backends are strict.
+
+External backends need their binaries. The Nix dev shell and both Nix
+packages (`packages.default`, `packages.liber-desktop`) put `single-file`
+and `monolith` on `PATH`, so they work with zero setup there. On plain
+Linux install them yourself (`npm i -g single-file-cli`,
+`cargo install monolith`, or distro packages) or point `singlefile_cmd` /
+`monolith_cmd` at your binaries. Browsers resolve via `browser_path` or
+Chromium on `PATH` (Chromium only; Firefox flags are unsupported).
 
 ## Sync
 

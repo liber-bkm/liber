@@ -41,7 +41,10 @@ pub fn load_config() -> Result<(Config, PathBuf), CoreError> {
     load_config_from(config_path()?, default_base_dir())
 }
 
-pub fn load_config_from(path: PathBuf, default_base: PathBuf) -> Result<(Config, PathBuf), CoreError> {
+pub fn load_config_from(
+    path: PathBuf,
+    default_base: PathBuf,
+) -> Result<(Config, PathBuf), CoreError> {
     let data = match std::fs::read(&path) {
         Ok(d) => d,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

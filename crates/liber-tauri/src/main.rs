@@ -969,10 +969,7 @@ fn resolve_app_config(app: &tauri::AppHandle) -> Result<liber_core::store::Confi
             .map(|(cfg, _)| cfg)
             .map_err(|e| e.to_string());
     }
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     liber_core::config::load_config_from(dir.join("config.json"), dir.join("library"))
         .map(|(cfg, _)| cfg)
         .map_err(|e| e.to_string())
@@ -983,9 +980,8 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
-            let cfg = resolve_app_config(app.handle()).map_err(|e| {
-                Box::<dyn std::error::Error>::from(format!("loading config: {e}"))
-            })?;
+            let cfg = resolve_app_config(app.handle())
+                .map_err(|e| Box::<dyn std::error::Error>::from(format!("loading config: {e}")))?;
             app.manage(liber_tauri::AppState::new(cfg));
             Ok(())
         })

@@ -96,6 +96,7 @@
             pkgs.nodejs_22
             pkgs.pnpm
             pkgs.pnpmConfigHook
+            pkgs.makeWrapper
           ];
           pnpmDeps = pkgs.fetchPnpmDeps {
             pname = "liber-frontend";
@@ -106,6 +107,17 @@
           };
           pnpmRoot = "frontend";
           env.EMBED_UI = "1";
+          # Runtime archiver backends on PATH. Never add these (in
+          # particular the npm-based single-file-cli) to
+          # nativeBuildInputs: its setup hook pollutes the Node env and
+          # breaks the offline pnpm build (esbuild optional dep goes
+          # missing). Wrapping only touches installed binaries.
+          postFixup = ''
+            for bin in $out/bin/liber $out/bin/liber-serve; do
+              wrapProgram "$bin" \
+                --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.single-file-cli pkgs.monolith ]}"
+            done
+          '';
           cargoBuildFlags = [
             "--bin"
             "liber"
@@ -139,7 +151,15 @@
             pkgs.nodejs_22
             pkgs.pnpm
             pkgs.pnpmConfigHook
+            pkgs.makeWrapper
           ];
+          # Same runtime-PATH rule as packages.default: external archiver
+          # backends are wrapped in, never build inputs. Runs after the
+          # GApps wrap, wrapping the wrapper is supported.
+          postFixup = ''
+            wrapProgram "$out/bin/liber-tauri" \
+              --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.single-file-cli pkgs.monolith ]}"
+          '';
           pnpmDeps = pkgs.fetchPnpmDeps {
             pname = "liber-frontend";
             inherit version;
@@ -224,6 +244,11 @@
               pnpm
               sqlite
               pkg-config
+              # External archiver backends for testing browser/single-file/
+              # monolith paths. Interactive shell only: online pnpm tolerates
+              # the extra Node env, the offline package build does not.
+              single-file-cli
+              monolith
             ])
             ++ linuxTauriDeps;
           shellHook = ''
