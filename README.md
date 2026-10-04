@@ -138,7 +138,11 @@ of them.
   shell calling `liber-core` directly over IPC (no localhost hop).
   Ships two ways: natively via `nix build .#liber-desktop` (binary plus
   `.desktop` entry and icons), or through its own bundle pipeline
-  (`tauri build`) to `.deb`/`.rpm`/AppImage.
+  (`tauri build`) to `.deb`/`.rpm`/AppImage. The same app targets
+  Android (`nix develop .#android-fhs`, then `tauri android init` and
+  `tauri android build`): private storage, `liber://add` share links,
+  and an optional remote mode (server URL plus token in Settings) that
+  talks to a LAN `liber-serve` instead of the local library.
 
 `nix build .#release-bundle` packs the CLI, server, and desktop
 binaries into one tarball with checksums. Versioned releases with

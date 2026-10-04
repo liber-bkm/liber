@@ -96,8 +96,6 @@
             pkgs.nodejs_22
             pkgs.pnpm
             pkgs.pnpmConfigHook
-            pkgs.single-file-cli
-            pkgs.monolith
           ];
           pnpmDeps = pkgs.fetchPnpmDeps {
             pname = "liber-frontend";
