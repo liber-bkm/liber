@@ -460,6 +460,7 @@ export function AddDialog({ onClose, onAdded }: { onClose: () => void; onAdded: 
   const [tags, setTags] = useState("");
   const [folder, setFolder] = useState("");
   const [markdown, setMarkdown] = useState(false);
+  const [archive, setArchive] = useState(false);
   const [error, setError] = useState("");
   const [existing, setExisting] = useState<Bookmark | null>(null);
   const [saving, setSaving] = useState(false);
@@ -475,6 +476,7 @@ export function AddDialog({ onClose, onAdded }: { onClose: () => void; onAdded: 
         tags: tags.split(/[\s,]+/).filter(Boolean),
         folder: folder || undefined,
         markdown,
+        archive,
         confirm_dup: confirmed,
       });
       qc.invalidateQueries({ queryKey: ["bookmarks"] });
@@ -533,6 +535,10 @@ export function AddDialog({ onClose, onAdded }: { onClose: () => void; onAdded: 
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown(e.target.checked)} />
             Start with notes
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={archive} onChange={(e) => setArchive(e.target.checked)} />
+            Save archived copy
           </label>
           <div>
             <Button onClick={() => save(false)} disabled={saving || !url.trim()}>

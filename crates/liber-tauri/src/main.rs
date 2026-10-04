@@ -55,7 +55,7 @@ fn get_bookmark(state: State<'_, AppState>, id: String) -> Result<TauriBookmark,
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-fn add_bookmark(
+async fn add_bookmark(
     state: State<'_, AppState>,
     url: String,
     title: Option<String>,
@@ -63,13 +63,60 @@ fn add_bookmark(
     tags: Option<Vec<String>>,
     folder: Option<String>,
     markdown: Option<bool>,
+    archive: Option<bool>,
     confirm_dup: Option<bool>,
 ) -> Result<AddResult, String> {
     if url.trim().is_empty() {
         return Err("url is required".to_string());
     }
-    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
-    let mut store = open_store(&state)?;
+    let cfg = state.cfg.clone();
+    let mu = state.write_mu.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        add_bookmark_blocking(AddJob {
+            cfg,
+            mu,
+            url,
+            title,
+            description,
+            tags,
+            folder,
+            markdown,
+            archive,
+            confirm_dup,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+struct AddJob {
+    cfg: liber_core::store::Config,
+    mu: std::sync::Arc<std::sync::Mutex<()>>,
+    url: String,
+    title: Option<String>,
+    description: Option<String>,
+    tags: Option<Vec<String>>,
+    folder: Option<String>,
+    markdown: Option<bool>,
+    archive: Option<bool>,
+    confirm_dup: Option<bool>,
+}
+
+fn add_bookmark_blocking(job: AddJob) -> Result<AddResult, String> {
+    let AddJob {
+        cfg,
+        mu,
+        url,
+        title,
+        description,
+        tags,
+        folder,
+        markdown,
+        archive,
+        confirm_dup,
+    } = job;
+    let _guard = mu.lock().map_err(|e| e.to_string())?;
+    let mut store = Store::open(cfg).map_err(|e| e.to_string())?;
     let opts = CreateOptions {
         title,
         description: description.unwrap_or_default(),
@@ -78,10 +125,28 @@ fn add_bookmark(
         markdown: markdown.unwrap_or(false),
     };
     match create_bookmark(&mut store, &url, opts) {
-        Ok(b) => Ok(AddResult {
-            status: "created".to_string(),
-            bookmark: TauriBookmark::from(&b),
-        }),
+        Ok(b) => {
+            let mut warnings = Vec::new();
+            let b = if archive.unwrap_or(false) {
+                match liber_core::archive::archive_bookmark(&mut store, &b.uuid, None) {
+                    Ok(w) => {
+                        warnings.extend(w);
+                        store.get(&b.uuid).map_err(|e| e.to_string())?.unwrap_or(b)
+                    }
+                    Err(e) => {
+                        warnings.push(format!("archive failed: {e}"));
+                        b
+                    }
+                }
+            } else {
+                b
+            };
+            Ok(AddResult {
+                status: "created".to_string(),
+                bookmark: TauriBookmark::from(&b),
+                warnings,
+            })
+        }
         Err(liber_core::CoreError::Duplicate(_)) => {
             let dup = store
                 .find_by_url(&liber_core::slug::normalize_url(&url))
@@ -91,6 +156,7 @@ fn add_bookmark(
                 return Ok(AddResult {
                     status: "duplicate_accepted".to_string(),
                     bookmark: TauriBookmark::from(&dup),
+                    warnings: Vec::new(),
                 });
             }
             Err(serde_json::json!({
@@ -749,24 +815,30 @@ fn fetch_archive(state: State<'_, AppState>, id: String) -> Result<serde_json::V
 }
 
 #[tauri::command]
-fn create_archive(
+async fn create_archive(
     state: State<'_, AppState>,
     id: String,
     backend: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
-    let mut store = open_store(&state)?;
-    let target = resolve_one(&store, &id)?;
-    let applied = liber_core::edit::apply_edit(
-        &mut store,
-        &target.uuid,
-        liber_core::edit::EditDraft {
-            archive: liber_core::edit::ArchiveAction::Add { backend },
-            ..Default::default()
-        },
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({"ok": true, "warnings": applied.warnings}))
+    let cfg = state.cfg.clone();
+    let mu = state.write_mu.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = mu.lock().map_err(|e| e.to_string())?;
+        let mut store = Store::open(cfg).map_err(|e| e.to_string())?;
+        let target = resolve_one(&store, &id)?;
+        let applied = liber_core::edit::apply_edit(
+            &mut store,
+            &target.uuid,
+            liber_core::edit::EditDraft {
+                archive: liber_core::edit::ArchiveAction::Add { backend },
+                ..Default::default()
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(serde_json::json!({"ok": true, "warnings": applied.warnings}))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

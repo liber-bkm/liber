@@ -140,18 +140,20 @@ export async function fetchBookmark(uuid: string): Promise<Bookmark> {
 export async function addBookmark(input: AddInput): Promise<Bookmark> {
   if (!isTauri()) return restAdd(input);
   try {
-    const r = await invokeCmd<{ status: string; bookmark: TauriBookmarkPayload }>(
-      "add_bookmark",
-      {
-        url: input.url,
-        title: input.title ?? null,
-        description: input.description ?? null,
-        tags: input.tags ?? null,
-        folder: input.folder ?? null,
-        markdown: input.markdown ?? null,
-        confirm_dup: input.confirm_dup ?? null,
-      }
-    );
+    const r = await invokeCmd<{
+      status: string;
+      bookmark: TauriBookmarkPayload;
+      warnings?: string[];
+    }>("add_bookmark", {
+      url: input.url,
+      title: input.title ?? null,
+      description: input.description ?? null,
+      tags: input.tags ?? null,
+      folder: input.folder ?? null,
+      markdown: input.markdown ?? null,
+      archive: input.archive ?? null,
+      confirm_dup: input.confirm_dup ?? null,
+    });
     return toBookmark(r.bookmark);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";

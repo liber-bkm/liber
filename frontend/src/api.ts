@@ -86,6 +86,7 @@ export interface AddInput {
   tags?: string[];
   folder?: string;
   markdown?: boolean;
+  archive?: boolean;
   confirm_dup?: boolean;
 }
 
