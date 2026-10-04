@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Pencil, Trash2, Upload, X } from "lucide-react";
 import { displayId, domainOf, getArchiveView, setArchiveView, shortUuid, ApiError, type Bookmark } from "../api";
-import { addBookmark, archiveUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, downloadAttachment, fetchArchive, fetchBookmark, fetchNotes, isTauri, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment } from "../tauri";
+import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, downloadAttachment, fetchArchive, fetchBookmark, fetchNotes, isTauri, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment } from "../tauri";
 import { Badge, Button, Field, Input, Modal, Spinner } from "./ui";
 
 type Tab = "details" | "notes" | "archive";
@@ -175,7 +175,7 @@ function AttachmentLink({ uuid, name }: { uuid: string; name: string }) {
   if (!isTauri()) {
     return (
       <a
-        href={`/api/v2/bookmarks/${uuid}/attachments/${encodeURIComponent(name)}`}
+        href={attachmentUrl(uuid, name)}
         className="block truncate text-sm text-accent-600 hover:underline"
       >
         {name}
@@ -454,8 +454,8 @@ function ArtifactSection({ bookmark: b }: { bookmark: Bookmark }) {
   );
 }
 
-export function AddDialog({ onClose, onAdded }: { onClose: () => void; onAdded: (b: Bookmark) => void }) {
-  const [url, setUrl] = useState("");
+export function AddDialog({ onClose, onAdded, initialUrl = "" }: { onClose: () => void; onAdded: (b: Bookmark) => void; initialUrl?: string }) {
+  const [url, setUrl] = useState(initialUrl);
   const [title, setTitle] = useState("");
   const [tags, setTags] = useState("");
   const [folder, setFolder] = useState("");

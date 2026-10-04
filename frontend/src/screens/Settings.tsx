@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RefreshCw, Upload } from "lucide-react";
-import { exportBookmarksContent, exportSite, fetchSettings, importLibrary, isTauri, runReindex, setSetting } from "../tauri";
+import { exportBookmarksContent, exportBookmarksUrl, exportSite, fetchSettings, getRemoteBase, importLibrary, isTauri, runReindex, setRemote, setSetting, useRemote } from "../tauri";
 import { Button, Field, Input, Spinner } from "../components/ui";
 
 const BACKENDS = ["auto", "builtin", "browser", "single-file", "monolith"];
@@ -12,6 +12,9 @@ export function SettingsPage() {
   const [prune, setPrune] = useState(false);
   const [compactIds, setCompactIds] = useState(false);
   const [importText, setImportText] = useState("");
+  const [remoteUrl, setRemoteUrl] = useState(getRemoteBase());
+  const [remoteToken, setRemoteToken] = useState("");
+  const [remoteOn, setRemoteOn] = useState(useRemote());
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
 
@@ -80,6 +83,38 @@ export function SettingsPage() {
       </section>
 
       <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-sm font-semibold">Remote server</h2>
+        <p className="text-xs text-neutral-500">
+          Talk to a liber-serve on your network instead of the local library. Empty URL means local mode.
+        </p>
+        <Field label="Server URL (e.g. http://192.168.1.10:8080)">
+          <Input value={remoteUrl} placeholder="http://host:port" onChange={(e) => setRemoteUrl(e.target.value)} />
+        </Field>
+        <Field label="Auth token (when the server requires one)">
+          <Input type="password" value={remoteToken} placeholder="token from the server" onChange={(e) => setRemoteToken(e.target.value)} />
+        </Field>
+        <div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setError("");
+              setNotice("");
+              setRemote(remoteUrl, remoteToken);
+              setRemoteOn(useRemote());
+              setRemoteToken("");
+              qc.invalidateQueries();
+              setNotice(useRemote() ? "Remote mode on." : "Local mode.");
+            }}
+          >
+            Save remote settings
+          </Button>
+        </div>
+        {remoteOn && (
+          <p className="text-xs text-neutral-500">Remote mode is on. Clear the URL and save to go back local.</p>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Maintenance</h2>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={prune} onChange={(e) => setPrune(e.target.checked)} />
@@ -141,7 +176,7 @@ export function SettingsPage() {
               <Download className="h-4 w-4" /> Bookmarks file
             </Button>
           ) : (
-            <a href="/api/v2/library/export-bookmarks" download>
+            <a href={exportBookmarksUrl()} download>
               <Button variant="outline">
                 <Download className="h-4 w-4" /> Bookmarks file
               </Button>

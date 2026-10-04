@@ -52,12 +52,61 @@ export class ApiError extends Error {
   }
 }
 
+export function getRemoteBase(): string {
+  return (localStorage.getItem("liber-remote-url") ?? "").replace(/\/+$/, "");
+}
+
+export function getRemoteToken(): string {
+  return localStorage.getItem("liber-remote-token") ?? "";
+}
+
+export function useRemote(): boolean {
+  return getRemoteBase().length > 0;
+}
+
+export function setRemote(base: string, token: string): void {
+  if (base.trim()) {
+    localStorage.setItem("liber-remote-url", base.trim().replace(/\/+$/, ""));
+  } else {
+    localStorage.removeItem("liber-remote-url");
+  }
+  if (token) {
+    localStorage.setItem("liber-remote-token", token);
+  } else {
+    localStorage.removeItem("liber-remote-token");
+  }
+}
+
+let bearerCache = { token: "", bearer: "" };
+
+async function deriveBearer(token: string): Promise<string> {
+  if (bearerCache.token === token && bearerCache.bearer) return bearerCache.bearer;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(token),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("liber-bearer-v1"));
+  const bearer = Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  bearerCache = { token, bearer };
+  return bearer;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+  const base = getRemoteBase();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = getRemoteToken();
+  if (base && token) headers["Authorization"] = `Bearer ${await deriveBearer(token)}`;
+  const r = await fetch(base ? `${base}${path}` : path, {
+    headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
     ...init,
   });
   if (r.status === 401 && !path.startsWith("/login")) {
+    if (base) throw new ApiError(401, { error: "remote server requires a token (see Settings)" });
     window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
     throw new ApiError(401, { error: "authentication required" });
   }

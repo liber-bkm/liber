@@ -17,6 +17,8 @@ import {
   addBookmark as restAdd,
   addRule as restAddRule,
   ApiError,
+  getRemoteBase,
+  useRemote,
   applyRules as restApplyRules,
   bulkOp as restBulk,
   checkApply as restCheckApply,
@@ -55,6 +57,8 @@ import {
 export function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
+
+export { getRemoteBase, getRemoteToken, setRemote, useRemote } from "./api";
 
 async function invokeCmd<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -119,7 +123,7 @@ function toBookmarkList(r: TauriListResponse): BookmarkList {
 }
 
 export async function listBookmarks(params: ListParams = {}): Promise<BookmarkList> {
-  if (!isTauri()) return restList(params);
+  if (!isTauri() || useRemote()) return restList(params);
   const r = await invokeCmd<TauriListResponse>("list_bookmarks", {
     q: params.q ?? null,
     sort: params.sort ?? null,
@@ -132,13 +136,13 @@ export async function listBookmarks(params: ListParams = {}): Promise<BookmarkLi
 }
 
 export async function fetchBookmark(uuid: string): Promise<Bookmark> {
-  if (!isTauri()) return restGet(uuid);
+  if (!isTauri() || useRemote()) return restGet(uuid);
   const b = await invokeCmd<TauriBookmarkPayload>("get_bookmark", { id: uuid });
   return toBookmark(b);
 }
 
 export async function addBookmark(input: AddInput): Promise<Bookmark> {
-  if (!isTauri()) return restAdd(input);
+  if (!isTauri() || useRemote()) return restAdd(input);
   try {
     const r = await invokeCmd<{
       status: string;
@@ -178,7 +182,7 @@ export async function addBookmark(input: AddInput): Promise<Bookmark> {
 }
 
 export async function updateBookmark(uuid: string, input: UpdateInput): Promise<Bookmark> {
-  if (!isTauri()) return restUpdate(uuid, input);
+  if (!isTauri() || useRemote()) return restUpdate(uuid, input);
   const b = await invokeCmd<TauriBookmarkPayload>("update_bookmark", {
     id: uuid,
     title: input.title ?? null,
@@ -194,7 +198,7 @@ export async function deleteBookmark(
   uuid: string,
   confirm: boolean
 ): Promise<{ deleted?: string; confirm_required?: boolean; bookmark?: Bookmark }> {
-  if (!isTauri()) return restDelete(uuid, confirm);
+  if (!isTauri() || useRemote()) return restDelete(uuid, confirm);
   const r = await invokeCmd<{ deleted?: string; confirm_required?: boolean; bookmark?: TauriBookmarkPayload }>(
     "delete_bookmark",
     { id: uuid, confirm }
@@ -207,8 +211,38 @@ export async function deleteBookmark(
 }
 
 export async function openBookmark(uuid: string): Promise<{ url: string }> {
-  if (!isTauri()) return restOpen(uuid);
+  if (!isTauri() || useRemote()) return restOpen(uuid);
   return invokeCmd<{ url: string }>("open_bookmark", { id: uuid });
+}
+
+export async function subscribeSharedUrls(
+  cb: (url: string) => void
+): Promise<(() => void) | undefined> {
+  if (!isTauri()) return undefined;
+  const { invoke } = await import("@tauri-apps/api/core");
+  const { listen } = await import("@tauri-apps/api/event");
+  const emit = (urls: unknown) => {
+    const list = Array.isArray(urls) ? urls : [urls];
+    for (const raw of list) {
+      if (typeof raw !== "string") continue;
+      try {
+        const shared = new URL(raw).searchParams.get("url");
+        if (shared) cb(shared);
+      } catch {
+        continue;
+      }
+    }
+  };
+  try {
+    const current = await invoke<string[] | null>("plugin:deep-link|get_current");
+    if (current) emit(current);
+  } catch {
+    /* plugin event only */
+  }
+  const unlisten = await listen<string[]>("deep-link://new-url", (event) =>
+    emit(event.payload)
+  );
+  return unlisten;
 }
 
 export async function openExternal(url: string): Promise<void> {
@@ -221,17 +255,17 @@ export async function openExternal(url: string): Promise<void> {
 }
 
 export async function fetchTags(): Promise<{ tags: TagCount[] }> {
-  if (!isTauri()) return restTags();
+  if (!isTauri() || useRemote()) return restTags();
   return invokeCmd<{ tags: TagCount[] }>("list_tags");
 }
 
 export async function fetchFolders(): Promise<{ folders: FolderCount[] }> {
-  if (!isTauri()) return restFolders();
+  if (!isTauri() || useRemote()) return restFolders();
   return invokeCmd<{ folders: FolderCount[] }>("list_folders");
 }
 
 export async function renameTag(old: string, next: string): Promise<{ renamed: number }> {
-  if (!isTauri()) return restRenameTag(old, next);
+  if (!isTauri() || useRemote()) return restRenameTag(old, next);
   return invokeCmd<{ renamed: number }>("rename_tag", { old, newTag: next });
 }
 
@@ -239,22 +273,22 @@ export async function deleteTag(
   tag: string,
   confirm: boolean
 ): Promise<{ deleted?: number; confirm_required?: boolean; count?: number }> {
-  if (!isTauri()) return restDeleteTag(tag, confirm);
+  if (!isTauri() || useRemote()) return restDeleteTag(tag, confirm);
   return invokeCmd("delete_tag", { tag, confirm });
 }
 
 export async function renameFolder(old: string, next: string): Promise<{ renamed: number }> {
-  if (!isTauri()) return restRenameFolder(old, next);
+  if (!isTauri() || useRemote()) return restRenameFolder(old, next);
   return invokeCmd<{ renamed: number }>("rename_folder", { old, newFolder: next });
 }
 
 export async function deleteFolder(folder: string): Promise<{ moved_to_root: number }> {
-  if (!isTauri()) return restDeleteFolder(folder);
+  if (!isTauri() || useRemote()) return restDeleteFolder(folder);
   return invokeCmd<{ moved_to_root: number }>("delete_folder", { folder });
 }
 
 export async function fetchRules(): Promise<{ rules: Rule[] }> {
-  if (!isTauri()) return restRules();
+  if (!isTauri() || useRemote()) return restRules();
   return invokeCmd<{ rules: Rule[] }>("list_rules");
 }
 
@@ -263,7 +297,7 @@ export async function addRule(input: {
   tags?: string[];
   folder?: string;
 }): Promise<{ rule: Rule }> {
-  if (!isTauri()) return restAddRule(input);
+  if (!isTauri() || useRemote()) return restAddRule(input);
   return invokeCmd("add_rule", {
     pattern: input.pattern,
     tags: input.tags ?? null,
@@ -275,7 +309,7 @@ export async function editRule(
   id: string,
   input: { pattern?: string; tags?: string[]; folder?: string; reapply?: boolean }
 ): Promise<{ rule: Rule; reapplied: number }> {
-  if (!isTauri()) return restEditRule(id, input);
+  if (!isTauri() || useRemote()) return restEditRule(id, input);
   return invokeCmd("edit_rule", {
     id,
     pattern: input.pattern ?? null,
@@ -286,37 +320,37 @@ export async function editRule(
 }
 
 export async function deleteRule(id: string): Promise<{ deleted: string }> {
-  if (!isTauri()) return restDeleteRule(id);
+  if (!isTauri() || useRemote()) return restDeleteRule(id);
   return invokeCmd("delete_rule", { id });
 }
 
 export async function applyRules(id?: string): Promise<{ applied: number }> {
-  if (!isTauri()) return restApplyRules(id);
+  if (!isTauri() || useRemote()) return restApplyRules(id);
   return invokeCmd("apply_rules", { id: id ?? null });
 }
 
 export async function learnSuggestions(min = 3): Promise<{ suggestions: Suggestion[] }> {
-  if (!isTauri()) return restLearn(min);
+  if (!isTauri() || useRemote()) return restLearn(min);
   return invokeCmd("learn_suggestions", { min });
 }
 
 export async function learnCreate(min = 3): Promise<{ created: number; applied: number }> {
-  if (!isTauri()) return restLearnCreate(min);
+  if (!isTauri() || useRemote()) return restLearnCreate(min);
   return invokeCmd("learn_create", { min });
 }
 
 export async function fetchHistory(): Promise<BookmarkList> {
-  if (!isTauri()) return restHistory();
+  if (!isTauri() || useRemote()) return restHistory();
   return toBookmarkList(await invokeCmd<TauriListResponse>("fetch_history"));
 }
 
 export async function fetchSettings(): Promise<Settings> {
-  if (!isTauri()) return restSettings();
+  if (!isTauri() || useRemote()) return restSettings();
   return invokeCmd<Settings>("fetch_settings");
 }
 
 export async function setSetting(key: string, value: string): Promise<{ ok: boolean }> {
-  if (!isTauri()) return restSetSetting(key, value);
+  if (!isTauri() || useRemote()) return restSetSetting(key, value);
   return invokeCmd("set_setting", { key, value });
 }
 
@@ -325,7 +359,7 @@ export async function bulkOp(
   op: string,
   extra?: { tags?: string[]; folder?: string; confirm?: boolean }
 ): Promise<BulkResult> {
-  if (!isTauri()) return restBulk(ids, op, extra);
+  if (!isTauri() || useRemote()) return restBulk(ids, op, extra);
   return invokeCmd("bulk_op", {
     ids,
     op,
@@ -336,7 +370,7 @@ export async function bulkOp(
 }
 
 export async function checkRun(spec?: string): Promise<CheckReport> {
-  if (!isTauri()) return restCheckRun(spec);
+  if (!isTauri() || useRemote()) return restCheckRun(spec);
   return invokeCmd("check_run", { spec: spec ?? null });
 }
 
@@ -344,27 +378,27 @@ export async function checkApply(
   updates: { uuid: string; url: string }[],
   quarantine: string[]
 ): Promise<{ updated: number; quarantined: number; skipped: unknown[] }> {
-  if (!isTauri()) return restCheckApply(updates, quarantine);
+  if (!isTauri() || useRemote()) return restCheckApply(updates, quarantine);
   return invokeCmd("check_apply", { updates, quarantine });
 }
 
 export async function runReindex(prune: boolean, compact_ids = false): Promise<ReindexReport> {
-  if (!isTauri()) return restReindex(prune, compact_ids);
+  if (!isTauri() || useRemote()) return restReindex(prune, compact_ids);
   return invokeCmd("run_reindex", { prune, compact_ids });
 }
 
 export async function fetchNotes(uuid: string): Promise<{ body: string | null }> {
-  if (!isTauri()) return restNotes(uuid);
+  if (!isTauri() || useRemote()) return restNotes(uuid);
   return invokeCmd("fetch_notes", { id: uuid });
 }
 
 export async function saveNotes(uuid: string, body: string): Promise<{ ok: boolean }> {
-  if (!isTauri()) return restSaveNotes(uuid, body);
+  if (!isTauri() || useRemote()) return restSaveNotes(uuid, body);
   return invokeCmd("save_notes", { id: uuid, body });
 }
 
 export async function deleteNotes(uuid: string): Promise<{ ok: boolean }> {
-  if (!isTauri()) return restDeleteNotes(uuid);
+  if (!isTauri() || useRemote()) return restDeleteNotes(uuid);
   return invokeCmd("delete_notes", { id: uuid });
 }
 
@@ -374,19 +408,33 @@ export async function fetchArchive(uuid: string): Promise<{ html: string }> {
 }
 
 export function archiveUrl(uuid: string): string {
-  return `/api/v2/bookmarks/${uuid}/archive`;
+  const path = `/api/v2/bookmarks/${uuid}/archive`;
+  const base = getRemoteBase();
+  return base ? `${base}${path}` : path;
+}
+
+export function attachmentUrl(uuid: string, name: string): string {
+  const path = `/api/v2/bookmarks/${uuid}/attachments/${encodeURIComponent(name)}`;
+  const base = getRemoteBase();
+  return base ? `${base}${path}` : path;
+}
+
+export function exportBookmarksUrl(): string {
+  const path = "/api/v2/library/export-bookmarks";
+  const base = getRemoteBase();
+  return base ? `${base}${path}` : path;
 }
 
 export async function createArchive(
   uuid: string,
   backend?: string
 ): Promise<{ ok: boolean; warnings: string[] }> {
-  if (!isTauri()) return restCreateArchive(uuid, backend);
+  if (!isTauri() || useRemote()) return restCreateArchive(uuid, backend);
   return invokeCmd("create_archive", { id: uuid, backend: backend ?? null });
 }
 
 export async function deleteArchive(uuid: string): Promise<{ ok: boolean }> {
-  if (!isTauri()) return restDeleteArchive(uuid);
+  if (!isTauri() || useRemote()) return restDeleteArchive(uuid);
   return invokeCmd("delete_archive", { id: uuid });
 }
 
@@ -395,7 +443,7 @@ export async function uploadAttachment(
   name: string,
   dataUrl: string
 ): Promise<{ name: string }> {
-  if (!isTauri()) return restUpload(uuid, name, dataUrl);
+  if (!isTauri() || useRemote()) return restUpload(uuid, name, dataUrl);
   const base64 = dataUrl.includes(",") ? dataUrl.split(",").slice(1).join(",") : dataUrl;
   return invokeCmd("upload_attachment", { id: uuid, name, content: base64 });
 }
@@ -404,7 +452,7 @@ export async function deleteAttachment(
   uuid: string,
   name: string
 ): Promise<{ detached: string }> {
-  if (!isTauri()) return restDeleteAttachment(uuid, name);
+  if (!isTauri() || useRemote()) return restDeleteAttachment(uuid, name);
   return invokeCmd("delete_attachment", { id: uuid, name });
 }
 
@@ -420,12 +468,12 @@ export async function importLibrary(
   content: string,
   markdown = false
 ): Promise<{ added: number; skipped_dup: number; skipped_bad: number }> {
-  if (!isTauri()) return restImport(content, markdown);
+  if (!isTauri() || useRemote()) return restImport(content, markdown);
   return invokeCmd("import_library", { content, markdown });
 }
 
 export async function exportSite(): Promise<{ index: string }> {
-  if (!isTauri()) return restExportSite();
+  if (!isTauri() || useRemote()) return restExportSite();
   return invokeCmd("export_site", {});
 }
 

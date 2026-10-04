@@ -5,6 +5,7 @@ import { Layout, type View } from "./components/Layout";
 import { Library } from "./screens/Library";
 import { Login } from "./screens/Login";
 import { AddDialog, DetailDrawer } from "./components/Detail";
+import { subscribeSharedUrls } from "./tauri";
 import { FoldersPage, TagsPage } from "./screens/Taxonomy";
 import { RulesPage } from "./screens/Rules";
 import { CheckPage } from "./screens/Check";
@@ -24,6 +25,18 @@ function Shell() {
   const [adding, setAdding] = useState(false);
   const [palette, setPalette] = useState(false);
   const [version, setVersion] = useState(0);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    (async () => {
+      off = await subscribeSharedUrls((u) => {
+        setShareUrl(u);
+        setAdding(true);
+      });
+    })();
+    return () => off?.();
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -77,9 +90,15 @@ function Shell() {
       )}
       {adding && (
         <AddDialog
-          onClose={() => setAdding(false)}
+          key={shareUrl ?? "add"}
+          initialUrl={shareUrl ?? ""}
+          onClose={() => {
+            setAdding(false);
+            setShareUrl(null);
+          }}
           onAdded={(b) => {
             setAdding(false);
+            setShareUrl(null);
             setOpenUuid(b.uuid);
             setVersion((v) => v + 1);
           }}

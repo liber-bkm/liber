@@ -39,6 +39,17 @@
       "appimage": {
         "bundleMediaFramework": true
       }
+    },
+    "android": {
+      "minSdkVersion": 24
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["liber"]
+      },
+      "mobile": [{ "scheme": ["liber"], "appLink": false }]
     }
   }
 }
