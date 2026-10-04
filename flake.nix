@@ -216,7 +216,7 @@
             echo "cargo $(cargo --version 2>/dev/null || echo missing)"
             echo "Extra targets via: rustup toolchain install stable --target <triple>"
             echo "Android work: use .#android or .#android-fhs instead"
-            echo "Desktop: cd crates/liber-tauri && ../../frontend/node_modules/.bin/tauri dev (needs a display)"
+            echo "Desktop: app serves the embedded bundle (pnpm build, then rebuild the binary); tauri dev needs a display"
           '';
         };
 
