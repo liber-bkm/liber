@@ -54,13 +54,17 @@ shell once with `nix develop`.
   natively (binary plus `.desktop` entry and icons, webkit wrapped).
   `nix run .#liber-desktop` launches it. For debugging, `cd
   crates/liber-tauri &&` run the frontend-local CLI
-  (`../../frontend/node_modules/.bin/tauri`) `dev` (needs a display;
-  the Vite dev server is pinned to the `devUrl` port 1420) or
-  `build --debug` for an unoptimized bundle, or `build` for release.
-  The raw `build` produces `.deb`/`.rpm` (plus AppImage targets where
-  configured) using the embedded frontend. Frontend hook commands run
-  with `crates/` as cwd. A display is needed for running, not for
-  building.
+  (`../../frontend/node_modules/.bin/tauri`) `dev` (needs a display)
+  or `cargo build -p liber-tauri` plus running the binary directly.
+  Every app binary serves the embedded frontend bundle, never the Vite
+  dev server: after changing UI code, run `pnpm build` in `frontend/`
+  and rebuild the binary (the `generate_context!` embedding refreshes
+  when the crate recompiles, so touch a Rust file if nothing else
+  changed). For pure UI iteration prefer `pnpm dev` in a desktop
+  browser against `liber serve` instead of relaunching the app.
+  The raw `tauri build` produces `.deb`/`.rpm` (plus AppImage targets
+  where configured). Frontend hook commands run with `crates/` as cwd.
+  A display is needed for running, not for building.
 * **All-in-one tarball**: `nix build .#release-bundle` packs `liber`,
   `liber-serve`, and `liber-tauri` with `SHA256SUMS` and install notes.
   The desktop binary inside is the unwrapped ELF (the `.desktop` install
