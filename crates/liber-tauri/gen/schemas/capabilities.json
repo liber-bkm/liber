@@ -1,1 +1,1 @@
-{"main-capability":{"identifier":"main-capability","description":"Least-privilege capabilities for the liber desktop app.","local":true,"windows":["main"],"permissions":["core:default","opener:allow-open-url"]}}
+{"main-capability":{"identifier":"main-capability","description":"Least-privilege capabilities for the liber desktop app.","local":true,"windows":["main"],"permissions":["core:default","core:event:default","opener:allow-open-url","deep-link:default"]}}
