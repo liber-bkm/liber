@@ -262,6 +262,635 @@ fn delete_folder(state: State<'_, AppState>, folder: String) -> Result<serde_jso
     Ok(serde_json::json!({"moved_to_root": changed.len()}))
 }
 
+fn rule_shape(rule: &liber_core::model::AutoRule, applied_count: usize) -> serde_json::Value {
+    serde_json::json!({
+        "id": rule.id,
+        "pattern": rule.pattern,
+        "tags": rule.action_tags,
+        "folder": rule.action_folder,
+        "description": liber_core::automation::describe_rule(rule),
+        "applied_count": applied_count,
+    })
+}
+
+fn applied_counts(store: &Store) -> Result<std::collections::HashMap<String, usize>, String> {
+    let mut counts = std::collections::HashMap::new();
+    let list = store.list().map_err(|e| e.to_string())?;
+    for b in &list {
+        for a in &b.applied_rules {
+            *counts.entry(a.rule_id.clone()).or_insert(0) += 1;
+        }
+    }
+    Ok(counts)
+}
+
+#[tauri::command]
+fn list_rules(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let counts = applied_counts(&store)?;
+    let rules: Vec<serde_json::Value> = store
+        .list_rules()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|r| rule_shape(r, counts.get(&r.id).copied().unwrap_or(0)))
+        .collect();
+    Ok(serde_json::json!({"rules": rules}))
+}
+
+#[tauri::command]
+fn add_rule(
+    state: State<'_, AppState>,
+    pattern: String,
+    tags: Option<Vec<String>>,
+    folder: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let (rule, changed) =
+        liber_core::automation::create_rule(&mut store, pattern, tags.unwrap_or_default(), folder)
+            .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"rule": rule_shape(&rule, changed.len())}))
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn edit_rule(
+    state: State<'_, AppState>,
+    id: String,
+    pattern: Option<String>,
+    tags: Option<Vec<String>>,
+    folder: Option<String>,
+    reapply: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let (rule, changed) = liber_core::automation::edit_rule(
+        &mut store,
+        &id,
+        pattern,
+        tags,
+        folder,
+        reapply.unwrap_or(false),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"rule": rule_shape(&rule, 0), "reapplied": changed.len()}))
+}
+
+#[tauri::command]
+fn delete_rule(state: State<'_, AppState>, id: String) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    if !store.delete_rule(&id).map_err(|e| e.to_string())? {
+        return Err("no such rule".to_string());
+    }
+    Ok(serde_json::json!({"deleted": id}))
+}
+
+#[tauri::command]
+fn apply_rules(
+    state: State<'_, AppState>,
+    id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let changed = liber_core::automation::apply_rules(&mut store, id.as_deref())
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"applied": changed.len()}))
+}
+
+#[tauri::command]
+fn learn_suggestions(
+    state: State<'_, AppState>,
+    min: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let out = liber_core::automation::suggest_rules(&store, min.unwrap_or(3).max(2))
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "suggestions": out.iter().map(|s| serde_json::json!({
+            "host": s.host, "folder": s.folder, "count": s.count,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+#[tauri::command]
+fn learn_create(
+    state: State<'_, AppState>,
+    min: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let suggestions = liber_core::automation::suggest_rules(&store, min.unwrap_or(3).max(2))
+        .map_err(|e| e.to_string())?;
+    let mut created = 0;
+    let mut applied = 0;
+    for s in suggestions {
+        let (_, changed) = liber_core::automation::create_rule(
+            &mut store,
+            format!("host:{}", s.host),
+            vec![],
+            Some(s.folder),
+        )
+        .map_err(|e| e.to_string())?;
+        created += 1;
+        applied += changed.len();
+    }
+    Ok(serde_json::json!({"created": created, "applied": applied}))
+}
+
+#[tauri::command]
+fn fetch_history(state: State<'_, AppState>) -> Result<ListResponse, String> {
+    use liber_core::search::SortMode;
+    let store = open_store(&state)?;
+    let filter = BookmarkFilter {
+        opened_only: true,
+        ..Default::default()
+    };
+    let (found, total) = store
+        .query_bookmarks(&filter, SortMode::Visited, 100, 0)
+        .map_err(|e| e.to_string())?;
+    Ok(ListResponse {
+        total,
+        page: 1,
+        per_page: 100,
+        bookmarks: found.iter().map(TauriBookmark::from).collect(),
+    })
+}
+
+#[tauri::command]
+fn fetch_settings() -> Result<serde_json::Value, String> {
+    let (cfg, _) = liber_core::config::load_config().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "base_dir": cfg.base_dir.to_string_lossy(),
+        "device_id": cfg.device_id,
+        "archive_backend": cfg.archive_backend,
+        "browser_path": cfg.browser_path,
+        "singlefile_cmd": cfg.singlefile_cmd,
+        "singlefile_browser_path": cfg.singlefile_browser_path,
+        "monolith_cmd": cfg.monolith_cmd,
+        "browser_cmd": cfg.browser_cmd,
+        "active_profile": cfg.active_profile,
+    }))
+}
+
+const SETTABLE: &[&str] = &[
+    "base_dir",
+    "archive_backend",
+    "browser_path",
+    "singlefile_cmd",
+    "singlefile_browser_path",
+    "monolith_cmd",
+    "browser_cmd",
+    "device_id",
+];
+
+#[tauri::command]
+fn set_setting(
+    state: State<'_, AppState>,
+    key: String,
+    value: String,
+) -> Result<serde_json::Value, String> {
+    if !SETTABLE.contains(&key.as_str()) {
+        return Err(format!("unknown key {key:?}"));
+    }
+    if key == "archive_backend" {
+        liber_core::archive::parse_backend(&value).map_err(|e| e.to_string())?;
+    }
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let (mut cfg, path) = liber_core::config::load_config().map_err(|e| e.to_string())?;
+    match key.as_str() {
+        "base_dir" => cfg.base_dir = value.into(),
+        "archive_backend" => cfg.archive_backend = value,
+        "browser_path" => cfg.browser_path = value,
+        "singlefile_cmd" => cfg.singlefile_cmd = value,
+        "singlefile_browser_path" => cfg.singlefile_browser_path = value,
+        "monolith_cmd" => cfg.monolith_cmd = value,
+        "browser_cmd" => cfg.browser_cmd = value,
+        "device_id" => cfg.device_id = value,
+        _ => unreachable!(),
+    }
+    liber_core::config::save_config_to(&path, &cfg).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"ok": true}))
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn bulk_op(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+    op: String,
+    tags: Option<Vec<String>>,
+    folder: Option<String>,
+    confirm: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    if ids.is_empty() {
+        return Err("no bookmarks selected".to_string());
+    }
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let mut targets = Vec::new();
+    for id in &ids {
+        let target = resolve_one(&store, id).map_err(|_| format!("not found: {id}"))?;
+        targets.push(target);
+    }
+    match op.as_str() {
+        "delete" => {
+            if !confirm.unwrap_or(false) {
+                return Ok(serde_json::json!({
+                    "confirm_required": true,
+                    "count": targets.len(),
+                    "hint": "repeat with confirm true to delete",
+                }));
+            }
+            for b in &targets {
+                liber_core::edit::delete_bookmark_with_files(&mut store, &b.uuid)
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(serde_json::json!({"deleted": targets.len()}))
+        }
+        "set_tags" => {
+            let tags = tags.unwrap_or_default();
+            for b in &targets {
+                edit_bookmark(
+                    &mut store,
+                    &b.uuid,
+                    EditOptions {
+                        tags: Some(tags.clone()),
+                        ..Default::default()
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            Ok(serde_json::json!({"updated": targets.len()}))
+        }
+        "move_folder" => {
+            let folder = folder.unwrap_or_default();
+            for b in &targets {
+                edit_bookmark(
+                    &mut store,
+                    &b.uuid,
+                    EditOptions {
+                        folder: Some(folder.clone()),
+                        ..Default::default()
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            Ok(serde_json::json!({"updated": targets.len()}))
+        }
+        other => Err(format!(
+            "unknown bulk op {other:?} (delete, set_tags, move_folder)"
+        )),
+    }
+}
+
+#[tauri::command]
+fn run_reindex(
+    state: State<'_, AppState>,
+    prune: Option<bool>,
+    compact_ids: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let rep = liber_core::reindex::reindex(
+        &mut store,
+        liber_core::reindex::ReindexFlags {
+            prune: prune.unwrap_or(false),
+            compact_ids: compact_ids.unwrap_or(false),
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "adopted": rep.adopted,
+        "relinked_markdown": rep.relinked_markdown,
+        "relinked_archive": rep.relinked_archive,
+        "swept_conflicts": rep.swept_conflicts,
+        "quarantined_attachments": rep.quarantined_attachments,
+        "pending": rep.pending,
+        "pruned": rep.pruned,
+        "indexed": rep.indexed,
+        "short_ids_compacted": rep.short_ids_compacted,
+    }))
+}
+
+#[tauri::command]
+async fn check_run(
+    state: State<'_, AppState>,
+    spec: Option<String>,
+    workers: Option<usize>,
+    stale_hours: Option<u64>,
+) -> Result<serde_json::Value, String> {
+    let (targets, fresh) = {
+        let store = open_store(&state)?;
+        let tokens = match &spec {
+            Some(s) if !s.trim().is_empty() => {
+                Some(liber_core::idspec::parse_id_spec(s).map_err(|e| e.to_string())?)
+            }
+            _ => None,
+        };
+        let stale = stale_hours.map(|h| std::time::Duration::from_secs(h.saturating_mul(3600)));
+        liber_core::check::resolve_check_targets(&store, tokens.as_deref(), stale)
+            .map_err(|e| e.to_string())?
+    };
+    let total = targets.len();
+    let workers = workers.unwrap_or(12).max(1);
+    let outcomes = tauri::async_runtime::spawn_blocking(move || {
+        let client = liber_core::check::check_client()?;
+        Ok::<_, liber_core::CoreError>(liber_core::check::scan_targets(
+            &client,
+            targets,
+            workers,
+            |_, _| {},
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let mut rows = Vec::new();
+    let mut ok = 0;
+    for o in &outcomes {
+        store
+            .stamp_check(&o.bookmark.uuid, Some(o.result.status.as_str()))
+            .map_err(|e| e.to_string())?;
+        match o.result.status {
+            liber_core::check::CheckStatus::Ok => ok += 1,
+            _ => rows.push(serde_json::json!({
+                "uuid": o.bookmark.uuid.to_string(),
+                "title": o.bookmark.title,
+                "url": o.bookmark.url,
+                "status": o.result.status.as_str(),
+                "detail": o.result.detail,
+                "target": o.result.target,
+            })),
+        }
+    }
+    Ok(serde_json::json!({
+        "checked": total,
+        "ok": ok,
+        "fresh_skipped": fresh,
+        "rows": rows,
+    }))
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn check_apply(
+    state: State<'_, AppState>,
+    updates: Option<Vec<CheckUpdate>>,
+    quarantine: Option<Vec<String>>,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let mut updated = 0;
+    let mut quarantined = 0;
+    let mut skipped = Vec::new();
+    for u in updates.unwrap_or_default() {
+        let target = match resolve_one(&store, &u.uuid) {
+            Ok(b) => b,
+            Err(_) => {
+                skipped.push(serde_json::json!({"uuid": u.uuid, "reason": "not found"}));
+                continue;
+            }
+        };
+        match edit_bookmark(
+            &mut store,
+            &target.uuid,
+            EditOptions {
+                url: Some(u.url.clone()),
+                ..Default::default()
+            },
+        ) {
+            Ok(_) => updated += 1,
+            Err(liber_core::CoreError::Duplicate(_)) => {
+                skipped.push(
+                    serde_json::json!({"uuid": u.uuid, "reason": "target already bookmarked"}),
+                );
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    for q in quarantine.unwrap_or_default() {
+        let target = match resolve_one(&store, &q) {
+            Ok(b) => b,
+            Err(_) => {
+                skipped.push(serde_json::json!({"uuid": q, "reason": "not found"}));
+                continue;
+            }
+        };
+        if liber_core::check::quarantine_bookmark(&mut store, &target.uuid)
+            .map_err(|e| e.to_string())?
+        {
+            quarantined += 1;
+        }
+    }
+    Ok(serde_json::json!({
+        "updated": updated,
+        "quarantined": quarantined,
+        "skipped": skipped,
+    }))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CheckUpdate {
+    uuid: String,
+    url: String,
+}
+
+#[tauri::command]
+fn fetch_notes(state: State<'_, AppState>, id: String) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    let body = liber_core::edit::read_note_body(&store, &target.uuid).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"body": body}))
+}
+
+#[tauri::command]
+fn save_notes(
+    state: State<'_, AppState>,
+    id: String,
+    body: String,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    liber_core::edit::save_note_body(&mut store, &target.uuid, &body).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"ok": true}))
+}
+
+#[tauri::command]
+fn delete_notes(state: State<'_, AppState>, id: String) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    liber_core::edit::apply_edit(
+        &mut store,
+        &target.uuid,
+        liber_core::edit::EditDraft {
+            markdown: liber_core::edit::MarkdownAction::Remove,
+            ..Default::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"ok": true}))
+}
+
+#[tauri::command]
+fn fetch_archive(state: State<'_, AppState>, id: String) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    let Some(rel) = &target.archive_file else {
+        return Err("no archive for this bookmark".to_string());
+    };
+    let html = std::fs::read_to_string(store.cfg.archive_dir().join(rel))
+        .map_err(|_| "archive file missing".to_string())?;
+    Ok(serde_json::json!({"html": html}))
+}
+
+#[tauri::command]
+fn create_archive(
+    state: State<'_, AppState>,
+    id: String,
+    backend: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    let applied = liber_core::edit::apply_edit(
+        &mut store,
+        &target.uuid,
+        liber_core::edit::EditDraft {
+            archive: liber_core::edit::ArchiveAction::Add { backend },
+            ..Default::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"ok": true, "warnings": applied.warnings}))
+}
+
+#[tauri::command]
+fn delete_archive(state: State<'_, AppState>, id: String) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    liber_core::edit::apply_edit(
+        &mut store,
+        &target.uuid,
+        liber_core::edit::EditDraft {
+            archive: liber_core::edit::ArchiveAction::Remove,
+            ..Default::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"ok": true}))
+}
+
+#[tauri::command]
+fn upload_attachment(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    content: String,
+) -> Result<serde_json::Value, String> {
+    use base64::Engine;
+    if name.trim().is_empty() {
+        return Err("name is required".to_string());
+    }
+    if content.len() > 32 << 20 {
+        return Err("attachment too large".to_string());
+    }
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(content.as_bytes())
+        .map_err(|_| "content is not valid base64".to_string())?;
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    let at = liber_core::attach::attach_bytes(&mut store, &target.uuid, name.trim(), &data)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"name": at.name}))
+}
+
+#[tauri::command]
+fn delete_attachment(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    let detached = liber_core::attach::detach_attachment(&mut store, &target.uuid, &name)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"detached": detached}))
+}
+
+#[tauri::command]
+fn download_attachment(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    use base64::Engine;
+    let store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    let Some(at) = target
+        .attachments
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case(&name))
+    else {
+        return Err("no such attachment".to_string());
+    };
+    let data = std::fs::read(store.cfg.attachment_dir().join(&at.path))
+        .map_err(|_| "attachment file missing".to_string())?;
+    let mime = liber_core::archive::mime_for(&at.name, None);
+    Ok(serde_json::json!({
+        "name": at.name,
+        "mime": mime,
+        "content": base64::engine::general_purpose::STANDARD.encode(&data),
+    }))
+}
+
+#[tauri::command]
+fn import_library(
+    state: State<'_, AppState>,
+    content: String,
+    markdown: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let report =
+        liber_core::import::import_data(&mut store, &content, markdown.unwrap_or(false), false)
+            .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "added": report.added,
+        "skipped_dup": report.skipped_dup,
+        "skipped_bad": report.skipped_bad,
+        "warnings": report.warnings,
+    }))
+}
+
+#[tauri::command]
+fn export_bookmarks(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let doc = liber_core::export::write_netscape_export(&store).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"content": doc}))
+}
+
+#[tauri::command]
+fn export_site(
+    state: State<'_, AppState>,
+    dir: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let out_dir = match &dir {
+        Some(d) if !d.trim().is_empty() => std::path::PathBuf::from(d.trim()),
+        _ => store.cfg.profile_dir().join("site"),
+    };
+    let index = liber_core::export::export_site(&store, &out_dir).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"index": index.to_string_lossy()}))
+}
+
 fn main() {
     let (cfg, _) = liber_core::config::load_config().expect("loading config");
     let state = liber_tauri::AppState::new(cfg);
@@ -281,6 +910,32 @@ fn main() {
             delete_tag,
             rename_folder,
             delete_folder,
+            list_rules,
+            add_rule,
+            edit_rule,
+            delete_rule,
+            apply_rules,
+            learn_suggestions,
+            learn_create,
+            fetch_history,
+            fetch_settings,
+            set_setting,
+            bulk_op,
+            run_reindex,
+            check_run,
+            check_apply,
+            fetch_notes,
+            save_notes,
+            delete_notes,
+            fetch_archive,
+            create_archive,
+            delete_archive,
+            upload_attachment,
+            delete_attachment,
+            download_attachment,
+            import_library,
+            export_bookmarks,
+            export_site,
         ])
         .run(tauri::generate_context!())
         .expect("error running liber");
