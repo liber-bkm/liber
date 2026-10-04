@@ -96,6 +96,8 @@
             pkgs.nodejs_22
             pkgs.pnpm
             pkgs.pnpmConfigHook
+            pkgs.single-file-cli
+            pkgs.monolith
           ];
           pnpmDeps = pkgs.fetchPnpmDeps {
             pname = "liber-frontend";
@@ -106,8 +108,18 @@
           };
           pnpmRoot = "frontend";
           env.EMBED_UI = "1";
-          cargoBuildFlags = [ "--bin" "liber" "--bin" "liber-serve" ];
-          cargoTestFlags = [ "-p" "liber-cli" "-p" "liber-server" ];
+          cargoBuildFlags = [
+            "--bin"
+            "liber"
+            "--bin"
+            "liber-serve"
+          ];
+          cargoTestFlags = [
+            "-p"
+            "liber-cli"
+            "-p"
+            "liber-server"
+          ];
           preBuild = ''
             (cd frontend && pnpm build)
           '';
@@ -138,8 +150,14 @@
             hash = "sha256-VRR+Ky196ZIAkB0VeuzKgdQtPDCBNOUa+CC0Qk1zucU=";
           };
           pnpmRoot = "frontend";
-          cargoBuildFlags = [ "--bin" "liber-tauri" ];
-          cargoTestFlags = [ "-p" "liber-core" ];
+          cargoBuildFlags = [
+            "--bin"
+            "liber-tauri"
+          ];
+          cargoTestFlags = [
+            "-p"
+            "liber-core"
+          ];
           preBuild = ''
             (cd frontend && pnpm build)
           '';
