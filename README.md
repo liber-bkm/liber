@@ -171,10 +171,10 @@ stay by default; `reindex --prune --compact-ids` closes them to a dense
 | Command | Purpose |
 |---|---|
 | `add <url>` | Add bookmark (`--title -t --folder --description --markdown --archive --attach`) |
-| `list [query]` | Search and list, newest first by default, relevance ranked when a query is given (`--sort newest\|oldest\|visited\|title` overrides) |
+| `list [query]` | Search and list, newest first by default, relevance ranked when a query is given (`--sort newest\|oldest\|visited\|title` overrides); `[md]`/`[arch]` markers show notes and archives |
 | `open <spec>` | Open in browser, records history (falls back to search on miss) |
 | `edit <spec>` | Update url, title, description, tags, folder (`--markdown --attach --detach`); with no flags opens the full TUI editor |
-| `pick [query]` | Fuzzy TUI picker, then an open-or-edit menu (prints the URL when piped) |
+| `pick [query]` | Fuzzy TUI picker with `[md]`/`[arch]` markers, then a menu (open, archived copy, notes, edit; prints the URL when piped) |
 | `delete <spec>` | Delete with confirm (`--yes` skips it) |
 | `attachments <spec>` | List attachments with numbers |
 | `archive <spec>` | Archive page (`--backend builtin\|browser\|single-file\|monolith\|auto`) |
@@ -194,7 +194,7 @@ stay by default; `reindex --prune --compact-ids` closes them to a dense
 | `history` | Recently opened with open counts |
 | `profile list\|switch` | Named base-dir profiles sharing one config |
 | `completion <shell>` | Shell completions (bash, zsh, fish, powershell, elvish) |
-| `serve` | Self host API plus web UI (`--addr --auth-token --static-dir`) |
+| `serve` | Self host API plus web UI (`--addr --auth-token --static-dir`); prints localhost and LAN URLs |
 
 All CLI commands are implemented.
 
@@ -204,7 +204,7 @@ Elegant library interface built from scratch (no Go UI carried over):
 
 * Library with instant search, sort, card and table views, dark mode
 * Detail drawer with inline edit, two-step delete, attachments, history
-* Add dialog with live duplicate detection ("add anyway" or open existing)
+* Add dialog with live duplicate detection ("add anyway" or open existing) plus optional notes and archived copy at creation
 * Bulk bar: multi-select delete (confirmed), set tags, move folder
 * Tags and folders management with merge semantics
 * Rules with learn suggestions, check center with run plus per-row apply
