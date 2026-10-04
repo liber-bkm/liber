@@ -201,6 +201,12 @@ async fn frontend_fallback(
     }
 }
 
+fn lan_ip() -> Option<std::net::IpAddr> {
+    let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("8.8.8.8:80").ok()?;
+    sock.local_addr().ok().map(|a| a.ip())
+}
+
 pub async fn serve(
     cfg: liber_core::store::Config,
     token: String,
@@ -209,6 +215,13 @@ pub async fn serve(
 ) -> anyhow::Result<()> {
     let state = AppState::new(cfg, token).with_static_dir(static_dir);
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    let port = listener.local_addr()?.port();
+    println!("liber serving on http://127.0.0.1:{port}");
+    if let Some(ip) = lan_ip() {
+        if !ip.is_loopback() {
+            println!("on your network: http://{ip}:{port}");
+        }
+    }
     axum::serve(listener, build_router(state)).await?;
     Ok(())
 }

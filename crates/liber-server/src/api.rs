@@ -88,6 +88,8 @@ pub struct AddRequest {
     #[serde(default)]
     pub markdown: bool,
     #[serde(default)]
+    pub archive: bool,
+    #[serde(default)]
     pub confirm_dup: bool,
 }
 

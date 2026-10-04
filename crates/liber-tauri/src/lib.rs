@@ -72,4 +72,5 @@ pub struct ListResponse {
 pub struct AddResult {
     pub status: String,
     pub bookmark: TauriBookmark,
+    pub warnings: Vec<String>,
 }
