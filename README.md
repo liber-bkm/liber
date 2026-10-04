@@ -6,8 +6,8 @@ clean break storage; every Go capability is available in enhanced form,
 not cloned.
 
 Status: core and web UI complete (111 Rust plus 2 UI tests), Tauri desktop
-IPC batches 1 and 2 done (list/get/add/update/delete/open plus tags and
-folders, each with REST fallback). See `local/PARITY.md` for the capability tracker.
+IPC complete (every screen works offline with REST fallback per function).
+See `local/PARITY.md` for the capability tracker.
 
 ## Install
 
