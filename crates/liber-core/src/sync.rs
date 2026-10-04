@@ -309,6 +309,11 @@ pub fn git_snapshot(
     message: &str,
     push: bool,
 ) -> Result<bool, CoreError> {
+    if cfg!(target_os = "android") {
+        return Err(CoreError::Storage(
+            "git sync snapshots are not available on Android".to_string(),
+        ));
+    }
     let probe = std::process::Command::new("git")
         .args([
             "-C",

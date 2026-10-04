@@ -85,6 +85,9 @@ pub fn resolve_backend(
         check_available(cfg, b)?;
         return Ok((b, warnings));
     }
+    if cfg!(target_os = "android") {
+        return Ok((Backend::Builtin, warnings));
+    }
     if find_browser(cfg).is_some() {
         return Ok((Backend::Browser, warnings));
     }

@@ -3,7 +3,7 @@ use liber_core::edit::{delete_bookmark_with_files, edit_bookmark, EditOptions};
 use liber_core::search::{order_results, resolve_sort_mode, SearchFields};
 use liber_core::store::{BookmarkFilter, Store};
 use liber_tauri::{open_store, AddResult, AppState, ListResponse, TauriBookmark};
-use tauri::State;
+use tauri::{Manager, State};
 
 fn resolve_one(store: &Store, id: &str) -> Result<liber_core::model::Bookmark, String> {
     let tokens = liber_core::idspec::parse_id_spec(id).map_err(|e| e.to_string())?;
@@ -963,12 +963,32 @@ fn export_site(
     Ok(serde_json::json!({"index": index.to_string_lossy()}))
 }
 
+fn resolve_app_config(app: &tauri::AppHandle) -> Result<liber_core::store::Config, String> {
+    if liber_core::config::system_dirs_available() {
+        return liber_core::config::load_config()
+            .map(|(cfg, _)| cfg)
+            .map_err(|e| e.to_string());
+    }
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    liber_core::config::load_config_from(dir.join("config.json"), dir.join("library"))
+        .map(|(cfg, _)| cfg)
+        .map_err(|e| e.to_string())
+}
+
 fn main() {
-    let (cfg, _) = liber_core::config::load_config().expect("loading config");
-    let state = liber_tauri::AppState::new(cfg);
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(state)
+        .plugin(tauri_plugin_deep_link::init())
+        .setup(|app| {
+            let cfg = resolve_app_config(app.handle()).map_err(|e| {
+                Box::<dyn std::error::Error>::from(format!("loading config: {e}"))
+            })?;
+            app.manage(liber_tauri::AppState::new(cfg));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_bookmarks,
             get_bookmark,

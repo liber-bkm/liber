@@ -33,12 +33,20 @@ pub fn default_config() -> Config {
     }
 }
 
+pub fn system_dirs_available() -> bool {
+    dirs::config_dir().is_some()
+}
+
 pub fn load_config() -> Result<(Config, PathBuf), CoreError> {
-    let path = config_path()?;
+    load_config_from(config_path()?, default_base_dir())
+}
+
+pub fn load_config_from(path: PathBuf, default_base: PathBuf) -> Result<(Config, PathBuf), CoreError> {
     let data = match std::fs::read(&path) {
         Ok(d) => d,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let mut cfg = default_config();
+            cfg.base_dir = default_base.clone();
             cfg.device_id = Uuid::new_v4().to_string();
             if let Err(werr) = save_config_to(&path, &cfg) {
                 eprintln!("warning: could not write default config: {werr}");
@@ -51,7 +59,7 @@ pub fn load_config() -> Result<(Config, PathBuf), CoreError> {
     let mut cfg: Config =
         serde_json::from_slice(&data).map_err(|e| CoreError::Storage(e.to_string()))?;
     if cfg.base_dir.as_os_str().is_empty() {
-        cfg.base_dir = default_base_dir();
+        cfg.base_dir = default_base;
     }
     if cfg.archive_backend.is_empty() {
         cfg.archive_backend = "builtin".to_string();
