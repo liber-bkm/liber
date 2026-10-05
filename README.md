@@ -255,7 +255,7 @@ All CLI commands are implemented.
 
 Elegant library interface built from scratch (no Go UI carried over):
 
-* Library with instant search, sort, card and table views, dark mode
+* Library with instant search, sort, card and table views, dark mode, portrait-phone layout with drawer navigation and notch-safe insets
 * Detail drawer with inline edit, two-step delete, attachments, history
 * Add dialog with live duplicate detection ("add anyway" or open existing) plus optional notes and archived copy at creation
 * Bulk bar: multi-select delete (confirmed), set tags, move folder
