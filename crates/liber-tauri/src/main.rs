@@ -975,7 +975,7 @@ fn resolve_app_config(app: &tauri::AppHandle) -> Result<liber_core::store::Confi
         .map_err(|e| e.to_string())
 }
 
-fn main() {
+pub(crate) fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())

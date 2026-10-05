@@ -21,6 +21,19 @@ pub fn open_store(state: &AppState) -> Result<Store, String> {
     Store::open(state.cfg.clone()).map_err(|e| e.to_string())
 }
 
+#[cfg(mobile)]
+extern crate self as liber_tauri;
+
+#[cfg(mobile)]
+#[path = "main.rs"]
+mod app;
+
+#[cfg(mobile)]
+#[tauri::mobile_entry_point]
+fn mobile_main() {
+    app::main();
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TauriBookmark {
     pub uuid: String,
