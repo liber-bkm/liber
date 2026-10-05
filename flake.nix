@@ -40,21 +40,38 @@
             allowUnfree = true;
           };
         };
+        # Versions must cover what every Gradle module demands:
+        # our app pins compileSdk 36 (stable channel has no android-37,
+        # and the Tauri library modules already target 36) with
+        # build-tools 36.0.0; 37.0 is spare. Otherwise Gradle tries
+        # to download into the read-only store and fails.
         androidSdk = pkgsAndroid.androidenv.composeAndroidPackages {
-          platformVersions = [ "35" ];
-          buildToolsVersions = [ "35.0.0" ];
+          platformVersions = [ "36" "37.0" ];
+          buildToolsVersions = [ "36.0.0" ];
           includeNDK = true;
         };
         androidFhsEnv = pkgsAndroid.buildFHSEnv {
           name = "liber-rs-android-env";
           targetPkgs = pkgs: [
-            pkgs.cargo
-            pkgs.rustc
+            # rustup, not nixpkgs cargo/rustc: the two collide on
+            # bin/cargo plus bin/rustc, and only rustup can add the
+            # Android std targets. Shares RUSTUP_HOME with the other
+            # shells, so one stable toolchain serves everywhere.
+            pkgs.rustup
+            # Host C toolchain for build scripts and proc macros: cargo
+            # recompiles everything under a fresh target dir here, and
+            # the FHS chroot brings no compiler on its own (unlike a
+            # regular mkShell, which always has stdenv.cc).
+            pkgs.stdenv.cc
+            pkgs.pkg-config
             pkgs.jdk17
             pkgs.gradle
             androidSdk.androidsdk
             androidSdk.platform-tools
             pkgs.nodejs_22
+            # pnpm is a separate package: nodejs alone only brings node,
+            # and the tauri beforeDev/beforeBuild hooks shell out to it.
+            pkgs.pnpm
             pkgs.glibc
             pkgs.zlib
             pkgs.stdenv.cc.cc.lib
@@ -64,6 +81,9 @@
             export ANDROID_HOME="${androidSdk.androidsdk}/libexec/android-sdk"
             export ANDROID_SDK_ROOT="$ANDROID_HOME"
             export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk-bundle"
+            export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
+            export JAVA_HOME="${pkgsAndroid.jdk17}/lib/openjdk"
+            export RUSTUP_HOME="$HOME/.rustup-liber"
             export PATH="$ANDROID_HOME/platform-tools:$PATH"
             echo "liber-rs Android FHS shell (standard loader contract; exit leaves nix develop)"
             echo "Android SDK: $ANDROID_HOME"
@@ -284,18 +304,23 @@
         # tool source, not the packager.
         devShells.android = pkgsAndroid.mkShell {
           buildInputs = with pkgsAndroid; [
-            cargo
-            rustc
+            # Same swap as the FHS env below: rustup over nixpkgs
+            # cargo/rustc (file collision), targets via rustup.
+            rustup
             jdk17
             gradle
             androidSdk.androidsdk
             androidSdk.platform-tools
             nodejs_22
+            pnpm
             cargo-ndk
           ];
           ANDROID_HOME = "${androidSdk.androidsdk}/libexec/android-sdk";
           ANDROID_SDK_ROOT = "${androidSdk.androidsdk}/libexec/android-sdk";
           shellHook = ''
+            export RUSTUP_HOME="$HOME/.rustup-liber"
+            export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk-bundle"
+            export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
             export PATH="$ANDROID_HOME/platform-tools:$PATH"
             echo "Android SDK: $ANDROID_HOME"
             echo "Note: APK assembly needs the FHS shell (nix develop .#android-fhs);"
