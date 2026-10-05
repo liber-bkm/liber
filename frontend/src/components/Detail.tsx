@@ -40,7 +40,7 @@ export function DetailDrawer({ uuid, onClose, onChanged }: { uuid: string; onClo
     <div className="fixed inset-0 z-40" onClick={onClose}>
       <div className="absolute inset-0 bg-black/30" />
       <div
-        className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto bg-white p-5 shadow-xl dark:bg-neutral-900"
+        className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col gap-4 overflow-y-auto bg-white px-5 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))] shadow-xl dark:bg-neutral-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">

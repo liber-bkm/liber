@@ -75,7 +75,7 @@ export function Empty({ title, hint }: { title: string; hint?: string }) {
 
 export function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[10vh]" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 pb-4 pt-[max(10vh,env(safe-area-inset-top))]" onClick={onClose}>
       <div
         className={`w-full ${wide ? "max-w-2xl" : "max-w-lg"} rounded-2xl bg-white p-5 shadow-xl dark:bg-neutral-900`}
         onClick={(e) => e.stopPropagation()}

@@ -34,7 +34,7 @@ export function Palette({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[15vh]" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pb-4 pt-[max(15vh,env(safe-area-inset-top))]" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl dark:bg-neutral-900">
         <Command label="Command palette" className="[&_[cmdk-input]]:w-full">
           <div className="border-b border-neutral-200 dark:border-neutral-800">
