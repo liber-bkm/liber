@@ -99,9 +99,18 @@ block (CLI/server-only builders skip this):
   `sudo dnf install gcc curl wget file pkg-config openssl-devel dbus-devel
   gtk3-devel libsoup3-devel webkit2gtk4.1-devel
   libappindicator-gtk3-devel librsvg2-devel libxdo-devel patchelf`
-* **Arch**:
-  `sudo pacman -S base-devel curl wget file pkg-config openssl dbus gtk3
-  libsoup3 webkit2gtk-4.1 libappindicator-gtk3 librsvg libxdo patchelf`
+* **Arch** (verified end to end, including desktop bundles and Android):
+  `sudo pacman -S base-devel rustup nodejs-lts-jod pnpm jdk17-openjdk
+  gradle curl wget file pkg-config openssl dbus gtk3 libsoup3
+  webkit2gtk-4.1 libappindicator-gtk3 librsvg libxdo patchelf sqlite
+  android-tools`
+  then `corepack enable` is not needed (distro pnpm), `rustup toolchain
+  install stable`, and point `RUSTUP_HOME` at your shared toolchain dir
+  if you have one. Building inside distrobox on a NixOS host: scrub
+  leaked Nix paths first or the wrong compiler links
+  (`export PATH="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/sbin:/sbin:/bin"`)
+  and keep a separate `CARGO_TARGET_DIR`, or nix store RUNPATHs poison
+  the binaries with undefined-symbol errors at runtime.
 
 Then build from `project-liber/`:
 
@@ -158,17 +167,27 @@ instead of the local library: set server URL plus token in Settings.
 You build and install it; device work is never done by automation:
 
 ```sh
-nix develop .#android-fhs   # FHS shell: JDK 17, Gradle, SDK 35, NDK, licenses pre-accepted
-rustup target add aarch64-linux-android
+nix develop .#android-fhs   # FHS shell: rustup, JDK 17, Gradle, SDK 36 plus 37.0, NDK 29, licenses pre-accepted
+rustup target add aarch64-linux-android   # first rustup/cargo run downloads stable; toolchain dir is shared with the other shells
 cd crates/liber-tauri
 ../../frontend/node_modules/.bin/tauri android init   # first time only, creates gen/android/
 ../../frontend/node_modules/.bin/tauri android build --target aarch64-linux-android
 adb install path/to/app.apk   # find it under gen/android/app/build/outputs/
 ```
 
+Without Nix, install the SDK yourself (Arch: JDK, Gradle and
+`android-tools` from pacman, then cmdline-tools plus
+`platform-tools`, `platforms;android-36`, `build-tools;36.0.0` and an
+NDK via `sdkmanager`): `compileSdk`/`targetSdk` are pinned to 36 in
+`gen/android/app/build.gradle.kts` because the stable channel has no
+android-37 platform; Tauri library modules already target 36. Gradle's
+`node tauri` step needs the `crates/liber-tauri/tauri` symlink (shipped
+in the repo) pointing at the CLI JS. The build emits an unsigned
+universal APK plus an AAB; sign before installing
+(`apksigner sign --ks your.keystore`), debug builds sign automatically.
+
 For iteration, `tauri android dev` plus `adb reverse tcp:1420 tcp:1420`
-forwards the Vite dev server to the device. Release signing needs your
-own keystore; debug builds sign automatically. System share-sheet SEND
+forwards the Vite dev server to the device. System share-sheet SEND
 intents and a native file picker are not wired yet (attachments upload
 through the webview picker, exports download as blobs).
 
