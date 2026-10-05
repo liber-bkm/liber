@@ -191,6 +191,13 @@ forwards the Vite dev server to the device. System share-sheet SEND
 intents and a native file picker are not wired yet (attachments upload
 through the webview picker, exports download as blobs).
 
+Troubleshooting: Gradle daemons outlive FHS env rebuilds, so after any
+flake or SDK change run `./gradlew --stop` inside `gen/android` before
+rebuilding. Otherwise `node`/`cargo` resolve to garbage-collected store
+paths and every `rustBuild*` task fails with a bare exit code and no
+stderr. The same applies after `nix-collect-garbage`: stop daemons
+first.
+
 ## Quickstart
 
 ```sh
