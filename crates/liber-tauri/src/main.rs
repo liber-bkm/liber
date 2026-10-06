@@ -4,6 +4,7 @@ use liber_core::search::{order_results, resolve_sort_mode, SearchFields};
 use liber_core::store::{BookmarkFilter, Store};
 use liber_tauri::{open_store, AddResult, AppState, ListResponse, TauriBookmark};
 use tauri::{Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 fn resolve_one(store: &Store, id: &str) -> Result<liber_core::model::Bookmark, String> {
     let tokens = liber_core::idspec::parse_id_spec(id).map_err(|e| e.to_string())?;
@@ -1021,6 +1022,8 @@ pub(crate) fn main() {
             upload_attachment,
             delete_attachment,
             download_attachment,
+            open_archive_external,
+            open_attachment_external,
             import_library,
             export_bookmarks,
             export_site,
