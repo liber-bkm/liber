@@ -815,6 +815,67 @@ fn fetch_archive(state: State<'_, AppState>, id: String) -> Result<serde_json::V
     Ok(serde_json::json!({"html": html}))
 }
 
+fn temp_open_path(file_name: &str) -> std::path::PathBuf {
+    let safe: String = file_name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    std::env::temp_dir().join(format!("liber-{safe}"))
+}
+
+#[tauri::command]
+fn open_archive_external(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    let Some(rel) = &target.archive_file else {
+        return Err("no archive for this bookmark".to_string());
+    };
+    let html = std::fs::read_to_string(store.cfg.archive_dir().join(rel))
+        .map_err(|_| "archive file missing".to_string())?;
+    let path = temp_open_path(&format!("archive-{}.html", target.uuid));
+    std::fs::write(&path, html).map_err(|e| e.to_string())?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<String>)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"opened": true}))
+}
+
+#[tauri::command]
+fn open_attachment_external(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    id: String,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let target = resolve_one(&store, &id)?;
+    let Some(at) = target
+        .attachments
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case(&name))
+    else {
+        return Err("no such attachment".to_string());
+    };
+    let data = std::fs::read(store.cfg.attachment_dir().join(&at.path))
+        .map_err(|_| "attachment file missing".to_string())?;
+    let path = temp_open_path(&format!("{}-{}_{}", target.uuid, "attachment", at.name));
+    std::fs::write(&path, data).map_err(|e| e.to_string())?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<String>)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"opened": true}))
+}
+
 #[tauri::command]
 async fn create_archive(
     state: State<'_, AppState>,
