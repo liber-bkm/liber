@@ -189,7 +189,10 @@ universal APK plus an AAB; sign before installing
 For iteration, `tauri android dev` plus `adb reverse tcp:1420 tcp:1420`
 forwards the Vite dev server to the device. System share-sheet SEND
 intents and a native file picker are not wired yet (attachments upload
-through the webview picker, exports download as blobs).
+through the webview picker, exports download as blobs). The system back
+button closes overlays first, then returns to the library, then exits
+the app; archived copies open in the system browser from the archive
+tab.
 
 Troubleshooting: Gradle daemons outlive FHS env rebuilds, so after any
 flake or SDK change run `./gradlew --stop` inside `gen/android` before
