@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Pencil, Trash2, Upload, X } from "lucide-react";
 import { displayId, domainOf, getArchiveView, setArchiveView, shortUuid, ApiError, type Bookmark } from "../api";
-import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, downloadAttachment, fetchArchive, fetchBookmark, fetchNotes, isTauri, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment } from "../tauri";
+import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, fetchArchive, fetchBookmark, fetchNotes, isTauri, openArchiveExternal, openAttachmentExternal, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment } from "../tauri";
 import { Badge, Button, Field, Input, Modal, Spinner } from "./ui";
 
 type Tab = "details" | "notes" | "archive";
@@ -11,6 +11,7 @@ export function DetailDrawer({ uuid, onClose, onChanged }: { uuid: string; onClo
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [tab, setTab] = useState<Tab>("details");
+  const [openError, setOpenError] = useState("");
   const qc = useQueryClient();
   const detail = useQuery({ queryKey: ["bookmark", uuid], queryFn: () => fetchBookmark(uuid) });
 
@@ -30,10 +31,12 @@ export function DetailDrawer({ uuid, onClose, onChanged }: { uuid: string; onClo
 
   const open = useMutation({
     mutationFn: () => openBookmark(uuid),
+    onMutate: () => setOpenError(""),
     onSuccess: async (data) => {
       await openExternal(data.url);
       invalidate();
     },
+    onError: (e: Error) => setOpenError(e.message),
   });
 
   return (
@@ -77,6 +80,7 @@ export function DetailDrawer({ uuid, onClose, onChanged }: { uuid: string; onClo
         )}
         {detail.data && tab === "notes" && <NotesTab uuid={uuid} hasNotes={detail.data.has_markdown} />}
         {detail.data && tab === "archive" && <ArchiveTab bookmark={detail.data} />}
+        {openError && <p className="text-sm text-red-600">{openError}</p>}
         {detail.data && !editing && (
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => open.mutate()}>
@@ -109,12 +113,32 @@ export function DetailDrawer({ uuid, onClose, onChanged }: { uuid: string; onClo
 function View({ bookmark: b, onChanged }: { bookmark: Bookmark; onChanged: () => void }) {
   const qc = useQueryClient();
   const [uploadError, setUploadError] = useState("");
+  const [linkError, setLinkError] = useState("");
   return (
     <div className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold leading-snug">{b.title}</h2>
-      <a href={b.url} target="_blank" rel="noopener" className="truncate text-sm text-accent-600 hover:underline">
-        {domainOf(b.url)}
-      </a>
+      {isTauri() ? (
+        <>
+          <button
+            onClick={async () => {
+              setLinkError("");
+              try {
+                await openExternal(b.url);
+              } catch (e) {
+                setLinkError(e instanceof Error ? e.message : "could not open link");
+              }
+            }}
+            className="truncate text-left text-sm text-accent-600 hover:underline"
+          >
+            {domainOf(b.url)}
+          </button>
+          {linkError && <p className="text-xs text-red-600">{linkError}</p>}
+        </>
+      ) : (
+        <a href={b.url} target="_blank" rel="noopener" className="truncate text-sm text-accent-600 hover:underline">
+          {domainOf(b.url)}
+        </a>
+      )}
       {b.description && <p className="text-sm text-neutral-600 dark:text-neutral-300">{b.description}</p>}
       <div className="flex flex-wrap gap-1.5">
         {b.folder && <Badge tone="accent">{b.folder}</Badge>}
@@ -188,17 +212,9 @@ function AttachmentLink({ uuid, name }: { uuid: string; name: string }) {
         onClick={async () => {
           setError("");
           try {
-            const { mime, content } = await downloadAttachment(uuid, name);
-            const bytes = Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
-            const blob = new Blob([bytes as BlobPart], { type: mime });
-            const href = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = href;
-            a.download = name;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(href), 5000);
+            await openAttachmentExternal(uuid, name);
           } catch (e) {
-            setError(e instanceof Error ? e.message : "download failed");
+            setError(e instanceof Error ? e.message : "could not open attachment");
           }
         }}
         className="block truncate text-left text-sm text-accent-600 hover:underline"
@@ -255,6 +271,7 @@ function NotesTab({ uuid, hasNotes }: { uuid: string; hasNotes: boolean }) {
 
 function ArchiveTab({ bookmark: b }: { bookmark: Bookmark }) {
   const [view, setView] = useState(getArchiveView());
+  const [openError, setOpenError] = useState("");
   const remote = useQuery({
     queryKey: ["archive", b.uuid],
     queryFn: () => fetchArchive(b.uuid),
@@ -274,6 +291,22 @@ function ArchiveTab({ bookmark: b }: { bookmark: Bookmark }) {
     }
     return (
       <div className="flex flex-col gap-2">
+        <div>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              setOpenError("");
+              try {
+                await openArchiveExternal(b.uuid);
+              } catch (e) {
+                setOpenError(e instanceof Error ? e.message : "could not open archive");
+              }
+            }}
+          >
+            Open in browser
+          </Button>
+        </div>
+        {openError && <p className="text-sm text-red-600">{openError}</p>}
         <iframe
           srcDoc={remote.data?.html ?? ""}
           sandbox=""

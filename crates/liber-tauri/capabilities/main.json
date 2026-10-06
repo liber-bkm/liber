@@ -3,5 +3,5 @@
   "identifier": "main-capability",
   "description": "Least-privilege capabilities for the liber desktop app.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default", "opener:allow-open-url", "deep-link:default"]
+  "permissions": ["core:default", "core:event:default", "opener:allow-open-url", "opener:allow-default-urls", "deep-link:default"]
 }

@@ -464,6 +464,19 @@ export async function downloadAttachment(
   return invokeCmd("download_attachment", { id: uuid, name });
 }
 
+export async function openArchiveExternal(uuid: string): Promise<{ opened: boolean }> {
+  if (!isTauri()) throw new Error("openArchiveExternal is Tauri-only");
+  return invokeCmd("open_archive_external", { id: uuid });
+}
+
+export async function openAttachmentExternal(
+  uuid: string,
+  name: string
+): Promise<{ opened: boolean }> {
+  if (!isTauri()) throw new Error("openAttachmentExternal is Tauri-only");
+  return invokeCmd("open_attachment_external", { id: uuid, name });
+}
+
 export async function importLibrary(
   content: string,
   markdown = false

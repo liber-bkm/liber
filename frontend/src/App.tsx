@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./theme";
 import { Layout, type View } from "./components/Layout";
 import { Library } from "./screens/Library";
 import { Login } from "./screens/Login";
 import { AddDialog, DetailDrawer } from "./components/Detail";
-import { subscribeSharedUrls } from "./tauri";
+import { isTauri, subscribeSharedUrls } from "./tauri";
 import { FoldersPage, TagsPage } from "./screens/Taxonomy";
 import { RulesPage } from "./screens/Rules";
 import { CheckPage } from "./screens/Check";
@@ -47,6 +47,63 @@ function Shell() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const suppressPush = useRef(false);
+  const mountedNav = useRef(false);
+  const prevNav = useRef({ view, o: false, a: false, p: false });
+  const live = useRef({ view, folder, tag, openUuid, adding, palette });
+  live.current = { view, folder, tag, openUuid, adding, palette };
+  const navKey = JSON.stringify({
+    view,
+    o: !!openUuid,
+    a: adding,
+    p: palette,
+  });
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    if (!mountedNav.current) {
+      mountedNav.current = true;
+      return;
+    }
+    if (suppressPush.current) {
+      suppressPush.current = false;
+      prevNav.current = { view, o: !!openUuid, a: adding, p: palette };
+      return;
+    }
+    const prev = prevNav.current;
+    const opened = (!prev.o && !!openUuid) || (!prev.a && adding) || (!prev.p && palette);
+    prevNav.current = { view, o: !!openUuid, a: adding, p: palette };
+    if (prev.view !== view || opened) history.pushState({ tag: "liber-nav" }, "");
+  }, [navKey]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    history.replaceState({ tag: "liber-base" }, "");
+    const onPop = () => {
+      const s = live.current;
+      if (s.palette) {
+        suppressPush.current = true;
+        setPalette(false);
+      } else if (s.adding) {
+        suppressPush.current = true;
+        setAdding(false);
+        setShareUrl(null);
+      } else if (s.openUuid) {
+        suppressPush.current = true;
+        setOpenUuid(null);
+      } else if (s.view !== "library" || s.folder || s.tag) {
+        suppressPush.current = true;
+        setView("library");
+        setFolder(null);
+        setTag(null);
+      } else {
+        suppressPush.current = false;
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   return (
