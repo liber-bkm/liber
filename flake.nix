@@ -153,6 +153,12 @@
           preBuild = ''
             (cd frontend && pnpm build)
           '';
+          meta = with pkgs.lib; {
+            description = "liber bookmark manager: CLI plus self-hosting server";
+            homepage = "https://github.com/liber-bkm/liber";
+            license = licenses.gpl3Plus;
+            mainProgram = "liber";
+          };
         };
 
         # Desktop app: the liber-tauri binary with GApps wrapping for the
@@ -243,6 +249,27 @@
               (cd bundle/liber-rs-${version} && sha256sum liber liber-serve liber-tauri > SHA256SUMS)
               (cd bundle && tar -czf $out liber-rs-${version})
             '';
+
+        # All-in-one installable: CLI, server, and desktop outputs merged
+        # into a single profile entry. The web UI ships embedded in the
+        # binaries, so no separate bundle is staged. No file collisions:
+        # bin/liber plus bin/liber-serve come from default, bin/liber-tauri
+        # plus share/ from liber-desktop. Unlike release-bundle above,
+        # whose $out is a tarball file, this links real program trees.
+        packages.bundle = pkgs.symlinkJoin {
+          name = "liber-bundle-${version}";
+          paths = [
+            self.packages.${system}.default
+            self.packages.${system}.liber-desktop
+          ];
+          meta = with pkgs.lib; {
+            description = "liber bookmark manager: CLI, server, and desktop app in one install";
+            homepage = "https://github.com/liber-bkm/liber";
+            license = licenses.gpl3Plus;
+            mainProgram = "liber";
+            platforms = platforms.linux;
+          };
+        };
 
         # Default Linux dev+test shell. This is the ONLY shell the agent
         # tests in. Cross helpers are installed here so availability is
@@ -337,7 +364,14 @@
           '';
         };
 
-        apps.default = flake-utils.lib.mkApp { drv = self.packages.${system}.default; };
+        apps.default = flake-utils.lib.mkApp {
+          drv = self.packages.${system}.default;
+          exePath = "/bin/liber";
+        };
+        apps.bundle = flake-utils.lib.mkApp {
+          drv = self.packages.${system}.bundle;
+          exePath = "/bin/liber";
+        };
         apps.liber-desktop = flake-utils.lib.mkApp {
           drv = self.packages.${system}.liber-desktop;
           exePath = "/bin/liber-tauri";

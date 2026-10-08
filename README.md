@@ -83,6 +83,37 @@ Desktop and bundles are flake outputs too: `nix build .#liber-desktop`
 for a tarball of `liber`, `liber-serve`, and `liber-tauri` with
 checksums.
 
+**Any Linux distro (via Nix, no NixOS needed):** install Nix once per
+machine, then the same flake outputs work everywhere:
+
+```sh
+sh <(curl -L https://nixos.org/nix/install) --daemon   # or --no-daemon for single-user
+echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf   # skip if your installer already enables flakes
+nix profile install github:liber-bkm/liber#bundle      # liber, liber-serve, liber-tauri plus desktop entry
+```
+
+Updates are `nix profile upgrade` (or re-run install); pin a release
+with a tag once tagged (`github:liber-bkm/liber/vX.Y.Z#bundle`). There
+is no binary cache yet, so the first install compiles from source and
+takes a while; later installs are instant. Native distro packages and
+CI-built artifacts arrive via GitHub workflows at project completion.
+
+**On NixOS via flake input** (all three programs in one entry):
+
+```nix
+inputs.liber-rs.url = "github:liber-bkm/liber";
+inputs.liber-rs.inputs.nixpkgs.follows = "nixpkgs";
+# ...
+environment.systemPackages = [
+  inputs.liber-rs.packages.${pkgs.stdenv.hostPlatform.system}.bundle
+];
+```
+
+Prefer `.#default` in place of `.bundle` for CLI/server only. The
+`release-bundle` tarball is not installable this way (its output is a
+`.tar.gz` file) — build it with `nix build .#release-bundle` and unpack
+manually instead.
+
 **Without Nix:** install stable Rust (via rustup), Node 22 with pnpm,
 then follow [Building from source](#building-from-source). Only the
 desktop app needs system libraries (webkit stack); CLI and server build
