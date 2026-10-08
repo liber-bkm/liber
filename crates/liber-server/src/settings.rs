@@ -17,6 +17,13 @@ const SETTABLE: &[&str] = &[
     "device_id",
 ];
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/settings",
+    responses(
+        (status = 200, description = "Settable config values", body = Object),
+    )
+)]
 pub async fn get_settings() -> Result<Json<serde_json::Value>, ApiErr> {
     let (cfg, _) = liber_core::config::load_config().map_err(|e| {
         (
@@ -43,6 +50,15 @@ pub struct SetSettingsBody {
     pub value: String,
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/v2/settings",
+    request_body(content = Object, description = "Setting as {key, value}"),
+    responses(
+        (status = 200, description = "Saved", body = Object),
+        (status = 400, description = "Unknown key or bad backend", body = Object),
+    )
+)]
 pub async fn set_setting(
     State(state): State<AppState>,
     Json(input): Json<SetSettingsBody>,

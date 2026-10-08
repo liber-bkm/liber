@@ -37,6 +37,14 @@ pub struct ImportBody {
     pub markdown: bool,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/library/import",
+    request_body(content = Object, description = "Netscape file as {content, markdown?}"),
+    responses(
+        (status = 200, description = "Added, skipped, and warning counts", body = Object),
+    )
+)]
 pub async fn import_library(
     State(state): State<AppState>,
     Json(input): Json<ImportBody>,
@@ -136,6 +144,13 @@ mod tests {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/library/export-bookmarks",
+    responses(
+        (status = 200, description = "Netscape bookmark file download", content_type = "text/html"),
+    )
+)]
 pub async fn export_bookmarks(State(state): State<AppState>) -> Result<Response, ApiErr> {
     let store = store_of(&state)?;
     let doc = write_netscape_export(&store).map_err(core_err)?;
@@ -158,6 +173,14 @@ pub struct ExportSiteBody {
     pub dir: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/library/export-site",
+    request_body(content = Object, description = "Target as {dir?}"),
+    responses(
+        (status = 200, description = "Written index path", body = Object),
+    )
+)]
 pub async fn export_site_ep(
     State(state): State<AppState>,
     Json(input): Json<ExportSiteBody>,

@@ -96,6 +96,13 @@ pub async fn auth_middleware(State(state): State<AppState>, req: Request, next: 
 
 const LOGIN_FORM: &str = "<!doctype html><html><body><h2>liber login</h2><form method=\"post\"><input type=\"password\" name=\"token\" required><button type=\"submit\">Log in</button></form></body></html>";
 
+#[utoipa::path(
+    get,
+    path = "/login",
+    responses(
+        (status = 200, description = "Login form page", content_type = "text/html"),
+    )
+)]
 pub async fn login_page() -> (
     StatusCode,
     [(header::HeaderName, &'static str); 1],
@@ -114,6 +121,15 @@ pub struct LoginForm {
     pub next: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/login",
+    request_body(content = Object, description = "Token form as {token, next?}"),
+    responses(
+        (status = 303, description = "Cookie set, redirects onward"),
+        (status = 401, description = "Wrong token", body = Object),
+    )
+)]
 pub async fn login_submit(State(state): State<AppState>, Form(form): Form<LoginForm>) -> Response {
     if state.token.is_empty() {
         return redirect_login("/");
@@ -142,6 +158,13 @@ pub async fn login_submit(State(state): State<AppState>, Form(form): Form<LoginF
         .into_response()
 }
 
+#[utoipa::path(
+    get,
+    path = "/logout",
+    responses(
+        (status = 303, description = "Cookie cleared, redirects to login (GET and POST)"),
+    )
+)]
 pub async fn logout() -> Response {
     let cookie = format!("{COOKIE_NAME}=; Path=/; MaxAge=-1; HttpOnly; SameSite=Lax");
     (

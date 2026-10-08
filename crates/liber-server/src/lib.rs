@@ -26,6 +26,7 @@ pub mod bookmarks;
 pub mod bulk;
 pub mod check;
 pub mod library;
+pub mod openapi;
 pub mod reindex;
 pub mod rules;
 pub mod settings;

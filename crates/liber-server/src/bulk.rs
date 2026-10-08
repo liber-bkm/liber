@@ -38,6 +38,16 @@ pub struct BulkBody {
     pub confirm: bool,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/bulk",
+    request_body(content = Object, description = "Bulk op as {ids[], op, tags?, folder?, confirm?}"),
+    responses(
+        (status = 200, description = "Confirm gate or deleted/updated counts", body = Object),
+        (status = 400, description = "No ids or unknown op", body = Object),
+        (status = 404, description = "Id not found", body = Object),
+    )
+)]
 pub async fn bulk(
     State(state): State<AppState>,
     Json(input): Json<BulkBody>,

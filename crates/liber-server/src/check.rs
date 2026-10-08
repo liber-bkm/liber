@@ -38,6 +38,15 @@ pub struct RunBody {
     pub stale_hours: Option<u64>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/check/run",
+    request_body(content = Object, description = "Scope as {spec?, workers?, stale_hours?}"),
+    responses(
+        (status = 200, description = "Checked, ok, and non-ok rows", body = Object),
+        (status = 400, description = "Bad id spec", body = Object),
+    )
+)]
 pub async fn run_check(
     State(state): State<AppState>,
     Json(input): Json<RunBody>,
@@ -110,6 +119,14 @@ pub struct ApplyBody {
     pub quarantine: Vec<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/check/apply",
+    request_body(content = Object, description = "Actions as {updates[], quarantine[]}"),
+    responses(
+        (status = 200, description = "Updated, quarantined, and skipped rows", body = Object),
+    )
+)]
 pub async fn apply_check(
     State(state): State<AppState>,
     Json(input): Json<ApplyBody>,

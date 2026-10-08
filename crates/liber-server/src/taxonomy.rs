@@ -30,6 +30,13 @@ fn core_err(e: liber_core::CoreError) -> ApiErr {
     (status, Json(serde_json::json!({"error": e.to_string()})))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/tags",
+    responses(
+        (status = 200, description = "Tag names with counts", body = Object),
+    )
+)]
 pub async fn list_tags(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiErr> {
     let store = open_store(&state)?;
     let counts = tag_counts(&store).map_err(core_err)?;
@@ -38,6 +45,13 @@ pub async fn list_tags(State(state): State<AppState>) -> Result<Json<serde_json:
     })))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/folders",
+    responses(
+        (status = 200, description = "Folder names with counts", body = Object),
+    )
+)]
 pub async fn list_folders(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiErr> {
@@ -54,6 +68,16 @@ pub struct RenameBody {
     pub new: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/tags/rename",
+    request_body(content = Object, description = "Rename as {old, new}"),
+    responses(
+        (status = 200, description = "Renamed count", body = Object),
+        (status = 400, description = "Same or empty names", body = Object),
+        (status = 404, description = "No bookmarks have that tag", body = Object),
+    )
+)]
 pub async fn rename_tag_ep(
     State(state): State<AppState>,
     Json(input): Json<RenameBody>,
@@ -77,6 +101,16 @@ pub struct DeleteTagBody {
     pub confirm: bool,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/tags/delete",
+    request_body(content = Object, description = "Delete as {tag, confirm?}"),
+    responses(
+        (status = 200, description = "Confirm gate or deleted count", body = Object),
+        (status = 400, description = "Tag required", body = Object),
+        (status = 404, description = "No bookmarks have that tag", body = Object),
+    )
+)]
 pub async fn delete_tag_ep(
     State(state): State<AppState>,
     Json(input): Json<DeleteTagBody>,
@@ -110,6 +144,16 @@ pub async fn delete_tag_ep(
     Ok(Json(serde_json::json!({"deleted": changed.len()})))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/folders/rename",
+    request_body(content = Object, description = "Rename as {old, new}"),
+    responses(
+        (status = 200, description = "Renamed count", body = Object),
+        (status = 400, description = "Same or empty names", body = Object),
+        (status = 404, description = "No bookmarks in that folder", body = Object),
+    )
+)]
 pub async fn rename_folder_ep(
     State(state): State<AppState>,
     Json(input): Json<RenameBody>,
@@ -131,6 +175,14 @@ pub struct DeleteFolderBody {
     pub folder: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/folders/delete",
+    request_body(content = Object, description = "Delete as {folder}"),
+    responses(
+        (status = 200, description = "Moved-to-root count", body = Object),
+    )
+)]
 pub async fn delete_folder_ep(
     State(state): State<AppState>,
     Json(input): Json<DeleteFolderBody>,
@@ -303,5 +355,75 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(v["moved_to_root"], 2);
+    }
+
+    #[tokio::test]
+    async fn missing_names_error_shapes() {
+        let (app, _dir) = test_app();
+        seed(&app).await;
+
+        let (status, v) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/tags/rename",
+                    serde_json::json!({"old": "nope", "new": "x"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(v["error"].is_string());
+
+        let (status, v) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/tags/delete",
+                    serde_json::json!({"tag": "nope", "confirm": true}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["deleted"], 0);
+
+        let (status, v) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/tags/delete",
+                    serde_json::json!({"tag": "  "}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(v["error"].is_string());
+
+        let (status, v) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/folders/rename",
+                    serde_json::json!({"old": "nope", "new": "x"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(v["error"].is_string());
+
+        let (status, v) = body(
+            app.oneshot(post(
+                "/api/v2/folders/delete",
+                serde_json::json!({"folder": "nope"}),
+            ))
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["moved_to_root"], 0);
     }
 }

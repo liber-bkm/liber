@@ -30,6 +30,15 @@ fn open_store(state: &AppState) -> Result<Store, ApiErr> {
     Store::open(state.cfg.clone()).map_err(core_err)
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/bookmarks",
+    params(ListParams),
+    responses(
+        (status = 200, description = "Paged bookmark list", body = crate::api::ListResponse),
+        (status = 400, description = "Bad sort mode", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn list_bookmarks(
     State(state): State<AppState>,
     Query(p): Query<ListParams>,
@@ -79,6 +88,17 @@ pub async fn list_bookmarks(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/bookmarks",
+    request_body(content = crate::api::AddRequest, description = "Bookmark to add"),
+    responses(
+        (status = 201, description = "Bookmark created", body = crate::api::ApiBookmark),
+        (status = 200, description = "Duplicate accepted idempotently", body = crate::api::ApiBookmark),
+        (status = 400, description = "Missing url", body = crate::api::ErrorBody),
+        (status = 409, description = "Duplicate url", body = Object),
+    )
+)]
 pub async fn add_bookmark(
     State(state): State<AppState>,
     Json(input): Json<AddRequest>,
@@ -170,6 +190,15 @@ async fn resolve_one(
     Ok(hits.remove(0))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/bookmarks/{id}",
+    params(("id" = String, Path, description = "Short id or UUID prefix")),
+    responses(
+        (status = 200, description = "Bookmark", body = crate::api::ApiBookmark),
+        (status = 404, description = "Not found", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn get_bookmark(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -177,6 +206,17 @@ pub async fn get_bookmark(
     Ok(Json(ApiBookmark::from(&resolve_one(&state, &id).await?)))
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/v2/bookmarks/{id}",
+    params(("id" = String, Path, description = "Short id or UUID prefix")),
+    request_body(content = crate::api::UpdateRequest, description = "Partial fields to update"),
+    responses(
+        (status = 200, description = "Updated bookmark", body = crate::api::ApiBookmark),
+        (status = 400, description = "Empty title or url", body = crate::api::ErrorBody),
+        (status = 404, description = "Not found", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn update_bookmark(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -211,6 +251,18 @@ pub async fn update_bookmark(
     Ok(Json(ApiBookmark::from(&out)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v2/bookmarks/{id}",
+    params(
+        ("id" = String, Path, description = "Short id or UUID prefix"),
+        DeleteParams,
+    ),
+    responses(
+        (status = 200, description = "Deleted id, or confirm_required union without confirm", body = Object),
+        (status = 404, description = "Not found", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn delete_bookmark(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -232,6 +284,15 @@ pub async fn delete_bookmark(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/bookmarks/{id}/open",
+    params(("id" = String, Path, description = "Short id or UUID prefix")),
+    responses(
+        (status = 200, description = "Opened url", body = Object),
+        (status = 404, description = "Not found", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn open_bookmark(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -243,6 +304,17 @@ pub async fn open_bookmark(
     Ok(Json(serde_json::json!({"url": target.url})))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/history",
+    params(
+        ("per_page" = Option<usize>, Query, description = "Page size, clamped 1-500"),
+        ("page" = Option<usize>, Query, description = "Page number, from 1"),
+    ),
+    responses(
+        (status = 200, description = "Recently opened bookmarks", body = crate::api::ListResponse),
+    )
+)]
 pub async fn history(
     State(state): State<AppState>,
     Query(p): Query<ListParams>,
@@ -269,6 +341,18 @@ pub async fn history(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/bookmarks/{id}/attachments/{name}",
+    params(
+        ("id" = String, Path, description = "Short id or UUID prefix"),
+        ("name" = String, Path, description = "Attachment file name"),
+    ),
+    responses(
+        (status = 200, description = "Attachment bytes", content_type = "application/octet-stream"),
+        (status = 404, description = "No such attachment", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn download_attachment(
     State(state): State<AppState>,
     Path((id, name)): Path<(String, String)>,
@@ -301,6 +385,17 @@ pub async fn download_attachment(
         .into_response())
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/bookmarks/{id}/attachments",
+    params(("id" = String, Path, description = "Short id or UUID prefix")),
+    request_body(content = Object, description = "Base64 attachment as {name, content}"),
+    responses(
+        (status = 200, description = "Attached file name", body = Object),
+        (status = 400, description = "Bad name, payload, or oversize", body = crate::api::ErrorBody),
+        (status = 404, description = "Not found", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn upload_attachment(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -331,6 +426,15 @@ pub struct UploadBody {
     pub content: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/bookmarks/{id}/notes",
+    params(("id" = String, Path, description = "Short id or UUID prefix")),
+    responses(
+        (status = 200, description = "Note body or null", body = Object),
+        (status = 404, description = "Not found", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn get_notes(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -347,6 +451,16 @@ pub struct NotesBody {
     pub body: String,
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/v2/bookmarks/{id}/notes",
+    params(("id" = String, Path, description = "Short id or UUID prefix")),
+    request_body(content = Object, description = "Note body as {body}"),
+    responses(
+        (status = 200, description = "Saved", body = Object),
+        (status = 404, description = "Not found", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn put_notes(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -359,6 +473,15 @@ pub async fn put_notes(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/bookmarks/{id}/archive",
+    params(("id" = String, Path, description = "Short id or UUID prefix")),
+    responses(
+        (status = 200, description = "Archived HTML page", content_type = "text/html"),
+        (status = 404, description = "No archive", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn get_archive(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -391,6 +514,16 @@ pub struct ArchiveBody {
     pub backend: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/bookmarks/{id}/archive",
+    params(("id" = String, Path, description = "Short id or UUID prefix")),
+    request_body(content = Object, description = "Backend as {backend?}"),
+    responses(
+        (status = 200, description = "Archived with warnings", body = Object),
+        (status = 404, description = "Not found", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn post_archive(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -416,6 +549,15 @@ pub async fn post_archive(
     })))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v2/bookmarks/{id}/archive",
+    params(("id" = String, Path, description = "Short id or UUID prefix")),
+    responses(
+        (status = 200, description = "Archive removed", body = Object),
+        (status = 404, description = "Not found", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn delete_archive(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -435,6 +577,15 @@ pub async fn delete_archive(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v2/bookmarks/{id}/notes",
+    params(("id" = String, Path, description = "Short id or UUID prefix")),
+    responses(
+        (status = 200, description = "Notes removed", body = Object),
+        (status = 404, description = "Not found", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn delete_notes(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -454,6 +605,18 @@ pub async fn delete_notes(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v2/bookmarks/{id}/attachments/{name}",
+    params(
+        ("id" = String, Path, description = "Short id or UUID prefix"),
+        ("name" = String, Path, description = "Attachment file name"),
+    ),
+    responses(
+        (status = 200, description = "Detached file name", body = Object),
+        (status = 404, description = "No such attachment", body = crate::api::ErrorBody),
+    )
+)]
 pub async fn delete_attachment(
     State(state): State<AppState>,
     Path((id, name)): Path<(String, String)>,
@@ -1001,5 +1164,221 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(deep["total"], 1);
         assert_eq!(deep["bookmarks"][0]["uuid"], b.uuid.to_string());
+    }
+
+    #[tokio::test]
+    async fn delete_confirm_union() {
+        let (app, _dir) = test_state("");
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(post_json(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "https://example.com/del"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let uuid = v["uuid"].as_str().unwrap().to_string();
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/v2/bookmarks/{uuid}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["confirm_required"], true);
+        assert_eq!(v["bookmark"]["uuid"], uuid);
+        assert!(v["hint"].as_str().unwrap().contains("confirm"));
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/v2/bookmarks/{uuid}?confirm=true"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["deleted"], uuid);
+    }
+
+    #[tokio::test]
+    async fn update_validation_errors() {
+        let (app, _dir) = test_state("");
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(post_json(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "https://example.com/u"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let uuid = v["uuid"].as_str().unwrap().to_string();
+
+        for body in ["{\"title\":\"  \"}", "{\"url\":\"  \"}"] {
+            let res = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri(format!("/api/v2/bookmarks/{uuid}"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let (status, v) = body_json(res).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(v["error"].is_string());
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_resources_404_json() {
+        let (app, _dir) = test_state("");
+        let missing = "00000000-0000-0000-0000-000000000000";
+        let get = Request::builder()
+            .uri(format!("/api/v2/bookmarks/{missing}"))
+            .body(Body::empty())
+            .unwrap();
+        let (status, v) = body_json(app.clone().oneshot(get).await.unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(v["error"].is_string());
+
+        let open = Request::builder()
+            .method("POST")
+            .uri(format!("/api/v2/bookmarks/{missing}/open"))
+            .body(Body::empty())
+            .unwrap();
+        let (status, v) = body_json(app.clone().oneshot(open).await.unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(v["error"].is_string());
+
+        let notes = Request::builder()
+            .uri(format!("/api/v2/bookmarks/{missing}/notes"))
+            .body(Body::empty())
+            .unwrap();
+        let (status, v) = body_json(app.clone().oneshot(notes).await.unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(v["error"].is_string());
+
+        let attach = Request::builder()
+            .uri(format!("/api/v2/bookmarks/{missing}/attachments/nope.txt"))
+            .body(Body::empty())
+            .unwrap();
+        let (status, v) = body_json(app.oneshot(attach).await.unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(v["error"].is_string());
+    }
+
+    #[tokio::test]
+    async fn pagination_envelope_clamps() {
+        let (app, _dir) = test_state("");
+        for url in [
+            "https://example.com/p1",
+            "https://example.com/p2",
+            "https://example.com/p3",
+        ] {
+            let (status, _) = body_json(
+                app.clone()
+                    .oneshot(post_json(
+                        "/api/v2/bookmarks",
+                        serde_json::json!({"url": url}),
+                    ))
+                    .await
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/bookmarks?per_page=5000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["per_page"], 500);
+        assert_eq!(v["total"], 3);
+
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/bookmarks?per_page=2&page=2")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["page"], 2);
+        assert_eq!(v["total"], 3);
+        assert_eq!(v["bookmarks"].as_array().unwrap().len(), 1);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/bookmarks?page=0")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["page"], 1);
+    }
+
+    #[tokio::test]
+    async fn health_and_unknown_route_shapes() {
+        let (app, _dir) = test_state("");
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/no-such-thing")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let (status, v) = body_json(res).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(v["error"], "not found");
     }
 }

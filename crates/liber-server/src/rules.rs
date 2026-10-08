@@ -60,6 +60,13 @@ fn applied_counts(store: &Store) -> Result<std::collections::HashMap<String, usi
     Ok(counts)
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/rules",
+    responses(
+        (status = 200, description = "Rules with applied counts", body = Object),
+    )
+)]
 pub async fn list_rules(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiErr> {
     let store = store_of(&state)?;
     let counts = applied_counts(&store)?;
@@ -80,6 +87,16 @@ pub struct AddRuleBody {
     pub folder: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/rules",
+    request_body(content = Object, description = "Rule as {pattern, tags?, folder?}"),
+    responses(
+        (status = 201, description = "Rule created", body = Object),
+        (status = 400, description = "Bad pattern", body = Object),
+        (status = 409, description = "Rule exists", body = Object),
+    )
+)]
 pub async fn add_rule_ep(
     State(state): State<AppState>,
     Json(input): Json<AddRuleBody>,
@@ -103,6 +120,16 @@ pub struct EditRuleBody {
     pub reapply: bool,
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/v2/rules/{id}",
+    params(("id" = String, Path, description = "Rule id")),
+    request_body(content = Object, description = "Partial rule plus {reapply?}"),
+    responses(
+        (status = 200, description = "Rule with reapplied count", body = Object),
+        (status = 404, description = "No such rule", body = Object),
+    )
+)]
 pub async fn edit_rule_ep(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -124,6 +151,15 @@ pub async fn edit_rule_ep(
     ))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v2/rules/{id}",
+    params(("id" = String, Path, description = "Rule id")),
+    responses(
+        (status = 200, description = "Deleted rule id", body = Object),
+        (status = 404, description = "No such rule", body = Object),
+    )
+)]
 pub async fn delete_rule_ep(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -144,6 +180,14 @@ pub struct ApplyBody {
     pub id: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/rules/apply",
+    request_body(content = Object, description = "Scope as {id?}"),
+    responses(
+        (status = 200, description = "Applied count", body = Object),
+    )
+)]
 pub async fn apply_rules_ep(
     State(state): State<AppState>,
     Json(input): Json<ApplyBody>,
@@ -159,6 +203,14 @@ pub struct LearnParams {
     pub min: Option<usize>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/rules/learn",
+    params(("min" = Option<usize>, Query, description = "Minimum host count, at least 2")),
+    responses(
+        (status = 200, description = "Host suggestions", body = Object),
+    )
+)]
 pub async fn learn_rules(
     State(state): State<AppState>,
     Query(p): Query<LearnParams>,
@@ -173,6 +225,14 @@ pub async fn learn_rules(
     })))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/rules/learn",
+    request_body(content = Object, description = "Threshold as {min?}"),
+    responses(
+        (status = 200, description = "Created plus applied counts", body = Object),
+    )
+)]
 pub async fn learn_create(
     State(state): State<AppState>,
     Json(p): Json<LearnParams>,

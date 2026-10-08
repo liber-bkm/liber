@@ -1,12 +1,12 @@
 use liber_core::model::{Attachment, Bookmark};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ApiAttachment {
     pub name: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct ApiBookmark {
     pub uuid: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,7 +58,7 @@ impl From<&Bookmark> for ApiBookmark {
     }
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::IntoParams)]
 pub struct ListParams {
     pub q: Option<String>,
     pub sort: Option<String>,
@@ -69,7 +69,7 @@ pub struct ListParams {
     pub deep: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ListResponse {
     pub total: usize,
     pub page: usize,
@@ -77,7 +77,7 @@ pub struct ListResponse {
     pub bookmarks: Vec<ApiBookmark>,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema)]
 pub struct AddRequest {
     pub url: String,
     pub title: Option<String>,
@@ -93,7 +93,7 @@ pub struct AddRequest {
     pub confirm_dup: bool,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema)]
 pub struct UpdateRequest {
     pub title: Option<String>,
     pub description: Option<String>,
@@ -102,12 +102,12 @@ pub struct UpdateRequest {
     pub url: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::IntoParams)]
 pub struct DeleteParams {
     pub confirm: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ErrorBody {
     pub error: String,
 }

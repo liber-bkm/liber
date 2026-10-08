@@ -33,6 +33,14 @@ pub struct ExportBody {
     pub since: Option<i64>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/sync/export",
+    request_body(content = Object, description = "Cursor as {since?}"),
+    responses(
+        (status = 200, description = "Oplog entries", body = Object),
+    )
+)]
 pub async fn export_oplog(
     State(state): State<AppState>,
     Json(input): Json<ExportBody>,
@@ -47,6 +55,15 @@ pub struct ImportBody {
     pub entries: Vec<liber_core::model::OpLogEntry>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/sync/import",
+    request_body(content = Object, description = "Bundle as {entries[]}"),
+    responses(
+        (status = 200, description = "Merge report counts", body = Object),
+        (status = 400, description = "Bad bundle", body = Object),
+    )
+)]
 pub async fn import_oplog(
     State(state): State<AppState>,
     Json(input): Json<ImportBody>,
@@ -69,6 +86,14 @@ pub struct PruneBody {
     pub days: Option<i64>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/sync/prune",
+    request_body(content = Object, description = "Retention as {days?, default 90}"),
+    responses(
+        (status = 200, description = "Pruned entry count", body = Object),
+    )
+)]
 pub async fn prune_oplog_ep(
     State(state): State<AppState>,
     Json(input): Json<PruneBody>,

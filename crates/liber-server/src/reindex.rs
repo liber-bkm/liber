@@ -17,6 +17,14 @@ pub struct ReindexBody {
     pub compact_ids: bool,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v2/reindex",
+    request_body(content = Object, description = "Repair flags as {prune?, compact_ids?}"),
+    responses(
+        (status = 200, description = "Reindex report counts", body = Object),
+    )
+)]
 pub async fn reindex_ep(
     State(state): State<AppState>,
     Json(input): Json<ReindexBody>,
@@ -52,4 +60,55 @@ pub async fn reindex_ep(
         "indexed": rep.indexed,
         "short_ids_compacted": rep.short_ids_compacted,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::{header, Request};
+    use tower::ServiceExt;
+
+    use crate::{build_router, AppState};
+    use liber_core::store::Config;
+
+    #[tokio::test]
+    async fn reindex_report_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = Config {
+            base_dir: dir.path().to_path_buf(),
+            device_id: "test-device".to_string(),
+            ..Default::default()
+        };
+        let app = build_router(AppState::new(cfg, String::new()));
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v2/reindex")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        for key in [
+            "adopted",
+            "relinked_markdown",
+            "relinked_archive",
+            "swept_conflicts",
+            "quarantined_attachments",
+            "pending",
+            "pruned",
+            "indexed",
+            "short_ids_compacted",
+        ] {
+            assert!(v.get(key).is_some(), "missing report key {key}");
+        }
+        assert_eq!(v["adopted"], 0);
+        assert_eq!(v["pruned"], 0);
+    }
 }
