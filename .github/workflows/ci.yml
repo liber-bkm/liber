@@ -1,0 +1,41 @@
+name: gates
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  rust:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo fmt --check
+
+  frontend:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: cd frontend && pnpm install --frozen-lockfile && pnpm build && pnpm test
+
+  versions-match:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: >-
+          python3 -c "import json,re;
+          cargo = re.search(r'^version = \"([^\"]+)\"', open('Cargo.toml').read(), re.M).group(1);
+          conf = json.load(open('crates/liber-tauri/tauri.conf.json'))['version'];
+          assert cargo == conf, f'{cargo} != {conf}';
+          print(f'versions match: {cargo}')"

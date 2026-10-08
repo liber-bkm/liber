@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=liber
+Comment=Professional grade local first bookmark manager
+Exec=liber-tauri
+Icon=liber
+Categories=Utility;
+Terminal=false
+StartupWMClass=liber

@@ -1,0 +1,35 @@
+# Maintainer: liber contributors <https://github.com/liber-bkm/liber>
+# Binary repackage of the official release tarball. No recompiling:
+# download, verify, install. For a from-source build, see ../liber/.
+pkgname=liber-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Professional grade local first bookmark manager (prebuilt binaries)'
+arch=('x86_64')
+url='https://github.com/liber-bkm/liber'
+license=('GPL-3.0-or-later')
+depends=('gtk3' 'webkit2gtk-4.1' 'libsoup3' 'hicolor-icon-theme')
+optdepends=('chromium: browser-pipe page archiving')
+provides=('liber')
+conflicts=('liber')
+_release="https://github.com/liber-bkm/liber/releases/download/v$pkgver"
+_raw="https://raw.githubusercontent.com/liber-bkm/liber/v$pkgver"
+source=("$_release/liber-$pkgver-linux-x86_64.tar.gz"
+        "$_raw/dist/arch/liber.desktop"
+        "$_raw/crates/liber-tauri/icons/32x32.png"
+        "$_raw/crates/liber-tauri/icons/128x128.png")
+# Sums are refreshed per release by ../bump-pkgbuild.sh. Do not ship SKIP.
+sha256sums=('SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP')
+
+package() {
+  cd "$srcdir/liber-$pkgver"
+  install -Dm755 liber "$pkgdir/usr/bin/liber"
+  install -Dm755 liber-serve "$pkgdir/usr/bin/liber-serve"
+  install -Dm755 liber-tauri "$pkgdir/usr/bin/liber-tauri"
+  install -Dm644 "$srcdir/liber.desktop" "$pkgdir/usr/share/applications/liber.desktop"
+  install -Dm644 "$srcdir/32x32.png" "$pkgdir/usr/share/icons/hicolor/32x32/apps/liber.png"
+  install -Dm644 "$srcdir/128x128.png" "$pkgdir/usr/share/icons/hicolor/128x128/apps/liber.png"
+}

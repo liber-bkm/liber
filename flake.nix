@@ -19,8 +19,10 @@
         version =
           let
             toml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+            base = toml.workspace.package.version or "0.1.0";
+            rev = self.shortRev or self.dirtyShortRev or "nogit";
           in
-          toml.workspace.package.version or "0.1.0";
+          "${base}+g${rev}";
 
         rustToolchain = with pkgs; [
           cargo

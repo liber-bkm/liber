@@ -27,8 +27,10 @@ lcov.info
 coverage/
 tarpaulin-report.html
 
-# Desktop
-dist/
+# Desktop build outputs (but not the Arch packaging sources below)
+dist/*
+!dist/arch/
+!dist/arch/**
 *.tgz
 *.deb
 *.rpm

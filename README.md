@@ -114,6 +114,16 @@ Prefer `.#default` in place of `.bundle` for CLI/server only. The
 `.tar.gz` file) — build it with `nix build .#release-bundle` and unpack
 manually instead.
 
+**Packaged releases:** every `vX.Y.Z` tag builds all platforms in CI
+(Linux x86_64 plus ARM64 tarballs with `.deb`, Windows zip plus NSIS
+installer, macOS universal `.dmg` plus CLI tarball, signed Android APK
+plus AAB) and attaches them to the GitHub release with checksums. The
+macOS build is unsigned for now, so Gatekeeper needs a one-time
+`xattr -d com.apple.quarantine` bypass. Arch Linux gets both a
+`liber-bin` package (repacks the release tarball, no compiling) and a
+`liber` source package under `dist/arch/`; refresh their checksums per
+release with `dist/arch/bump-pkgbuild.sh <version>`.
+
 **Without Nix:** install stable Rust (via rustup), Node 22 with pnpm,
 then follow [Building from source](#building-from-source). Only the
 desktop app needs system libraries (webkit stack); CLI and server build

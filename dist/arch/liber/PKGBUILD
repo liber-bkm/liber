@@ -1,0 +1,38 @@
+# Maintainer: liber contributors <https://github.com/liber-bkm/liber>
+# From-source build of liber. Compiles on the user's machine; for the
+# prebuilt-binaries variant, see ../liber-bin/.
+pkgname=liber
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Professional grade local first bookmark manager'
+arch=('x86_64')
+url='https://github.com/liber-bkm/liber'
+license=('GPL-3.0-or-later')
+depends=('gtk3' 'webkit2gtk-4.1' 'libsoup3' 'hicolor-icon-theme')
+makedepends=('rustup' 'nodejs-lts-jod' 'pnpm' 'pkgconf')
+optdepends=('chromium: browser-pipe page archiving')
+provides=('liber-bin')
+conflicts=('liber-bin')
+source=("https://github.com/liber-bkm/liber/archive/refs/tags/v$pkgver.tar.gz")
+# Sums are refreshed per release by ../bump-pkgbuild.sh. Do not ship SKIP.
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/liber-$pkgver"
+  # Matches the project's rustup-based flow (rust-toolchain.toml pins
+  # stable). Writes to $HOME/.rustup on first run.
+  rustup toolchain install stable --profile minimal --no-self-update
+  cd frontend && pnpm install --frozen-lockfile && pnpm build && cd ..
+  EMBED_UI=1 rustup run stable cargo build --release --locked -p liber-cli -p liber-server
+  EMBED_UI=1 rustup run stable cargo build --release --locked -p liber-tauri
+}
+
+package() {
+  cd "$srcdir/liber-$pkgver"
+  install -Dm755 target/release/liber "$pkgdir/usr/bin/liber"
+  install -Dm755 target/release/liber-serve "$pkgdir/usr/bin/liber-serve"
+  install -Dm755 target/release/liber-tauri "$pkgdir/usr/bin/liber-tauri"
+  install -Dm644 dist/arch/liber.desktop "$pkgdir/usr/share/applications/liber.desktop"
+  install -Dm644 crates/liber-tauri/icons/32x32.png "$pkgdir/usr/share/icons/hicolor/32x32/apps/liber.png"
+  install -Dm644 crates/liber-tauri/icons/128x128.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/liber.png"
+}
