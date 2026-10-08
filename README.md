@@ -143,6 +143,15 @@ Open the printed address in a browser. That is the whole loop: capture
 from anywhere, find instantly, open with history, and optionally serve
 the library to your network.
 
+Search terms accept `field:value` prefixes (`title:`, `url:`, `tag:`,
+`folder:`, `desc:`, with `tags:`/`description:` synonyms), combined with
+free words; every term must match. Quote multi-word values
+(`tag:"rust web"`). A bare word searches all fields; `--in` on the CLI,
+the `scope` API parameter, and the Library field selector restrict bare
+words to listed fields (names or Go letters `n,u,t,d,f`). Prefixes always
+win for their own term. The same syntax works in `list`, `open`, the
+`pick` and web search boxes, and Tauri/Android search.
+
 ## Using liber
 
 ### Command line
@@ -156,7 +165,7 @@ hitting a gap fails naming the missing id.
 | Command | Purpose |
 |---|---|
 | `add <url>` | Add bookmark (`--title -t --folder --description --markdown --archive --attach`) |
-| `list [query]` | Search and list, newest first (`--sort newest\|oldest\|visited\|title`); `[md]`/`[arch]` markers |
+| `list [query]` | Search and list, newest first (`--sort newest\|oldest\|visited\|title`, `--in title,url,tag,folder,desc`); `[md]`/`[arch]` markers |
 | `open <spec>` | Open in browser, records history (falls back to search on miss) |
 | `edit <spec>` | Update fields; with no flags opens the full terminal editor |
 | `pick [query]` | Fuzzy picker, then open, archived copy, notes, or edit (prints the URL when piped) |
@@ -183,7 +192,7 @@ hitting a gap fails naming the missing id.
 
 An interface built for the library rather than ported from anywhere:
 
-- Library with instant search, sort, card and table views, dark mode
+- Library with instant search (`field:value` prefixes plus field selector), sort, card and table views, dark mode
 - Detail drawer with inline edit, two-step delete, attachments, history
 - Add dialog with live duplicate detection plus optional notes and archive
 - Bulk bar, tags and folders management, rules with learn suggestions
@@ -240,7 +249,10 @@ liber-serve --addr 0.0.0.0:8080 --auth-token <token>   # server only
 Serving order is always explicit `--static-dir`, then the embedded
 bundle, then an API-only notice. JSON API lives under `/api/v2`
 (bookmarks, tags, folders, rules, check, bulk, history, settings, sync,
-library, reindex) with a checked-in `openapi.json` contract. Auth
+library, reindex) with a checked-in `openapi.json` contract. The
+bookmark list takes `q/sort/tag/folder/page/per_page/scope` (`scope`
+restricts bare words to fields; `q` also accepts `field:value`
+prefixes, see Quickstart). Auth
 follows one token model: empty means open; browsers use an HMAC signed
 cookie, API clients use `Authorization: Bearer` with the derived bearer
 token.
