@@ -288,6 +288,7 @@ struct ProfileArgs {
 enum ProfileCmd {
     List,
     Switch { name: String },
+    Delete { name: String },
 }
 
 #[derive(clap::Args)]
@@ -1110,46 +1111,29 @@ fn run_history(full: bool) -> anyhow::Result<()> {
 }
 
 fn run_profile(cmd: Option<ProfileCmd>) -> anyhow::Result<()> {
+    use liber_core::profile::{delete_profile, list_profiles, switch_profile};
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
         None | Some(ProfileCmd::List) => {
-            let mut names = vec!["default".to_string()];
-            if let Ok(entries) = std::fs::read_dir(&cfg.base_dir) {
-                for entry in entries.flatten() {
-                    if !entry.path().is_dir() {
-                        continue;
-                    }
-                    if entry.path().join(".liber").join("store.db").exists() {
-                        if let Some(name) = entry.file_name().to_str() {
-                            names.push(name.to_string());
-                        }
-                    }
-                }
-            }
-            names.sort();
-            names.dedup();
-            let active = cfg.active_profile.as_deref().unwrap_or("default");
             println!("Profiles:");
-            for name in names {
-                let mark = if name == active { "*" } else { " " };
-                println!("  {mark} {name}");
+            for p in list_profiles(&cfg) {
+                let mark = if p.active { "*" } else { " " };
+                println!("  {mark} {}", p.name);
             }
         }
         Some(ProfileCmd::Switch { name }) => {
-            let name = name.trim().to_string();
-            if name.is_empty() || name == "default" {
-                cfg.active_profile = None;
-            } else if name.contains('/') || name == "." || name == ".." {
-                return Err(anyhow::anyhow!("invalid profile name {name:?}"));
-            } else {
-                cfg.active_profile = Some(name.clone());
-            }
-            std::fs::create_dir_all(cfg.profile_dir()).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let active = switch_profile(&mut cfg, &name)?;
             liber_core::config::save_config_to(&path, &cfg)?;
-            match &cfg.active_profile {
-                Some(active) => println!("Switched to profile {active:?}."),
-                None => println!("Switched to the default profile."),
+            if active == "default" {
+                println!("Switched to the default profile.");
+            } else {
+                println!("Switched to profile {active:?}.");
             }
+        }
+        Some(ProfileCmd::Delete { name }) => {
+            let deleted = delete_profile(&mut cfg, &name)?;
+            liber_core::config::save_config_to(&path, &cfg)?;
+            println!("Deleted profile {deleted:?} (untracked only, files left on disk).");
         }
     }
     Ok(())

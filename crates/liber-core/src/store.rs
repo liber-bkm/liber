@@ -90,6 +90,8 @@ pub struct Config {
     #[serde(default)]
     pub active_profile: Option<String>,
     #[serde(default)]
+    pub profiles: Vec<String>,
+    #[serde(default)]
     pub auth_token: String,
     #[serde(default)]
     pub archive_backend: String,
