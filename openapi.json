@@ -1140,6 +1140,118 @@
         }
       }
     },
+    "/api/v2/profiles": {
+      "get": {
+        "tags": [
+          "crate::profiles"
+        ],
+        "operationId": "list_profiles",
+        "responses": {
+          "200": {
+            "description": "Profiles with the active one marked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/delete": {
+      "post": {
+        "tags": [
+          "crate::profiles"
+        ],
+        "operationId": "delete_profile",
+        "requestBody": {
+          "description": "Profile as {name}",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Untracked profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Active, default, or bad name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/profiles/switch": {
+      "post": {
+        "tags": [
+          "crate::profiles"
+        ],
+        "operationId": "switch_profile",
+        "requestBody": {
+          "description": "Profile as {name}",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Switched profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid profile name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/reindex": {
       "post": {
         "tags": [

@@ -6,6 +6,7 @@ import type {
   CheckReport,
   FolderCount,
   ListParams,
+  ProfileInfo,
   ReindexReport,
   Rule,
   Settings,
@@ -28,6 +29,7 @@ import {
   deleteAttachment as restDeleteAttachment,
   deleteBookmark as restDelete,
   deleteFolder as restDeleteFolder,
+  deleteProfile as restDeleteProfile,
   deleteNotes as restDeleteNotes,
   deleteRule as restDeleteRule,
   deleteTag as restDeleteTag,
@@ -38,6 +40,7 @@ import {
   fetchFolders as restFolders,
   fetchHistory as restHistory,
   fetchNotes as restNotes,
+  fetchProfiles as restProfiles,
   fetchRules as restRules,
   fetchSettings as restSettings,
   fetchTags as restTags,
@@ -50,6 +53,7 @@ import {
   runReindex as restReindex,
   saveNotes as restSaveNotes,
   setSetting as restSetSetting,
+  switchProfile as restSwitchProfile,
   updateBookmark as restUpdate,
   uploadAttachment as restUpload,
 } from "./api";
@@ -353,6 +357,21 @@ export async function fetchSettings(): Promise<Settings> {
 export async function setSetting(key: string, value: string): Promise<{ ok: boolean }> {
   if (!isTauri() || useRemote()) return restSetSetting(key, value);
   return invokeCmd("set_setting", { key, value });
+}
+
+export async function fetchProfiles(): Promise<{ active: string; profiles: ProfileInfo[] }> {
+  if (!isTauri() || useRemote()) return restProfiles();
+  return invokeCmd("list_profiles");
+}
+
+export async function switchProfile(name: string): Promise<{ result: string; active: string }> {
+  if (!isTauri() || useRemote()) return restSwitchProfile(name);
+  return invokeCmd("switch_profile", { name });
+}
+
+export async function deleteProfile(name: string): Promise<{ result: string; name: string }> {
+  if (!isTauri() || useRemote()) return restDeleteProfile(name);
+  return invokeCmd("delete_profile", { name });
 }
 
 export async function bulkOp(

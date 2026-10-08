@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RefreshCw, Upload } from "lucide-react";
-import { exportBookmarksContent, exportBookmarksUrl, exportSite, fetchSettings, getRemoteBase, importLibrary, isTauri, runReindex, setRemote, setSetting, useRemote } from "../tauri";
+import { deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, runReindex, setRemote, setSetting, switchProfile, useRemote } from "../tauri";
 import { Button, Field, Input, Spinner } from "../components/ui";
 
 const BACKENDS = ["auto", "builtin", "browser", "single-file", "monolith"];
@@ -16,6 +16,8 @@ export function SettingsPage() {
   const [remoteUrl, setRemoteUrl] = useState(getRemoteBase());
   const [remoteToken, setRemoteToken] = useState("");
   const [remoteOn, setRemoteOn] = useState(useRemote());
+  const [newProfile, setNewProfile] = useState("");
+  const [armedDelete, setArmedDelete] = useState("");
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
 
@@ -53,6 +55,27 @@ export function SettingsPage() {
     mutationFn: exportSite,
     onSuccess: (r) => setNotice(`Site exported to ${r.index}.`),
     onError: (e: Error) => setError(e.message),
+  });
+
+  const profiles = useQuery({ queryKey: ["profiles", remoteOn], queryFn: fetchProfiles });
+
+  const doSwitch = useMutation({
+    mutationFn: (name: string) => switchProfile(name),
+    onSuccess: (r) => {
+      setNotice(`Switched to profile ${r.active}.`);
+      qc.invalidateQueries();
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const doDelete = useMutation({
+    mutationFn: (name: string) => deleteProfile(name),
+    onSuccess: (r) => {
+      setNotice(`Deleted profile ${r.name} (files left on disk).`);
+      setArmedDelete("");
+      qc.invalidateQueries();
+    },
+    onError: (e: Error) => { setError(e.message); setArmedDelete(""); },
   });
 
   const get = (key: string) => String(settings.data?.[key] ?? "");
@@ -114,6 +137,49 @@ export function SettingsPage() {
         {remoteOn && (
           <p className="text-xs text-neutral-500">Remote mode is on. Clear the URL and save to go back local.</p>
         )}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-sm font-semibold">Profiles</h2>
+        <p className="text-xs text-neutral-500">
+          Separate libraries under one config. Switching takes effect immediately; deleting only untracks, files stay on disk.
+        </p>
+        <div className="flex flex-col gap-1">
+          {(profiles.data?.profiles ?? []).map((p) => (
+            <div key={p.name} className="flex items-center gap-2 text-sm">
+              <span className="w-4 text-center">{p.active ? "*" : ""}</span>
+              <span className="flex-1 font-mono">{p.name}</span>
+              {!p.active && (
+                <Button variant="outline" onClick={() => { setError(""); setNotice(""); doSwitch.mutate(p.name); }}>
+                  Switch
+                </Button>
+              )}
+              {!p.active && !p.default && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setError("");
+                    setNotice("");
+                    if (armedDelete === p.name) doDelete.mutate(p.name);
+                    else setArmedDelete(p.name);
+                  }}
+                >
+                  {armedDelete === p.name ? "Sure?" : "Delete"}
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <Input value={newProfile} placeholder="New profile name" onChange={(e) => setNewProfile(e.target.value)} />
+          <Button
+            variant="outline"
+            disabled={!newProfile.trim() || doSwitch.isPending}
+            onClick={() => { setError(""); setNotice(""); doSwitch.mutate(newProfile.trim()); setNewProfile(""); }}
+          >
+            Create
+          </Button>
+        </div>
       </section>
 
       <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">

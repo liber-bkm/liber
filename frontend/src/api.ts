@@ -428,3 +428,22 @@ export function fetchSettings(): Promise<Settings> {
 export function setSetting(key: string, value: string): Promise<{ ok: boolean }> {
   return request("/api/v2/settings", { method: "PUT", body: JSON.stringify({ key, value }) });
 }
+
+export interface ProfileInfo {
+  name: string;
+  path: string;
+  active: boolean;
+  default: boolean;
+}
+
+export function fetchProfiles(): Promise<{ active: string; profiles: ProfileInfo[] }> {
+  return request("/api/v2/profiles");
+}
+
+export function switchProfile(name: string): Promise<{ result: string; active: string }> {
+  return request("/api/v2/profiles/switch", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export function deleteProfile(name: string): Promise<{ result: string; name: string }> {
+  return request("/api/v2/profiles/delete", { method: "POST", body: JSON.stringify({ name }) });
+}
