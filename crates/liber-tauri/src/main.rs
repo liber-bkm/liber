@@ -15,6 +15,7 @@ fn resolve_one(store: &Store, id: &str) -> Result<liber_core::model::Bookmark, S
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn list_bookmarks(
     state: State<'_, AppState>,
     q: Option<String>,
@@ -23,13 +24,19 @@ fn list_bookmarks(
     folder: Option<String>,
     page: Option<usize>,
     per_page: Option<usize>,
+    scope: Option<String>,
 ) -> Result<ListResponse, String> {
     let store = open_store(&state)?;
     let mode = resolve_sort_mode(sort.as_deref(), q.as_deref()).map_err(|e| e.to_string())?;
+    let fields = match &scope {
+        Some(s) => liber_core::search::parse_field_list(s).map_err(|e| e.to_string())?,
+        None => SearchFields::all(),
+    };
     let filter = BookmarkFilter {
         folder,
         tag,
         query: q.clone(),
+        scope: fields,
         opened_only: false,
     };
     let per_page = per_page.unwrap_or(50).clamp(1, 500);
@@ -38,8 +45,7 @@ fn list_bookmarks(
     let (found, total) = store
         .query_bookmarks(&filter, mode, per_page, start)
         .map_err(|e| e.to_string())?;
-    let fields = SearchFields::all();
-    let ordered = order_results(found, q.as_deref().unwrap_or(""), &fields, mode);
+    let ordered = order_results(found, q.as_deref().unwrap_or(""), mode);
     Ok(ListResponse {
         total,
         page: page_num,

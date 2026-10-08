@@ -131,6 +131,7 @@ export async function listBookmarks(params: ListParams = {}): Promise<BookmarkLi
     folder: params.folder ?? null,
     page: params.page ?? null,
     per_page: params.per_page ?? null,
+    scope: params.scope ?? null,
   });
   return toBookmarkList(r);
 }
