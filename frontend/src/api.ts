@@ -34,6 +34,7 @@ export interface ListParams {
   folder?: string;
   page?: number;
   per_page?: number;
+  scope?: string;
 }
 
 export interface ExistingBookmark {
@@ -124,6 +125,7 @@ export function fetchBookmarks(params: ListParams = {}): Promise<BookmarkList> {
   if (params.folder) q.set("folder", params.folder);
   if (params.page) q.set("page", String(params.page));
   if (params.per_page) q.set("per_page", String(params.per_page));
+  if (params.scope) q.set("scope", params.scope);
   const suffix = q.toString();
   return request<BookmarkList>(`/api/v2/bookmarks${suffix ? `?${suffix}` : ""}`);
 }

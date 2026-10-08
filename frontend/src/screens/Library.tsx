@@ -14,6 +14,15 @@ const SORTS = [
   { value: "title", label: "Title" },
 ];
 
+const SCOPES = [
+  { value: "", label: "All fields" },
+  { value: "title", label: "Title" },
+  { value: "url", label: "URL" },
+  { value: "tag", label: "Tags" },
+  { value: "folder", label: "Folder" },
+  { value: "desc", label: "Notes" },
+];
+
 export function Library({
   folder,
   tag,
@@ -26,6 +35,7 @@ export function Library({
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const [sort, setSort] = useState("newest");
+  const [scope, setScope] = useState("");
   const [table, setTable] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const qc = useQueryClient();
@@ -37,7 +47,7 @@ export function Library({
 
   useEffect(() => {
     setSelected(new Set());
-  }, [debounced, sort, folder, tag]);
+  }, [debounced, sort, folder, tag, scope]);
 
   function toggle(uuid: string) {
     setSelected((prev) => {
@@ -49,7 +59,7 @@ export function Library({
   }
 
   const query = useQuery({
-    queryKey: ["bookmarks", debounced, sort, folder, tag],
+    queryKey: ["bookmarks", debounced, sort, folder, tag, scope],
     queryFn: () =>
       listBookmarks({
         q: debounced || undefined,
@@ -57,6 +67,7 @@ export function Library({
         folder: folder ?? undefined,
         tag: tag ?? undefined,
         per_page: 100,
+        scope: scope || undefined,
       }),
   });
 
@@ -67,10 +78,24 @@ export function Library({
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
           <Input
             value={q}
-            placeholder="Search bookmarks..."
+            placeholder="Search bookmarks... (title:foo tag:bar)"
             className="pl-9"
             onChange={(e) => setQ(e.target.value)}
           />
+        </div>
+        <div className="relative">
+          <select
+            value={scope}
+            onChange={(e) => setScope(e.target.value)}
+            title="Restrict unscoped words to these fields (field: prefixes always win)"
+            className="appearance-none rounded-lg border border-neutral-300 bg-white py-1.5 pl-3 pr-3 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+          >
+            {SCOPES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="relative">
           <ArrowDownWideNarrow className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
