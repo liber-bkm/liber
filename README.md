@@ -106,9 +106,11 @@ the library to your network.
 
 ### Command line
 
-Bookmarks are addressed by short numeric id (`edit 3`) or UUID prefix.
-Ids are per-device display aliases; sync merges by UUID and never
-renames them. Gaps from deletes stay unless you compact them.
+Bookmarks are addressed by short numeric id (`edit 3`) or UUID prefix,
+with comma lists and dash ranges (`edit 1-3,5`, at most 1000 ids per
+range). Ids are per-device display aliases; sync merges by UUID and never
+renames them. Gaps from deletes stay unless you compact them; a range
+hitting a gap fails naming the missing id.
 
 | Command | Purpose |
 |---|---|
@@ -197,9 +199,10 @@ liber-serve --addr 0.0.0.0:8080 --auth-token <token>   # server only
 Serving order is always explicit `--static-dir`, then the embedded
 bundle, then an API-only notice. JSON API lives under `/api/v2`
 (bookmarks, tags, folders, rules, check, bulk, history, settings, sync,
-library, reindex). Auth follows one token model: empty means open;
-browsers use an HMAC signed cookie, API clients use
-`Authorization: Bearer` with the derived bearer token.
+library, reindex) with a checked-in `openapi.json` contract. Auth
+follows one token model: empty means open; browsers use an HMAC signed
+cookie, API clients use `Authorization: Bearer` with the derived bearer
+token.
 
 ## Configuration
 
