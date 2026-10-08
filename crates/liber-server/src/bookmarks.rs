@@ -4,7 +4,7 @@ use axum::response::{IntoResponse, Json};
 
 use liber_core::create::{create_bookmark, CreateOptions};
 use liber_core::edit::{delete_bookmark_with_files, edit_bookmark, EditOptions};
-use liber_core::search::{order_results, SearchFields};
+use liber_core::search::order_results;
 use liber_core::store::Store;
 
 use crate::api::{AddRequest, ApiBookmark, DeleteParams, ListParams, ListResponse, UpdateRequest};
@@ -47,10 +47,15 @@ pub async fn list_bookmarks(
     let store = open_store(&state)?;
     let sort = liber_core::search::resolve_sort_mode(p.sort.as_deref(), p.q.as_deref())
         .map_err(core_err)?;
+    let scope = match &p.scope {
+        Some(s) => liber_core::search::parse_field_list(s).map_err(core_err)?,
+        None => liber_core::search::SearchFields::all(),
+    };
     let filter = BookmarkFilter {
         folder: p.folder.clone(),
         tag: p.tag.clone(),
         query: p.q.clone(),
+        scope,
         opened_only: false,
     };
     let per_page = p.per_page.unwrap_or(50).clamp(1, 500);
@@ -64,8 +69,8 @@ pub async fn list_bookmarks(
             if !q.trim().is_empty() {
                 let mut seen: std::collections::HashSet<uuid::Uuid> =
                     found.iter().map(|b| b.uuid).collect();
-                let deep =
-                    liber_core::search::deep_search_uuids(&store, q, 200).map_err(core_err)?;
+                let deep = liber_core::search::deep_search_uuids(&store, q, 200, &scope)
+                    .map_err(core_err)?;
                 for uuid in deep {
                     if seen.insert(uuid) {
                         if let Some(b) = store.get(&uuid).map_err(core_err)? {
@@ -77,8 +82,7 @@ pub async fn list_bookmarks(
             }
         }
     }
-    let fields = SearchFields::all();
-    let ordered = order_results(found, p.q.as_deref().unwrap_or(""), &fields, sort);
+    let ordered = order_results(found, p.q.as_deref().unwrap_or(""), sort);
     let slice: Vec<ApiBookmark> = ordered.iter().map(ApiBookmark::from).collect();
     Ok(Json(ListResponse {
         total,
@@ -1164,6 +1168,61 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(deep["total"], 1);
         assert_eq!(deep["bookmarks"][0]["uuid"], b.uuid.to_string());
+    }
+
+    #[tokio::test]
+    async fn scoped_search_filters() {
+        let (app, _dir) = test_state("");
+        for (url, title, tags) in [
+            ("https://example.com/rust", "Rust guide", vec!["prog"]),
+            ("https://example.com/pasta", "Pasta recipe", vec!["food"]),
+        ] {
+            let (status, _) = body_json(
+                app.clone()
+                    .oneshot(post_json(
+                        "/api/v2/bookmarks",
+                        serde_json::json!({"url": url, "title": title, "tags": tags}),
+                    ))
+                    .await
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CREATED);
+        }
+        async fn total(app: &axum::Router, uri: &str) -> (StatusCode, serde_json::Value) {
+            let res = app
+                .clone()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            body_json(res).await
+        }
+        let (status, v) = total(&app, "/api/v2/bookmarks?q=tag:prog").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["total"], 1);
+        assert_eq!(v["bookmarks"][0]["title"], "Rust guide");
+        let (status, v) = total(&app, "/api/v2/bookmarks?q=title:pasta%20tag:food").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["total"], 1);
+        let (status, v) = total(&app, "/api/v2/bookmarks?q=rust&scope=title").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["total"], 1);
+        let (status, v) = total(&app, "/api/v2/bookmarks?q=prog&scope=title").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["total"], 0);
+        let (status, v) = total(&app, "/api/v2/bookmarks?q=rust&scope=u").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["total"], 1);
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/bookmarks?q=rust&scope=bogus")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

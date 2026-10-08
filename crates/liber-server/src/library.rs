@@ -53,8 +53,8 @@ pub async fn import_library(
 ) -> Result<Json<serde_json::Value>, ApiErr> {
     let _guard = state.write_mu.lock().await;
     let mut store = store_of(&state)?;
-    let report = import_data(&mut store, &input.content, input.markdown, input.archive)
-        .map_err(core_err)?;
+    let report =
+        import_data(&mut store, &input.content, input.markdown, input.archive).map_err(core_err)?;
     Ok(Json(serde_json::json!({
         "added": report.added,
         "skipped_dup": report.skipped_dup,

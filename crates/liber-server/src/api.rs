@@ -67,6 +67,7 @@ pub struct ListParams {
     pub page: Option<usize>,
     pub per_page: Option<usize>,
     pub deep: Option<bool>,
+    pub scope: Option<String>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
