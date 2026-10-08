@@ -12,7 +12,7 @@ use crate::bookmarks::ApiErr;
 use crate::AppState;
 
 fn store_of(state: &AppState) -> Result<Store, ApiErr> {
-    Store::open(state.cfg.clone()).map_err(|e| {
+    Store::open(crate::live_config(state)).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),
@@ -210,7 +210,7 @@ pub async fn export_site_ep(
 ) -> Result<Json<serde_json::Value>, ApiErr> {
     let out_dir = match &input.dir {
         Some(d) if !d.trim().is_empty() => std::path::PathBuf::from(d.trim()),
-        _ => state.cfg.profile_dir().join("site"),
+        _ => crate::live_config(&state).profile_dir().join("site"),
     };
     let store = store_of(&state)?;
     let index = export_site(&store, &out_dir).map_err(core_err)?;

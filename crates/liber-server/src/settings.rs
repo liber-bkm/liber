@@ -101,6 +101,7 @@ pub async fn set_setting(
             Json(serde_json::json!({"error": e.to_string()})),
         )
     })?;
+    *state.cfg.write().unwrap() = cfg;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

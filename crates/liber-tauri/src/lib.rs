@@ -4,21 +4,24 @@ use liber_core::store::{Config, Store};
 use serde::Serialize;
 
 pub struct AppState {
-    pub cfg: Config,
+    pub cfg: Mutex<Config>,
+    pub config_path: std::path::PathBuf,
     pub write_mu: Arc<Mutex<()>>,
 }
 
 impl AppState {
-    pub fn new(cfg: Config) -> Self {
+    pub fn new(cfg: Config, config_path: std::path::PathBuf) -> Self {
         Self {
-            cfg,
+            cfg: Mutex::new(cfg),
+            config_path,
             write_mu: Arc::new(Mutex::new(())),
         }
     }
 }
 
 pub fn open_store(state: &AppState) -> Result<Store, String> {
-    Store::open(state.cfg.clone()).map_err(|e| e.to_string())
+    let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    Store::open(cfg).map_err(|e| e.to_string())
 }
 
 #[cfg(mobile)]

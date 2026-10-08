@@ -27,6 +27,7 @@ pub mod bulk;
 pub mod check;
 pub mod library;
 pub mod openapi;
+pub mod profiles;
 pub mod reindex;
 pub mod rules;
 pub mod settings;
@@ -35,7 +36,7 @@ pub mod taxonomy;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub cfg: liber_core::store::Config,
+    pub cfg: Arc<std::sync::RwLock<liber_core::store::Config>>,
     pub token: String,
     pub write_mu: Arc<tokio::sync::Mutex<()>>,
     pub static_dir: Option<std::path::PathBuf>,
@@ -44,7 +45,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(cfg: liber_core::store::Config, token: String) -> Self {
         Self {
-            cfg,
+            cfg: Arc::new(std::sync::RwLock::new(cfg)),
             token,
             write_mu: Arc::new(tokio::sync::Mutex::new(())),
             static_dir: None,
@@ -55,6 +56,10 @@ impl AppState {
         self.static_dir = dir;
         self
     }
+}
+
+pub fn live_config(state: &AppState) -> liber_core::store::Config {
+    state.cfg.read().unwrap().clone()
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -125,6 +130,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v2/sync/export", post(sync::export_oplog))
         .route("/api/v2/sync/import", post(sync::import_oplog))
         .route("/api/v2/sync/prune", post(sync::prune_oplog_ep))
+        .route("/api/v2/profiles", get(profiles::list_profiles))
+        .route("/api/v2/profiles/switch", post(profiles::switch_profile))
+        .route("/api/v2/profiles/delete", post(profiles::delete_profile))
         .route(
             "/api/v2/settings",
             get(settings::get_settings).put(settings::set_setting),

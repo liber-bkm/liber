@@ -76,7 +76,7 @@ async fn add_bookmark(
     if url.trim().is_empty() {
         return Err("url is required".to_string());
     }
-    let cfg = state.cfg.clone();
+    let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
     let mu = state.write_mu.clone();
     tauri::async_runtime::spawn_blocking(move || {
         add_bookmark_blocking(AddJob {
@@ -530,7 +530,7 @@ fn set_setting(
         liber_core::archive::parse_backend(&value).map_err(|e| e.to_string())?;
     }
     let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
-    let (mut cfg, path) = liber_core::config::load_config().map_err(|e| e.to_string())?;
+    let mut cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
     match key.as_str() {
         "base_dir" => cfg.base_dir = value.into(),
         "archive_backend" => cfg.archive_backend = value,
@@ -542,8 +542,39 @@ fn set_setting(
         "device_id" => cfg.device_id = value,
         _ => unreachable!(),
     }
-    liber_core::config::save_config_to(&path, &cfg).map_err(|e| e.to_string())?;
+    liber_core::config::save_config_to(&state.config_path, &cfg).map_err(|e| e.to_string())?;
+    *state.cfg.lock().map_err(|e| e.to_string())? = cfg;
     Ok(serde_json::json!({"ok": true}))
+}
+
+#[tauri::command]
+fn list_profiles(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    Ok(serde_json::json!({
+        "active": cfg.active_profile.clone().unwrap_or("default".to_string()),
+        "profiles": liber_core::profile::list_profiles(&cfg),
+    }))
+}
+
+#[tauri::command]
+fn switch_profile(state: State<'_, AppState>, name: String) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    let active = liber_core::profile::switch_profile(&mut cfg, &name).map_err(|e| e.to_string())?;
+    liber_core::config::save_config_to(&state.config_path, &cfg).map_err(|e| e.to_string())?;
+    *state.cfg.lock().map_err(|e| e.to_string())? = cfg;
+    Ok(serde_json::json!({"result": "switched", "active": active}))
+}
+
+#[tauri::command]
+fn delete_profile(state: State<'_, AppState>, name: String) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    let deleted =
+        liber_core::profile::delete_profile(&mut cfg, &name).map_err(|e| e.to_string())?;
+    liber_core::config::save_config_to(&state.config_path, &cfg).map_err(|e| e.to_string())?;
+    *state.cfg.lock().map_err(|e| e.to_string())? = cfg;
+    Ok(serde_json::json!({"result": "deleted", "name": deleted}))
 }
 
 #[tauri::command]
@@ -888,7 +919,7 @@ async fn create_archive(
     id: String,
     backend: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let cfg = state.cfg.clone();
+    let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
     let mu = state.write_mu.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = mu.lock().map_err(|e| e.to_string())?;
@@ -1036,15 +1067,14 @@ fn export_site(
     Ok(serde_json::json!({"index": index.to_string_lossy()}))
 }
 
-fn resolve_app_config(app: &tauri::AppHandle) -> Result<liber_core::store::Config, String> {
+fn resolve_app_config(
+    app: &tauri::AppHandle,
+) -> Result<(liber_core::store::Config, std::path::PathBuf), String> {
     if liber_core::config::system_dirs_available() {
-        return liber_core::config::load_config()
-            .map(|(cfg, _)| cfg)
-            .map_err(|e| e.to_string());
+        return liber_core::config::load_config().map_err(|e| e.to_string());
     }
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     liber_core::config::load_config_from(dir.join("config.json"), dir.join("library"))
-        .map(|(cfg, _)| cfg)
         .map_err(|e| e.to_string())
 }
 
@@ -1053,9 +1083,9 @@ pub(crate) fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
-            let cfg = resolve_app_config(app.handle())
+            let (cfg, path) = resolve_app_config(app.handle())
                 .map_err(|e| Box::<dyn std::error::Error>::from(format!("loading config: {e}")))?;
-            app.manage(liber_tauri::AppState::new(cfg));
+            app.manage(liber_tauri::AppState::new(cfg, path));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1099,6 +1129,9 @@ pub(crate) fn main() {
             import_library,
             export_bookmarks,
             export_site,
+            list_profiles,
+            switch_profile,
+            delete_profile,
         ])
         .run(tauri::generate_context!())
         .expect("error running liber");

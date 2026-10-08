@@ -11,7 +11,7 @@ use crate::bookmarks::ApiErr;
 use crate::AppState;
 
 fn store_of(state: &AppState) -> Result<Store, ApiErr> {
-    Store::open(state.cfg.clone()).map_err(|e| {
+    Store::open(crate::live_config(state)).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),

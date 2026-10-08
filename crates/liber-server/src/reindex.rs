@@ -30,7 +30,7 @@ pub async fn reindex_ep(
     Json(input): Json<ReindexBody>,
 ) -> Result<Json<serde_json::Value>, ApiErr> {
     let _guard = state.write_mu.lock().await;
-    let mut store = Store::open(state.cfg.clone()).map_err(|e| {
+    let mut store = Store::open(crate::live_config(&state)).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": e.to_string()})),

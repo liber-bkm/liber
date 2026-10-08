@@ -27,7 +27,7 @@ fn core_err(e: liber_core::CoreError) -> ApiErr {
 }
 
 fn open_store(state: &AppState) -> Result<Store, ApiErr> {
-    Store::open(state.cfg.clone()).map_err(core_err)
+    Store::open(crate::live_config(state)).map_err(core_err)
 }
 
 #[utoipa::path(
