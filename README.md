@@ -184,7 +184,7 @@ hitting a gap fails naming the missing id.
 | `sync prune [--days N]` | Drop oplog entries older than N days (default 90) |
 | `config get\|set\|list` | See [Configuration](#configuration) |
 | `history` | Recently opened with open counts |
-| `profile list\|switch` | Named base-dir profiles sharing one config |
+| `profile list\|switch\|delete` | Named base-dir profiles sharing one config (delete untracks only, files stay) |
 | `completion <shell>` | Shell completions |
 | `serve` | Self host API plus web UI; prints localhost and LAN URLs |
 
@@ -249,7 +249,7 @@ liber-serve --addr 0.0.0.0:8080 --auth-token <token>   # server only
 Serving order is always explicit `--static-dir`, then the embedded
 bundle, then an API-only notice. JSON API lives under `/api/v2`
 (bookmarks, tags, folders, rules, check, bulk, history, settings, sync,
-library, reindex) with a checked-in `openapi.json` contract. The
+library, reindex, profiles) with a checked-in `openapi.json` contract. The
 bookmark list takes `q/sort/tag/folder/page/per_page/scope` (`scope`
 restricts bare words to fields; `q` also accepts `field:value`
 prefixes, see Quickstart). Auth
