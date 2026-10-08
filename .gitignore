@@ -1,6 +1,43 @@
+# Build outputs
 /target/
-frontend/node_modules/
 frontend/dist/
-result
+frontend/node_modules/
+result*
+.README.oml.html
+
+# Android
+/.gradle/
+*.apk
+*.aab
+*.iml
+local.properties
+
+# Signing keys - must never enter the repo
+*.keystore
+*.jks
+
+
+# Local env and logs
+.env
+.env.*
+*.log
+
+# Coverage
+lcov.info
+coverage/
+tarpaulin-report.html
+
+# Desktop
+dist/
+*.tgz
+*.deb
+*.rpm
+*.AppImage
+
+# Editors and OS noise
+.vscode/
+.idea/
+.DS_Store
+
 .direnv/
 local/
