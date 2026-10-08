@@ -479,10 +479,11 @@ export async function openAttachmentExternal(
 
 export async function importLibrary(
   content: string,
-  markdown = false
-): Promise<{ added: number; skipped_dup: number; skipped_bad: number }> {
-  if (!isTauri() || useRemote()) return restImport(content, markdown);
-  return invokeCmd("import_library", { content, markdown });
+  markdown = false,
+  archive = false
+): Promise<{ added: number; skipped_dup: number; skipped_bad: number; warnings: string[] }> {
+  if (!isTauri() || useRemote()) return restImport(content, markdown, archive);
+  return invokeCmd("import_library", { content, markdown, archive });
 }
 
 export async function exportSite(): Promise<{ index: string }> {

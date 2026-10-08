@@ -990,12 +990,17 @@ fn import_library(
     state: State<'_, AppState>,
     content: String,
     markdown: Option<bool>,
+    archive: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
     let mut store = open_store(&state)?;
-    let report =
-        liber_core::import::import_data(&mut store, &content, markdown.unwrap_or(false), false)
-            .map_err(|e| e.to_string())?;
+    let report = liber_core::import::import_data(
+        &mut store,
+        &content,
+        markdown.unwrap_or(false),
+        archive.unwrap_or(false),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "added": report.added,
         "skipped_dup": report.skipped_dup,

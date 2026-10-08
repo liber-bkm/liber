@@ -409,8 +409,8 @@ export function runReindex(prune: boolean, compact_ids = false): Promise<Reindex
   return request("/api/v2/reindex", { method: "POST", body: JSON.stringify({ prune, compact_ids }) });
 }
 
-export function importLibrary(content: string, markdown = false): Promise<{ added: number; skipped_dup: number; skipped_bad: number }> {
-  return request("/api/v2/library/import", { method: "POST", body: JSON.stringify({ content, markdown }) });
+export function importLibrary(content: string, markdown = false, archive = false): Promise<{ added: number; skipped_dup: number; skipped_bad: number; warnings: string[] }> {
+  return request("/api/v2/library/import", { method: "POST", body: JSON.stringify({ content, markdown, archive }) });
 }
 
 export function exportSite(): Promise<{ index: string }> {

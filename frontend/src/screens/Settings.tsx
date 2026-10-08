@@ -12,6 +12,7 @@ export function SettingsPage() {
   const [prune, setPrune] = useState(false);
   const [compactIds, setCompactIds] = useState(false);
   const [importText, setImportText] = useState("");
+  const [importArchive, setImportArchive] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState(getRemoteBase());
   const [remoteToken, setRemoteToken] = useState("");
   const [remoteOn, setRemoteOn] = useState(useRemote());
@@ -38,9 +39,10 @@ export function SettingsPage() {
   });
 
   const doImport = useMutation({
-    mutationFn: () => importLibrary(importText, false),
+    mutationFn: () => importLibrary(importText, false, importArchive),
     onSuccess: (r) => {
-      setNotice(`Imported ${r.added}, skipped ${r.skipped_dup} duplicates.`);
+      const warn = r.warnings?.length ? `, ${r.warnings.length} warning(s)` : "";
+      setNotice(`Imported ${r.added}, skipped ${r.skipped_dup} duplicates${warn}.`);
       setImportText("");
       qc.invalidateQueries({ queryKey: ["bookmarks"] });
     },
@@ -142,6 +144,10 @@ export function SettingsPage() {
             rows={3}
             className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 font-mono text-xs dark:border-neutral-700 dark:bg-neutral-900"
           />
+          <label className="mt-2 flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+            <input type="checkbox" checked={importArchive} onChange={(e) => setImportArchive(e.target.checked)} />
+            Archive pages at import
+          </label>
           <div className="mt-2">
             <Button
               variant="outline"

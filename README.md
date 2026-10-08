@@ -165,7 +165,7 @@ hitting a gap fails naming the missing id.
 | `archive <spec>` | Archive page (`--backend builtin\|browser\|single-file\|monolith\|auto`) |
 | `reindex [--prune --compact-ids]` | Repair library; `--compact-ids` closes id gaps to dense `1..N` |
 | `export --site [dir]` / `--bookmarks <file>` | Static site / Netscape file |
-| `import <file>` | Netscape import, duplicates skipped |
+| `import <file>` | Netscape import (`--markdown --archive`), duplicates skipped, archive failures reported as warnings |
 | `tags list\|rename\|delete` | Rename merges onto existing tags |
 | `folders list\|rename\|delete` | Rename moves subtrees, delete moves to root |
 | `auto ...` | Rules: `add`, `list`, `edit`, `apply`, `learn`, `delete` |
