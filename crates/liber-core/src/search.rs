@@ -57,52 +57,247 @@ impl SearchFields {
     pub fn any(&self) -> bool {
         self.title || self.url || self.tags || self.folder || self.description
     }
+
+    fn scoped(&self) -> Vec<FieldScope> {
+        let mut out = Vec::new();
+        if self.title {
+            out.push(FieldScope::Title);
+        }
+        if self.url {
+            out.push(FieldScope::Url);
+        }
+        if self.description {
+            out.push(FieldScope::Description);
+        }
+        if self.folder {
+            out.push(FieldScope::Folder);
+        }
+        if self.tags {
+            out.push(FieldScope::Tags);
+        }
+        out
+    }
 }
 
-pub fn bookmark_matches(b: &Bookmark, query: &str, fields: &SearchFields) -> bool {
-    let q = query.to_lowercase();
-    let all = !fields.any();
-    if (all || fields.title) && b.title.to_lowercase().contains(&q) {
-        return true;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldScope {
+    Title,
+    Url,
+    Tags,
+    Folder,
+    Description,
+}
+
+impl FieldScope {
+    pub fn from_prefix(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "title" | "n" => Some(Self::Title),
+            "url" | "u" => Some(Self::Url),
+            "tag" | "tags" | "t" => Some(Self::Tags),
+            "folder" | "f" => Some(Self::Folder),
+            "desc" | "description" | "d" => Some(Self::Description),
+            _ => None,
+        }
     }
-    if (all || fields.url) && b.url.to_lowercase().contains(&q) {
-        return true;
+
+    pub fn tantivy_field(&self) -> &'static str {
+        match self {
+            Self::Title => "title",
+            Self::Url => "url",
+            Self::Tags => "tags",
+            Self::Folder => "folder",
+            Self::Description => "description",
+        }
     }
-    if (all || fields.folder) && b.folder.to_lowercase().contains(&q) {
-        return true;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryTerm {
+    pub scope: Option<FieldScope>,
+    pub text: String,
+}
+
+fn split_terms(q: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut in_quotes = false;
+    for c in q.chars() {
+        match c {
+            '"' => in_quotes = !in_quotes,
+            c if c.is_whitespace() && !in_quotes => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            c => cur.push(c),
+        }
     }
-    if (all || fields.description) && b.description.to_lowercase().contains(&q) {
-        return true;
+    if !cur.is_empty() {
+        out.push(cur);
     }
-    if all || fields.tags {
-        for t in &b.tags {
-            if t.to_lowercase().contains(&q) {
-                return true;
+    out
+}
+
+fn parse_token(tok: &str) -> QueryTerm {
+    if let Some((pre, val)) = tok.split_once(':') {
+        if !pre.is_empty() {
+            if let Some(scope) = FieldScope::from_prefix(pre) {
+                let text = val.trim().to_string();
+                if !text.is_empty() {
+                    return QueryTerm {
+                        scope: Some(scope),
+                        text,
+                    };
+                }
             }
         }
     }
-    false
+    QueryTerm {
+        scope: None,
+        text: tok.to_string(),
+    }
 }
 
-fn rank_score(b: &Bookmark, q: &str, fields: &SearchFields) -> u8 {
-    let all = !fields.any();
+pub fn parse_query_terms(q: &str) -> Vec<QueryTerm> {
+    split_terms(q).iter().map(|t| parse_token(t)).collect()
+}
+
+pub fn parse_field_list(s: &str) -> Result<SearchFields, CoreError> {
+    let mut fields = SearchFields::default();
+    let mut any = false;
+    for tok in s
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|t| !t.is_empty())
+    {
+        match FieldScope::from_prefix(tok) {
+            Some(FieldScope::Title) => fields.title = true,
+            Some(FieldScope::Url) => fields.url = true,
+            Some(FieldScope::Tags) => fields.tags = true,
+            Some(FieldScope::Folder) => fields.folder = true,
+            Some(FieldScope::Description) => fields.description = true,
+            None => {
+                return Err(CoreError::Invalid(format!(
+                    "unknown search field {tok:?} (expected title, url, tag, folder, desc, or Go letters n, u, t, d, f)"
+                )))
+            }
+        }
+        any = true;
+    }
+    if !any {
+        return Err(CoreError::Invalid(
+            "empty field list (expected title, url, tag, folder, or desc)".to_string(),
+        ));
+    }
+    Ok(fields)
+}
+
+fn field_contains(b: &Bookmark, scope: FieldScope, q: &str) -> bool {
+    match scope {
+        FieldScope::Title => b.title.to_lowercase().contains(q),
+        FieldScope::Url => b.url.to_lowercase().contains(q),
+        FieldScope::Folder => b.folder.to_lowercase().contains(q),
+        FieldScope::Description => b.description.to_lowercase().contains(q),
+        FieldScope::Tags => b.tags.iter().any(|t| t.to_lowercase().contains(q)),
+    }
+}
+
+fn term_matches(b: &Bookmark, term: &QueryTerm, default: &SearchFields) -> bool {
+    let q = term.text.to_lowercase();
+    match term.scope {
+        Some(scope) => field_contains(b, scope, &q),
+        None if !default.any() => {
+            field_contains(b, FieldScope::Title, &q)
+                || field_contains(b, FieldScope::Url, &q)
+                || field_contains(b, FieldScope::Folder, &q)
+                || field_contains(b, FieldScope::Description, &q)
+                || field_contains(b, FieldScope::Tags, &q)
+        }
+        None => {
+            (default.title && field_contains(b, FieldScope::Title, &q))
+                || (default.url && field_contains(b, FieldScope::Url, &q))
+                || (default.folder && field_contains(b, FieldScope::Folder, &q))
+                || (default.description && field_contains(b, FieldScope::Description, &q))
+                || (default.tags && field_contains(b, FieldScope::Tags, &q))
+        }
+    }
+}
+
+pub fn bookmark_matches_query(b: &Bookmark, query: &str, default: &SearchFields) -> bool {
+    let terms = parse_query_terms(query);
+    if terms.is_empty() {
+        return true;
+    }
+    terms.iter().all(|t| term_matches(b, t, default))
+}
+
+fn rank_text(terms: &[QueryTerm]) -> String {
+    let free: Vec<&str> = terms
+        .iter()
+        .filter(|t| t.scope.is_none())
+        .map(|t| t.text.as_str())
+        .collect();
+    let joined = if free.is_empty() {
+        terms
+            .iter()
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        free.join(" ")
+    };
+    joined.to_lowercase()
+}
+
+fn rank_score(b: &Bookmark, q: &str) -> u8 {
     let title = b.title.to_lowercase();
-    if (all || fields.title) && title.starts_with(q) {
+    if title.starts_with(q) {
         return 0;
     }
-    if (all || fields.title) && title.contains(q) {
+    if title.contains(q) {
         return 1;
     }
     2
 }
 
-pub fn order_results(
-    mut list: Vec<Bookmark>,
-    query: &str,
-    fields: &SearchFields,
-    sort: SortMode,
-) -> Vec<Bookmark> {
-    let q = query.to_lowercase();
+fn escape_tantivy(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        if c == '"' || c == '\\' {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out.push('"');
+    out
+}
+
+pub fn scoped_tantivy_query(query: &str, default: &SearchFields) -> String {
+    let mut parts = Vec::new();
+    for term in parse_query_terms(query) {
+        let lit = escape_tantivy(&term.text);
+        match term.scope {
+            Some(scope) => parts.push(format!("{}:{lit}", scope.tantivy_field())),
+            None if !default.any() => parts.push(lit),
+            None => {
+                let ors: Vec<String> = default
+                    .scoped()
+                    .iter()
+                    .map(|scope| format!("{}:{lit}", scope.tantivy_field()))
+                    .collect();
+                if ors.len() == 1 {
+                    parts.push(ors.into_iter().next().unwrap_or(lit));
+                } else {
+                    parts.push(format!("({})", ors.join(" OR ")));
+                }
+            }
+        }
+    }
+    parts.join(" AND ")
+}
+
+pub fn order_results(mut list: Vec<Bookmark>, query: &str, sort: SortMode) -> Vec<Bookmark> {
+    let q = rank_text(&parse_query_terms(query));
     match sort {
         SortMode::Newest => list.sort_by(|a, b| {
             b.created_at
@@ -131,8 +326,8 @@ pub fn order_results(
                 list.sort_by_key(|a| a.uuid);
             } else {
                 list.sort_by(|a, b| {
-                    rank_score(a, &q, fields)
-                        .cmp(&rank_score(b, &q, fields))
+                    rank_score(a, &q)
+                        .cmp(&rank_score(b, &q))
                         .then_with(|| a.uuid.cmp(&b.uuid))
                 });
             }
@@ -314,6 +509,7 @@ pub fn deep_search_uuids(
     store: &crate::store::Store,
     query: &str,
     limit: usize,
+    default: &SearchFields,
 ) -> Result<Vec<Uuid>, CoreError> {
     let dir = store.cfg.tantivy_dir();
     if !dir.join("meta.json").exists() {
@@ -321,7 +517,7 @@ pub fn deep_search_uuids(
     }
     let index = SearchIndex::open_or_create(&dir)?;
     Ok(index
-        .search(query, limit)?
+        .search(&scoped_tantivy_query(query, default), limit)?
         .into_iter()
         .map(|(uuid, _)| uuid)
         .collect())
@@ -393,9 +589,137 @@ mod tests {
             title: true,
             ..Default::default()
         };
-        assert!(bookmark_matches(&b, "rust", &scoped));
-        assert!(!bookmark_matches(&b, "prog", &scoped));
-        assert!(bookmark_matches(&b, "prog", &SearchFields::all()));
+        assert!(bookmark_matches_query(&b, "rust", &scoped));
+        assert!(!bookmark_matches_query(&b, "prog", &scoped));
+        assert!(bookmark_matches_query(&b, "prog", &SearchFields::all()));
+    }
+
+    #[test]
+    fn query_prefix_parsing() {
+        use FieldScope::*;
+        let terms = parse_query_terms("title:rust url:example.com plain");
+        assert_eq!(
+            terms,
+            vec![
+                QueryTerm {
+                    scope: Some(Title),
+                    text: "rust".to_string()
+                },
+                QueryTerm {
+                    scope: Some(Url),
+                    text: "example.com".to_string()
+                },
+                QueryTerm {
+                    scope: None,
+                    text: "plain".to_string()
+                },
+            ]
+        );
+        assert_eq!(
+            parse_query_terms("t:x f:y d:z n:w u:v"),
+            vec![
+                QueryTerm {
+                    scope: Some(Tags),
+                    text: "x".to_string()
+                },
+                QueryTerm {
+                    scope: Some(Folder),
+                    text: "y".to_string()
+                },
+                QueryTerm {
+                    scope: Some(Description),
+                    text: "z".to_string()
+                },
+                QueryTerm {
+                    scope: Some(Title),
+                    text: "w".to_string()
+                },
+                QueryTerm {
+                    scope: Some(Url),
+                    text: "v".to_string()
+                },
+            ]
+        );
+        assert_eq!(
+            parse_query_terms("tags:rust desc:\"systems language\""),
+            vec![
+                QueryTerm {
+                    scope: Some(Tags),
+                    text: "rust".to_string()
+                },
+                QueryTerm {
+                    scope: Some(Description),
+                    text: "systems language".to_string()
+                },
+            ]
+        );
+        assert_eq!(
+            parse_query_terms("TAG:Rust"),
+            vec![QueryTerm {
+                scope: Some(Tags),
+                text: "Rust".to_string()
+            }]
+        );
+        assert_eq!(
+            parse_query_terms("bogus:x title:"),
+            vec![
+                QueryTerm {
+                    scope: None,
+                    text: "bogus:x".to_string()
+                },
+                QueryTerm {
+                    scope: None,
+                    text: "title:".to_string()
+                },
+            ]
+        );
+        assert!(parse_query_terms("   ").is_empty());
+        assert!(parse_query_terms("").is_empty());
+    }
+
+    #[test]
+    fn scoped_matching_is_conjunctive() {
+        let mut b = bookmark("Rust guide", "https://other.com/rust");
+        b.tags = vec!["prog".to_string()];
+        b.folder = "tech".to_string();
+        let all = SearchFields::all();
+        assert!(bookmark_matches_query(&b, "tag:prog folder:tech", &all));
+        assert!(!bookmark_matches_query(&b, "tag:prog folder:other", &all));
+        assert!(!bookmark_matches_query(&b, "title:pasta", &all));
+        assert!(bookmark_matches_query(&b, "url:other.com rust", &all));
+        assert!(!bookmark_matches_query(&b, "url:example.com rust", &all));
+    }
+
+    #[test]
+    fn field_list_parsing() {
+        let f = parse_field_list("title,url").unwrap();
+        assert!(f.title && f.url && !f.tags && !f.folder && !f.description);
+        let g = parse_field_list("n u t d f").unwrap();
+        assert!(g.title && g.url && g.tags && g.description && g.folder);
+        let h = parse_field_list("tags,desc").unwrap();
+        assert!(h.tags && h.description);
+        assert!(parse_field_list("bogus").is_err());
+        assert!(parse_field_list("").is_err());
+    }
+
+    #[test]
+    fn tantivy_scoped_translation() {
+        let all = SearchFields::all();
+        assert_eq!(scoped_tantivy_query("rust", &all), "\"rust\"");
+        assert_eq!(
+            scoped_tantivy_query("title:rust tag:prog", &all),
+            "title:\"rust\" AND tags:\"prog\""
+        );
+        let title_only = SearchFields {
+            title: true,
+            ..Default::default()
+        };
+        assert_eq!(scoped_tantivy_query("rust", &title_only), "title:\"rust\"");
+        let two = parse_field_list("title,url").unwrap();
+        assert_eq!(
+            scoped_tantivy_query("rust", &two),
+            "(title:\"rust\" OR url:\"rust\")"
+        );
     }
 
     #[test]
@@ -437,9 +761,11 @@ mod tests {
             ..Default::default()
         })
         .unwrap();
-        assert!(deep_search_uuids(&store, "anything", 10)
-            .unwrap()
-            .is_empty());
+        assert!(
+            deep_search_uuids(&store, "anything", 10, &SearchFields::all())
+                .unwrap()
+                .is_empty()
+        );
         let b = create_bookmark(
             &mut store,
             "https://example.com/a",
@@ -451,10 +777,17 @@ mod tests {
         .unwrap();
         let index = SearchIndex::open_or_create(&store.cfg.tantivy_dir()).unwrap();
         index.index_bookmark(&b, "obscurecontentword").unwrap();
-        let hits = deep_search_uuids(&store, "obscurecontentword", 10).unwrap();
+        let hits =
+            deep_search_uuids(&store, "obscurecontentword", 10, &SearchFields::all()).unwrap();
         assert_eq!(hits, vec![b.uuid]);
-        assert!(deep_search_uuids(&store, "nomatchword", 10)
-            .unwrap()
-            .is_empty());
+        assert!(
+            deep_search_uuids(&store, "nomatchword", 10, &SearchFields::all())
+                .unwrap()
+                .is_empty()
+        );
+        let scoped =
+            deep_search_uuids(&store, "title:obscurecontentword", 10, &SearchFields::all())
+                .unwrap();
+        assert!(scoped.is_empty());
     }
 }

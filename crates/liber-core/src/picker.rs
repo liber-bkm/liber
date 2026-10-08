@@ -5,7 +5,7 @@ use nucleo::{Config, Nucleo};
 use uuid::Uuid;
 
 use crate::model::Bookmark;
-use crate::search::{bookmark_matches, SearchFields};
+use crate::search::{bookmark_matches_query, SearchFields};
 use crate::store::Store;
 use crate::CoreError;
 
@@ -14,7 +14,7 @@ pub fn search_targets(store: &Store, query: &str) -> Result<Vec<Bookmark>, CoreE
     Ok(store
         .list()?
         .into_iter()
-        .filter(|b| bookmark_matches(b, query, &fields))
+        .filter(|b| bookmark_matches_query(b, query, &fields))
         .collect())
 }
 
