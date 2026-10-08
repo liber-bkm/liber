@@ -75,6 +75,8 @@ struct ListArgs {
     sort: Option<String>,
     #[arg(long)]
     deep: bool,
+    #[arg(long = "in", value_name = "FIELDS")]
+    r#in: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -450,8 +452,13 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
 fn run_list(a: ListArgs, full: bool) -> anyhow::Result<()> {
     let (_, store) = load_store()?;
     let sort = liber_core::search::resolve_sort_mode(a.sort.as_deref(), a.query.as_deref())?;
+    let scope = match &a.r#in {
+        Some(s) => liber_core::search::parse_field_list(s)?,
+        None => liber_core::search::SearchFields::all(),
+    };
     let filter = liber_core::store::BookmarkFilter {
         query: a.query.clone(),
+        scope,
         ..Default::default()
     };
     let (mut found, _) = store.query_bookmarks(&filter, sort, usize::MAX / 2, 0)?;
@@ -460,7 +467,7 @@ fn run_list(a: ListArgs, full: bool) -> anyhow::Result<()> {
             if !q.trim().is_empty() {
                 let mut seen: std::collections::HashSet<uuid::Uuid> =
                     found.iter().map(|b| b.uuid).collect();
-                for uuid in liber_core::search::deep_search_uuids(&store, q, 200)? {
+                for uuid in liber_core::search::deep_search_uuids(&store, q, 200, &scope)? {
                     if seen.insert(uuid) {
                         if let Some(b) = store.get(&uuid)? {
                             found.push(b);
@@ -470,9 +477,8 @@ fn run_list(a: ListArgs, full: bool) -> anyhow::Result<()> {
             }
         }
     }
-    let fields = liber_core::search::SearchFields::all();
     let query = a.query.unwrap_or_default();
-    let ordered = liber_core::search::order_results(found, &query, &fields, sort);
+    let ordered = liber_core::search::order_results(found, &query, sort);
     for b in ordered {
         println!(
             "[{}] {} ({}) {}{}",
@@ -496,7 +502,7 @@ fn run_open(spec: &str) -> anyhow::Result<()> {
             store
                 .list()?
                 .into_iter()
-                .filter(|b| liber_core::search::bookmark_matches(b, spec, &fields))
+                .filter(|b| liber_core::search::bookmark_matches_query(b, spec, &fields))
                 .collect()
         }
         Err(e) => return Err(e.into()),
@@ -1310,6 +1316,7 @@ fn main() -> anyhow::Result<()> {
                         query: None,
                         sort: None,
                         deep: false,
+                        r#in: None,
                     },
                     cli.uuid,
                 )
