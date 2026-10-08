@@ -35,12 +35,14 @@ pub struct ImportBody {
     pub content: String,
     #[serde(default)]
     pub markdown: bool,
+    #[serde(default)]
+    pub archive: bool,
 }
 
 #[utoipa::path(
     post,
     path = "/api/v2/library/import",
-    request_body(content = Object, description = "Netscape file as {content, markdown?}"),
+    request_body(content = Object, description = "Netscape file as {content, markdown?, archive?}"),
     responses(
         (status = 200, description = "Added, skipped, and warning counts", body = Object),
     )
@@ -51,8 +53,8 @@ pub async fn import_library(
 ) -> Result<Json<serde_json::Value>, ApiErr> {
     let _guard = state.write_mu.lock().await;
     let mut store = store_of(&state)?;
-    let report =
-        import_data(&mut store, &input.content, input.markdown, false).map_err(core_err)?;
+    let report = import_data(&mut store, &input.content, input.markdown, input.archive)
+        .map_err(core_err)?;
     Ok(Json(serde_json::json!({
         "added": report.added,
         "skipped_dup": report.skipped_dup,
@@ -141,6 +143,27 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(v["index"].as_str().unwrap().ends_with("index.html"));
+    }
+
+    #[tokio::test]
+    async fn import_with_archive_reports_failure_as_warning() {
+        let (app, _dir) = test_app();
+        let sample = "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n<DL><p>\n<DT><A HREF=\"http://127.0.0.1:1/unreachable\">Down</A>\n</DL><p>\n";
+        let (status, bytes) = body(
+            app.oneshot(post(
+                "/api/v2/library/import",
+                serde_json::json!({"content": sample, "archive": true}),
+            ))
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["added"], 1);
+        let warnings = v["warnings"].as_array().unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].as_str().unwrap().contains("archive failed"));
     }
 }
 
