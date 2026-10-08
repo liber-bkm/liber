@@ -707,6 +707,7 @@ pub struct BookmarkFilter {
     pub folder: Option<String>,
     pub tag: Option<String>,
     pub query: Option<String>,
+    pub scope: crate::search::SearchFields,
     pub opened_only: bool,
 }
 
@@ -745,12 +746,59 @@ impl Store {
             args.push(tag.clone());
         }
         if let Some(q) = &filter.query {
-            let q = q.trim();
-            if !q.is_empty() {
-                conds.push("(b.title LIKE ? ESCAPE '\\' OR b.url LIKE ? ESCAPE '\\' OR b.description LIKE ? ESCAPE '\\' OR b.folder LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM bookmark_tags t2 WHERE t2.bookmark_uuid = b.uuid AND t2.tag LIKE ? ESCAPE '\\'))".to_string());
-                let pat = Self::like_pattern(q);
-                for _ in 0..5 {
-                    args.push(pat.clone());
+            for term in crate::search::parse_query_terms(q) {
+                let pat = Self::like_pattern(&term.text);
+                match term.scope {
+                    Some(crate::search::FieldScope::Title) => {
+                        conds.push("b.title LIKE ? ESCAPE '\\'".to_string());
+                        args.push(pat);
+                    }
+                    Some(crate::search::FieldScope::Url) => {
+                        conds.push("b.url LIKE ? ESCAPE '\\'".to_string());
+                        args.push(pat);
+                    }
+                    Some(crate::search::FieldScope::Description) => {
+                        conds.push("b.description LIKE ? ESCAPE '\\'".to_string());
+                        args.push(pat);
+                    }
+                    Some(crate::search::FieldScope::Folder) => {
+                        conds.push("b.folder LIKE ? ESCAPE '\\'".to_string());
+                        args.push(pat);
+                    }
+                    Some(crate::search::FieldScope::Tags) => {
+                        conds.push("EXISTS (SELECT 1 FROM bookmark_tags t2 WHERE t2.bookmark_uuid = b.uuid AND t2.tag LIKE ? ESCAPE '\\')".to_string());
+                        args.push(pat);
+                    }
+                    None if !filter.scope.any() => {
+                        conds.push("(b.title LIKE ? ESCAPE '\\' OR b.url LIKE ? ESCAPE '\\' OR b.description LIKE ? ESCAPE '\\' OR b.folder LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM bookmark_tags t2 WHERE t2.bookmark_uuid = b.uuid AND t2.tag LIKE ? ESCAPE '\\'))".to_string());
+                        for _ in 0..5 {
+                            args.push(pat.clone());
+                        }
+                    }
+                    None => {
+                        let mut ors = Vec::new();
+                        if filter.scope.title {
+                            ors.push("b.title LIKE ? ESCAPE '\\'".to_string());
+                            args.push(pat.clone());
+                        }
+                        if filter.scope.url {
+                            ors.push("b.url LIKE ? ESCAPE '\\'".to_string());
+                            args.push(pat.clone());
+                        }
+                        if filter.scope.description {
+                            ors.push("b.description LIKE ? ESCAPE '\\'".to_string());
+                            args.push(pat.clone());
+                        }
+                        if filter.scope.folder {
+                            ors.push("b.folder LIKE ? ESCAPE '\\'".to_string());
+                            args.push(pat.clone());
+                        }
+                        if filter.scope.tags {
+                            ors.push("EXISTS (SELECT 1 FROM bookmark_tags t2 WHERE t2.bookmark_uuid = b.uuid AND t2.tag LIKE ? ESCAPE '\\')".to_string());
+                            args.push(pat.clone());
+                        }
+                        conds.push(format!("({})", ors.join(" OR ")));
+                    }
                 }
             }
         }
@@ -1263,13 +1311,15 @@ mod tests {
 
     #[test]
     fn query_matches_full_scan() {
-        use crate::search::{bookmark_matches, order_results, parse_sort_mode, SearchFields};
+        use crate::search::{bookmark_matches_query, order_results, parse_sort_mode, SearchFields};
         let s = seeded();
         let fields = SearchFields::all();
         for (q, tag, folder, sort) in [
             (None, None, None, ""),
             (Some("rust"), None, None, ""),
             (Some("rust"), None, None, "title"),
+            (Some("tag:prog"), None, None, ""),
+            (Some("title:server folder:tech/ops"), None, None, ""),
             (None, Some("prog"), None, "newest"),
             (None, None, Some("tech"), "oldest"),
             (Some("example"), Some("read"), None, "visited"),
@@ -1278,11 +1328,12 @@ mod tests {
                 folder: folder.map(str::to_string),
                 tag: tag.map(str::to_string),
                 query: q.map(str::to_string),
+                scope: SearchFields::all(),
                 opened_only: false,
             };
             let mode = parse_sort_mode(sort).unwrap();
             let (page, total) = s.query_bookmarks(&filter, mode, 50, 0).unwrap();
-            let page = order_results(page, q.unwrap_or(""), &fields, mode);
+            let page = order_results(page, q.unwrap_or(""), mode);
             let mut expected: Vec<_> = s
                 .list()
                 .unwrap()
@@ -1296,11 +1347,11 @@ mod tests {
                     None => true,
                 })
                 .filter(|b| match &filter.query {
-                    Some(qq) => bookmark_matches(b, qq, &fields),
+                    Some(qq) => bookmark_matches_query(b, qq, &fields),
                     None => true,
                 })
                 .collect();
-            expected = order_results(expected, q.unwrap_or(""), &fields, mode);
+            expected = order_results(expected, q.unwrap_or(""), mode);
             let expected: Vec<_> = expected.into_iter().take(50).collect();
             assert_eq!(total, expected.len(), "total for {q:?}/{tag:?}/{folder:?}");
             let got: Vec<String> = page.iter().map(|b| b.uuid.to_string()).collect();
