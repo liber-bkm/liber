@@ -1062,6 +1062,22 @@
         }
       }
     },
+    "/api/v2/library/backup": {
+      "get": {
+        "tags": [
+          "crate::library"
+        ],
+        "operationId": "backup_library",
+        "responses": {
+          "200": {
+            "description": "Full library tarball download",
+            "content": {
+              "application/gzip": {}
+            }
+          }
+        }
+      }
+    },
     "/api/v2/library/export-bookmarks": {
       "get": {
         "tags": [
@@ -1129,6 +1145,57 @@
         "responses": {
           "200": {
             "description": "Added, skipped, and warning counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/library/restore": {
+      "post": {
+        "tags": [
+          "crate::library"
+        ],
+        "operationId": "restore_library",
+        "requestBody": {
+          "description": "Backup as {content (base64 tarball), confirm?}",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Restored manifest plus reindex counts, or a confirm gate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad base64 or bad backup",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Backup larger than 256 MiB",
             "content": {
               "application/json": {
                 "schema": {

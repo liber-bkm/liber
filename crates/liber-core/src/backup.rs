@@ -229,4 +229,33 @@ mod tests {
         create_backup(&src, &file, "dev-a").unwrap();
         assert!(read_manifest(&file).is_ok());
     }
+
+    #[test]
+    fn restore_merges_over_existing_trees() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        seed_profile(&src);
+        let file = dir.path().join("backup.tar.gz");
+        create_backup(&src, &file, "dev-a").unwrap();
+
+        let dst = dir.path().join("dst");
+        std::fs::create_dir_all(dst.join("html")).unwrap();
+        std::fs::write(dst.join("html").join("stale.html"), "stale").unwrap();
+        std::fs::write(dst.join("html").join("a.html"), "replaced").unwrap();
+        restore_backup(&file, &dst).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dst.join("html").join("a.html")).unwrap(),
+            "<html></html>"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.join("html").join("stale.html")).unwrap(),
+            "stale"
+        );
+        let leftovers: Vec<_> = std::fs::read_dir(&dst)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".restore-"))
+            .collect();
+        assert!(leftovers.is_empty());
+    }
 }
