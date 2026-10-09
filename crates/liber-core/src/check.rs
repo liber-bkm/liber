@@ -405,6 +405,45 @@ mod tests {
     }
 
     #[test]
+    fn stale_duration_vectors() {
+        assert_eq!(
+            parse_stale_duration("720h").unwrap(),
+            Duration::from_secs(720 * 3600)
+        );
+        assert_eq!(
+            parse_stale_duration("7d").unwrap(),
+            Duration::from_secs(7 * 86400)
+        );
+        assert_eq!(
+            parse_stale_duration("24").unwrap(),
+            Duration::from_secs(24 * 3600)
+        );
+        assert_eq!(
+            parse_stale_duration("90m").unwrap(),
+            Duration::from_secs(90 * 60)
+        );
+        assert_eq!(
+            parse_stale_duration("30s").unwrap(),
+            Duration::from_secs(30)
+        );
+        assert_eq!(
+            parse_stale_duration("1d12h").unwrap(),
+            Duration::from_secs(86400 + 12 * 3600)
+        );
+        assert_eq!(
+            parse_stale_duration("2W").unwrap(),
+            Duration::from_secs(14 * 86400)
+        );
+        assert_eq!(
+            parse_stale_duration(" 48h ").unwrap(),
+            Duration::from_secs(48 * 3600)
+        );
+        for bad in ["", "0", "0h", "nope", "h", "10x", "1.5h", "h10", "-5h"] {
+            assert!(parse_stale_duration(bad).is_err(), "accepts {bad:?}");
+        }
+    }
+
+    #[test]
     fn classify_vectors() {
         let (base, _srv) = test_server();
         let client = check_client().unwrap();
