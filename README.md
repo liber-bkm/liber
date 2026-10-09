@@ -164,7 +164,7 @@ hitting a gap fails naming the missing id.
 
 | Command | Purpose |
 |---|---|
-| `add <url>` | Add bookmark (`--title -t --folder --description --markdown --archive --attach`) |
+| `add <url>` | Add bookmark (`--title -t --folder --description --markdown --archive --attach`; `-i` prompts for missing fields plus attachments, needs a terminal) |
 | `list [query]` | Search and list, newest first (`--sort newest\|oldest\|visited\|title`, `--in title,url,tag,folder,desc`); `[md]`/`[arch]` markers |
 | `open <spec>` | Open in browser, records history (falls back to search on miss) |
 | `edit <spec>` | Update fields; with no flags opens the full terminal editor |
