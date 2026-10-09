@@ -127,6 +127,11 @@ pub fn build_router(state: AppState) -> Router {
             get(library::export_bookmarks),
         )
         .route("/api/v2/library/export-site", post(library::export_site_ep))
+        .route("/api/v2/library/backup", get(library::backup_library))
+        .route(
+            "/api/v2/library/restore",
+            post(library::restore_library).route_layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .route("/api/v2/sync/export", post(sync::export_oplog))
         .route("/api/v2/sync/import", post(sync::import_oplog))
         .route("/api/v2/sync/prune", post(sync::prune_oplog_ep))

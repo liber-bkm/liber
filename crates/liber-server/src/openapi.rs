@@ -41,6 +41,8 @@ use crate::api::{AddRequest, ApiBookmark, ErrorBody, ListResponse, UpdateRequest
         crate::library::import_library,
         crate::library::export_bookmarks,
         crate::library::export_site_ep,
+        crate::library::backup_library,
+        crate::library::restore_library,
         crate::sync::export_oplog,
         crate::sync::import_oplog,
         crate::sync::prune_oplog_ep,
