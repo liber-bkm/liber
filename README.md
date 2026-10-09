@@ -190,7 +190,8 @@ hitting a gap fails naming the missing id.
 | `history` | Recently opened with open counts |
 | `profile list\|switch\|delete` | Named base-dir profiles sharing one config (delete untracks only, files stay) |
 | `completion <shell>` | Shell completions |
-| `serve` | Self host API plus web UI; prints localhost and LAN URLs |
+| `serve` | Self host API plus web UI; prints localhost and LAN URLs (`--qr` prints a pairing code, mDNS advertises unless `--no-mdns`) |
+| `discover` | List liber servers on the local network (`--timeout`) |
 
 ### Web UI
 
