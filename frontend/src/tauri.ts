@@ -3,7 +3,9 @@ import type {
   Bookmark,
   BookmarkList,
   BulkResult,
+  CheckApplyResult,
   CheckReport,
+  CheckUpdate,
   FolderCount,
   ListParams,
   ProfileInfo,
@@ -395,17 +397,30 @@ export async function bulkOp(
   });
 }
 
-export async function checkRun(spec?: string): Promise<CheckReport> {
-  if (!isTauri() || useRemote()) return restCheckRun(spec);
-  return invokeCmd("check_run", { spec: spec ?? null });
+export async function checkRun(
+  spec?: string,
+  opts?: { workers?: number; stale?: string }
+): Promise<CheckReport> {
+  if (!isTauri() || useRemote()) return restCheckRun(spec, opts);
+  return invokeCmd("check_run", {
+    spec: spec ?? null,
+    workers: opts?.workers ?? null,
+    stale: opts?.stale ?? null,
+  });
 }
 
 export async function checkApply(
-  updates: { uuid: string; url: string }[],
-  quarantine: string[]
-): Promise<{ updated: number; quarantined: number; skipped: unknown[] }> {
-  if (!isTauri() || useRemote()) return restCheckApply(updates, quarantine);
-  return invokeCmd("check_apply", { updates, quarantine });
+  updates: CheckUpdate[],
+  quarantine: string[],
+  extra?: { delete?: string[]; confirm?: boolean }
+): Promise<CheckApplyResult> {
+  if (!isTauri() || useRemote()) return restCheckApply(updates, quarantine, extra);
+  return invokeCmd("check_apply", {
+    updates,
+    quarantine,
+    delete: extra?.delete ?? null,
+    confirm: extra?.confirm ?? null,
+  });
 }
 
 export async function runReindex(prune: boolean, compact_ids = false): Promise<ReindexReport> {

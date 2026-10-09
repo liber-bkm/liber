@@ -381,17 +381,38 @@ export interface CheckReport {
   rows: CheckRow[];
 }
 
-export function checkRun(spec?: string): Promise<CheckReport> {
+export function checkRun(spec?: string, opts?: { workers?: number; stale?: string }): Promise<CheckReport> {
   return request("/api/v2/check/run", {
     method: "POST",
-    body: JSON.stringify({ spec }),
+    body: JSON.stringify({ spec, ...opts }),
   });
 }
 
-export function checkApply(updates: { uuid: string; url: string }[], quarantine: string[]): Promise<{ updated: number; quarantined: number; skipped: unknown[] }> {
+export interface CheckUpdate {
+  uuid: string;
+  url: string;
+  retitle?: boolean;
+}
+
+export interface CheckApplyResult {
+  updated?: number;
+  retitled?: number;
+  quarantined?: number;
+  deleted?: number;
+  skipped?: unknown[];
+  confirm_required?: boolean;
+  count?: number;
+  hint?: string;
+}
+
+export function checkApply(
+  updates: CheckUpdate[],
+  quarantine: string[],
+  extra?: { delete?: string[]; confirm?: boolean }
+): Promise<CheckApplyResult> {
   return request("/api/v2/check/apply", {
     method: "POST",
-    body: JSON.stringify({ updates, quarantine }),
+    body: JSON.stringify({ updates, quarantine, ...extra }),
   });
 }
 

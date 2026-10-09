@@ -50,7 +50,7 @@ describe("CheckPage run-apply flow", () => {
         updates: { uuid: string; url: string }[];
         quarantine: string[];
       };
-      expect(payload.updates).toEqual([{ uuid: "aaa", url: "http://x/new" }]);
+      expect(payload.updates).toEqual([{ uuid: "aaa", url: "http://x/new", retitle: false }]);
       expect(payload.quarantine).toEqual(["bbb"]);
     });
   });

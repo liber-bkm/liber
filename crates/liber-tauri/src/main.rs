@@ -683,6 +683,7 @@ async fn check_run(
     spec: Option<String>,
     workers: Option<usize>,
     stale_hours: Option<u64>,
+    stale: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let (targets, fresh) = {
         let store = open_store(&state)?;
@@ -692,7 +693,13 @@ async fn check_run(
             }
             _ => None,
         };
-        let stale = stale_hours.map(|h| std::time::Duration::from_secs(h.saturating_mul(3600)));
+        let stale = match (&stale, stale_hours) {
+            (Some(s), _) if !s.trim().is_empty() => {
+                Some(liber_core::check::parse_stale_duration(s).map_err(|e| e.to_string())?)
+            }
+            (_, Some(h)) => Some(std::time::Duration::from_secs(h.saturating_mul(3600))),
+            _ => None,
+        };
         liber_core::check::resolve_check_targets(&store, tokens.as_deref(), stale)
             .map_err(|e| e.to_string())?
     };
@@ -744,13 +751,32 @@ fn check_apply(
     state: State<'_, AppState>,
     updates: Option<Vec<CheckUpdate>>,
     quarantine: Option<Vec<String>>,
+    delete: Option<Vec<String>>,
+    confirm: Option<bool>,
 ) -> Result<serde_json::Value, String> {
+    let delete = delete.unwrap_or_default();
+    if !delete.is_empty() && !confirm.unwrap_or(false) {
+        return Ok(serde_json::json!({
+            "confirm_required": true,
+            "count": delete.len(),
+            "hint": "repeat with confirm true to delete",
+        }));
+    }
+    let updates = updates.unwrap_or_default();
+    let mut titles = std::collections::HashMap::new();
+    for u in &updates {
+        if u.retitle.unwrap_or(false) {
+            titles.insert(u.uuid.clone(), liber_core::check::refetch_title(&u.url));
+        }
+    }
     let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
     let mut store = open_store(&state)?;
     let mut updated = 0;
+    let mut retitled = 0;
     let mut quarantined = 0;
+    let mut deleted = 0;
     let mut skipped = Vec::new();
-    for u in updates.unwrap_or_default() {
+    for u in &updates {
         let target = match resolve_one(&store, &u.uuid) {
             Ok(b) => b,
             Err(_) => {
@@ -771,8 +797,28 @@ fn check_apply(
                 skipped.push(
                     serde_json::json!({"uuid": u.uuid, "reason": "target already bookmarked"}),
                 );
+                continue;
             }
             Err(e) => return Err(e.to_string()),
+        }
+        if let Some(title) = titles.remove(&u.uuid) {
+            let current = store
+                .get(&target.uuid)
+                .map_err(|e| e.to_string())?
+                .map(|b| b.title)
+                .unwrap_or_default();
+            if !title.is_empty() && title != current {
+                edit_bookmark(
+                    &mut store,
+                    &target.uuid,
+                    EditOptions {
+                        title: Some(title),
+                        ..Default::default()
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+                retitled += 1;
+            }
         }
     }
     for q in quarantine.unwrap_or_default() {
@@ -789,9 +835,27 @@ fn check_apply(
             quarantined += 1;
         }
     }
+    for d in &delete {
+        let target = match resolve_one(&store, d) {
+            Ok(b) => b,
+            Err(_) => {
+                skipped.push(serde_json::json!({"uuid": d, "reason": "already gone"}));
+                continue;
+            }
+        };
+        if liber_core::edit::delete_bookmark_with_files(&mut store, &target.uuid)
+            .map_err(|e| e.to_string())?
+        {
+            deleted += 1;
+        } else {
+            skipped.push(serde_json::json!({"uuid": d, "reason": "already gone"}));
+        }
+    }
     Ok(serde_json::json!({
         "updated": updated,
+        "retitled": retitled,
         "quarantined": quarantined,
+        "deleted": deleted,
         "skipped": skipped,
     }))
 }
@@ -800,6 +864,7 @@ fn check_apply(
 struct CheckUpdate {
     uuid: String,
     url: String,
+    retitle: Option<bool>,
 }
 
 #[tauri::command]
