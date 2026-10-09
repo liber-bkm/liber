@@ -1597,3 +1597,35 @@ fn main() -> anyhow::Result<()> {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tags_split_on_whitespace() {
+        assert_eq!(
+            split_tags_line("rust  async\tweb"),
+            vec!["rust", "async", "web"]
+        );
+        assert!(split_tags_line("   ").is_empty());
+        assert!(split_tags_line("").is_empty());
+    }
+
+    #[test]
+    fn add_interactive_flag_parses() {
+        let cli = Cli::try_parse_from(["liber", "add", "-i", "https://example.com"]).unwrap();
+        match cli.cmd {
+            Some(Cmd::Add(a)) => {
+                assert!(a.interactive);
+                assert_eq!(a.url, "https://example.com");
+            }
+            _ => panic!("expected add subcommand"),
+        }
+        let cli = Cli::try_parse_from(["liber", "add", "https://example.com"]).unwrap();
+        match cli.cmd {
+            Some(Cmd::Add(a)) => assert!(!a.interactive),
+            _ => panic!("expected add subcommand"),
+        }
+    }
+}
