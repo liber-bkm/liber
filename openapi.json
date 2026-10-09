@@ -853,7 +853,7 @@
         ],
         "operationId": "apply_check",
         "requestBody": {
-          "description": "Actions as {updates[], quarantine[]}",
+          "description": "Actions as {updates[] ({uuid, url, retitle?}), quarantine[], delete[], confirm?}",
           "content": {
             "application/json": {
               "schema": {
@@ -865,7 +865,7 @@
         },
         "responses": {
           "200": {
-            "description": "Updated, quarantined, and skipped rows",
+            "description": "Updated, retitled, quarantined, deleted, and skipped rows; or a confirm gate",
             "content": {
               "application/json": {
                 "schema": {
@@ -884,7 +884,7 @@
         ],
         "operationId": "run_check",
         "requestBody": {
-          "description": "Scope as {spec?, workers?, stale_hours?}",
+          "description": "Scope as {spec?, workers?, stale?, stale_hours? (deprecated)}",
           "content": {
             "application/json": {
               "schema": {
@@ -906,7 +906,7 @@
             }
           },
           "400": {
-            "description": "Bad id spec",
+            "description": "Bad id spec or stale duration",
             "content": {
               "application/json": {
                 "schema": {
