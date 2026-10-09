@@ -1582,7 +1582,7 @@
         "operationId": "get_settings",
         "responses": {
           "200": {
-            "description": "Settable config values",
+            "description": "Settable config values plus maintenance status",
             "content": {
               "application/json": {
                 "schema": {
@@ -1621,7 +1621,7 @@
             }
           },
           "400": {
-            "description": "Unknown key or bad backend",
+            "description": "Unknown key or bad value",
             "content": {
               "application/json": {
                 "schema": {

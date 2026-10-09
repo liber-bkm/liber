@@ -89,6 +89,9 @@ export function SettingsPage() {
   });
 
   const get = (key: string) => String(settings.data?.[key] ?? "");
+  const maintenance = settings.data?.maintenance_status as unknown as
+    | { bookmarks: number; oplog_entries: number; quarantine: number; short_id_gaps: number }
+    | undefined;
 
   return (
     <div className="flex max-w-2xl flex-col gap-5">
@@ -114,6 +117,47 @@ export function SettingsPage() {
         </Field>
         <Field label="Browser path (for browser backend)">
           <SettingInput settingKey="browser_path" value={get("browser_path")} onSave={(v) => save.mutate({ key: "browser_path", value: v })} />
+        </Field>
+        <Field label="Single-file command">
+          <SettingInput settingKey="singlefile_cmd" value={get("singlefile_cmd")} onSave={(v) => save.mutate({ key: "singlefile_cmd", value: v })} />
+        </Field>
+        <Field label="Monolith command">
+          <SettingInput settingKey="monolith_cmd" value={get("monolith_cmd")} onSave={(v) => save.mutate({ key: "monolith_cmd", value: v })} />
+        </Field>
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-sm font-semibold">Tools</h2>
+        <Field label="Browser command (open in browser)">
+          <SettingInput settingKey="browser_cmd" value={get("browser_cmd")} onSave={(v) => save.mutate({ key: "browser_cmd", value: v })} />
+        </Field>
+        <Field label="Editor command">
+          <SettingInput settingKey="editor_cmd" value={get("editor_cmd")} onSave={(v) => save.mutate({ key: "editor_cmd", value: v })} />
+        </Field>
+        <Field label="Device id">
+          <SettingInput settingKey="device_id" value={get("device_id")} onSave={(v) => save.mutate({ key: "device_id", value: v })} />
+        </Field>
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-sm font-semibold">Library paths</h2>
+        <p className="text-xs text-neutral-500">
+          Saving a path switches to it immediately. Move your files first, then run reindex so orphans are adopted.
+        </p>
+        <Field label="Base directory (switches library immediately)">
+          <SettingInput settingKey="base_dir" value={get("base_dir")} onSave={(v) => { setError(""); setNotice(""); save.mutate({ key: "base_dir", value: v }); qc.invalidateQueries(); }} />
+        </Field>
+        <Field label="HTML directory override (unset means default)">
+          <SettingInput settingKey="html_dir" value={get("html_dir")} onSave={(v) => save.mutate({ key: "html_dir", value: v })} />
+        </Field>
+        <Field label="Markdown directory override (unset means default)">
+          <SettingInput settingKey="markdown_dir" value={get("markdown_dir")} onSave={(v) => save.mutate({ key: "markdown_dir", value: v })} />
+        </Field>
+        <Field label="Archive directory override (unset means default)">
+          <SettingInput settingKey="archive_dir" value={get("archive_dir")} onSave={(v) => save.mutate({ key: "archive_dir", value: v })} />
+        </Field>
+        <Field label="Attachment directory override (unset means default)">
+          <SettingInput settingKey="attachment_dir" value={get("attachment_dir")} onSave={(v) => save.mutate({ key: "attachment_dir", value: v })} />
         </Field>
       </section>
 
@@ -210,6 +254,12 @@ export function SettingsPage() {
 
       <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Maintenance</h2>
+        {maintenance != null && (
+          <p className="text-xs text-neutral-500">
+            {maintenance.bookmarks} bookmarks, {maintenance.oplog_entries} oplog entries,{" "}
+            {maintenance.quarantine} quarantined, {maintenance.short_id_gaps} short-id gaps.
+          </p>
+        )}
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={prune} onChange={(e) => setPrune(e.target.checked)} />
           Prune entries with missing files
