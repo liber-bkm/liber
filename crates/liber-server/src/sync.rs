@@ -78,6 +78,8 @@ pub async fn import_oplog(
         "deleted": rep.deleted,
         "rules": rep.rules,
         "renumbered": rep.renumbered,
+        "short_ids_assigned": rep.short_ids_assigned,
+        "short_ids_compacted": rep.short_ids_compacted,
     })))
 }
 
