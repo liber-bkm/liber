@@ -9,7 +9,8 @@ use crate::CoreError;
 
 pub const OPLOG_RETENTION_DAYS: i64 = 90;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default)]
 pub struct MergeReport {
     pub merged: usize,
     pub inserted: usize,

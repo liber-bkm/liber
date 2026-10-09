@@ -20,6 +20,8 @@ pub mod search;
 pub mod slug;
 pub mod store;
 pub mod sync;
+
+pub mod sync_http;
 pub mod taxonomy;
 
 pub use error::CoreError;
