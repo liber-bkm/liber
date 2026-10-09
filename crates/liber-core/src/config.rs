@@ -107,6 +107,66 @@ pub fn save_config(cfg: &Config) -> Result<PathBuf, CoreError> {
     Ok(path)
 }
 
+pub const API_SETTABLE: &[&str] = &[
+    "base_dir",
+    "html_dir",
+    "markdown_dir",
+    "archive_dir",
+    "attachment_dir",
+    "archive_backend",
+    "browser_cmd",
+    "browser_path",
+    "editor_cmd",
+    "singlefile_cmd",
+    "singlefile_browser_path",
+    "monolith_cmd",
+    "device_id",
+];
+
+pub fn validate_setting_value(key: &str, value: &str) -> Result<(), CoreError> {
+    match key {
+        "archive_backend" => {
+            crate::archive::parse_backend(value)?;
+            Ok(())
+        }
+        "base_dir" | "html_dir" | "markdown_dir" | "archive_dir" | "attachment_dir" => {
+            if value.trim().is_empty() {
+                return Err(CoreError::Invalid(format!("{key} can't be empty")));
+            }
+            Ok(())
+        }
+        "browser_cmd"
+        | "browser_path"
+        | "editor_cmd"
+        | "singlefile_cmd"
+        | "singlefile_browser_path"
+        | "monolith_cmd"
+        | "device_id" => Ok(()),
+        _ => Err(CoreError::Invalid(format!("unknown key {key:?}"))),
+    }
+}
+
+pub fn apply_setting(cfg: &mut Config, key: &str, value: &str) -> Result<(), CoreError> {
+    validate_setting_value(key, value)?;
+    match key {
+        "base_dir" => cfg.base_dir = PathBuf::from(value.trim()),
+        "html_dir" => cfg.html_dir = Some(PathBuf::from(value.trim())),
+        "markdown_dir" => cfg.markdown_dir = Some(PathBuf::from(value.trim())),
+        "archive_dir" => cfg.archive_dir = Some(PathBuf::from(value.trim())),
+        "attachment_dir" => cfg.attachment_dir = Some(PathBuf::from(value.trim())),
+        "archive_backend" => cfg.archive_backend = value.to_string(),
+        "browser_cmd" => cfg.browser_cmd = value.to_string(),
+        "browser_path" => cfg.browser_path = value.to_string(),
+        "editor_cmd" => cfg.editor_cmd = value.to_string(),
+        "singlefile_cmd" => cfg.singlefile_cmd = value.to_string(),
+        "singlefile_browser_path" => cfg.singlefile_browser_path = value.to_string(),
+        "monolith_cmd" => cfg.monolith_cmd = value.to_string(),
+        "device_id" => cfg.device_id = value.to_string(),
+        _ => unreachable!("validated key {key:?} has no field"),
+    }
+    Ok(())
+}
+
 fn expand_tilde(p: &Path) -> PathBuf {
     let s = p.to_string_lossy();
     if s == "~" || s.starts_with("~/") {
@@ -194,5 +254,30 @@ mod tests {
         let (cfg, _) = load_config().unwrap();
         assert_eq!(cfg.base_dir, dir.path().join("data"));
         clear_env();
+    }
+
+    #[test]
+    fn setting_validation_vectors() {
+        assert!(validate_setting_value("editor_cmd", "hx").is_ok());
+        assert!(validate_setting_value("device_id", "laptop").is_ok());
+        assert!(validate_setting_value("archive_backend", "builtin").is_ok());
+        assert!(validate_setting_value("archive_backend", "nope").is_err());
+        assert!(validate_setting_value("html_dir", "~/docs").is_ok());
+        assert!(validate_setting_value("html_dir", "   ").is_err());
+        assert!(validate_setting_value("auth_token", "x").is_err());
+        assert!(validate_setting_value("dns_fallback", "auto").is_err());
+        assert!(validate_setting_value("bogus", "x").is_err());
+    }
+
+    #[test]
+    fn apply_setting_roundtrip() {
+        let mut cfg = default_config();
+        apply_setting(&mut cfg, "editor_cmd", "hx").unwrap();
+        assert_eq!(cfg.editor_cmd, "hx");
+        apply_setting(&mut cfg, "archive_dir", "~/arc").unwrap();
+        assert_eq!(cfg.archive_dir, Some(PathBuf::from("~/arc")));
+        apply_setting(&mut cfg, "base_dir", "/tmp/base").unwrap();
+        assert_eq!(cfg.base_dir, PathBuf::from("/tmp/base"));
+        assert!(apply_setting(&mut cfg, "auth_token", "x").is_err());
     }
 }
