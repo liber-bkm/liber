@@ -176,7 +176,7 @@ hitting a gap fails naming the missing id.
 | `export --site [dir]` / `--bookmarks <file>` | Static site / Netscape file |
 | `import <file>` | Netscape import (`--markdown --archive`), duplicates skipped, archive failures reported as warnings |
 | `backup <file>` | Self-contained tarball of the library (content plus index plus manifest; `site/` and search index excluded as regenerable) |
-| `restore <file>` | Replace library from a backup (`--force` with confirm, `--yes` skips it), then reindexes; restart any running server on the profile |
+| `restore <file>` | Replace library from a backup (`--force` with confirm, `--yes` skips it), then reindexes; also in Settings on every frontend |
 | `tags list\|rename\|delete` | Rename merges onto existing tags |
 | `folders list\|rename\|delete` | Rename moves subtrees, delete moves to root |
 | `auto ...` | Rules: `add`, `list`, `edit`, `apply`, `learn`, `delete` |
