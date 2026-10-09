@@ -178,7 +178,7 @@ hitting a gap fails naming the missing id.
 | `tags list\|rename\|delete` | Rename merges onto existing tags |
 | `folders list\|rename\|delete` | Rename moves subtrees, delete moves to root |
 | `auto ...` | Rules: `add`, `list`, `edit`, `apply`, `learn`, `delete` |
-| `check [spec]` | Link check (`--workers N --stale 7d --apply` for bulk update plus quarantine; TTY apply prompts per item with retitle and delete) |
+| `check [spec]` | Link check (`--workers N --stale 7d --apply` for bulk update plus quarantine; TTY apply prompts per item with retitle and delete; DNS always uses the system resolver, no third-party fallback) |
 | `sync export\|import` | Exchange merge bundles between devices |
 | `sync commit [--push]` | Git snapshot of the base dir (never inits a repo) |
 | `sync prune [--days N]` | Drop oplog entries older than N days (default 90) |
