@@ -440,6 +440,23 @@ export function exportSite(): Promise<{ index: string }> {
   return request("/api/v2/library/export-site", { method: "POST", body: JSON.stringify({}) });
 }
 
+export interface RestoreResult {
+  restored_from?: string;
+  created_at?: string;
+  adopted?: number;
+  indexed?: number;
+  pending?: string[];
+  confirm_required?: boolean;
+  hint?: string;
+}
+
+export function restoreBackup(content: string, confirm: boolean): Promise<RestoreResult> {
+  return request("/api/v2/library/restore", {
+    method: "POST",
+    body: JSON.stringify({ content, confirm }),
+  });
+}
+
 export type Settings = Record<string, string | null>;
 
 export function fetchSettings(): Promise<Settings> {

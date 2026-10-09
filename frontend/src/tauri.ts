@@ -10,6 +10,7 @@ import type {
   ListParams,
   ProfileInfo,
   ReindexReport,
+  RestoreResult,
   Rule,
   Settings,
   Suggestion,
@@ -52,6 +53,7 @@ import {
   openBookmark as restOpen,
   renameFolder as restRenameFolder,
   renameTag as restRenameTag,
+  restoreBackup as restRestoreBackup,
   runReindex as restReindex,
   saveNotes as restSaveNotes,
   setSetting as restSetSetting,
@@ -466,6 +468,12 @@ export function exportBookmarksUrl(): string {
   return base ? `${base}${path}` : path;
 }
 
+export function backupUrl(): string {
+  const path = "/api/v2/library/backup";
+  const base = getRemoteBase();
+  return base ? `${base}${path}` : path;
+}
+
 export async function createArchive(
   uuid: string,
   backend?: string
@@ -535,4 +543,17 @@ export async function exportSite(): Promise<{ index: string }> {
 export async function exportBookmarksContent(): Promise<{ content: string }> {
   if (!isTauri()) throw new Error("exportBookmarksContent is Tauri-only; use the download link on web");
   return invokeCmd("export_bookmarks", {});
+}
+
+export async function backupLibraryContent(): Promise<{ filename: string; content: string }> {
+  if (!isTauri()) throw new Error("backupLibraryContent is Tauri-only; use the download link on web");
+  return invokeCmd("backup_library", {});
+}
+
+export async function restoreBackup(
+  content: string,
+  confirm: boolean
+): Promise<RestoreResult> {
+  if (!isTauri() || useRemote()) return restRestoreBackup(content, confirm);
+  return invokeCmd("restore_library", { content, confirm });
 }

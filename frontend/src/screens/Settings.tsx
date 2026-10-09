@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RefreshCw, Upload } from "lucide-react";
-import { deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, runReindex, setRemote, setSetting, switchProfile, syncCommit, useRemote } from "../tauri";
+import { backupLibraryContent, backupUrl, deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, restoreBackup, runReindex, setRemote, setSetting, switchProfile, syncCommit, useRemote } from "../tauri";
 import { Button, Field, Input, Spinner } from "../components/ui";
 
 const BACKENDS = ["auto", "builtin", "browser", "single-file", "monolith"];
@@ -18,6 +18,8 @@ export function SettingsPage() {
   const [remoteOn, setRemoteOn] = useState(useRemote());
   const [newProfile, setNewProfile] = useState("");
   const [armedDelete, setArmedDelete] = useState("");
+  const [armedRestore, setArmedRestore] = useState(false);
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [syncPush, setSyncPush] = useState(false);
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
@@ -56,6 +58,28 @@ export function SettingsPage() {
     mutationFn: exportSite,
     onSuccess: (r) => setNotice(`Site exported to ${r.index}.`),
     onError: (e: Error) => setError(e.message),
+  });
+
+  const doRestore = useMutation({
+    mutationFn: async (confirm: boolean) => {
+      if (!restoreFile) throw new Error("choose a backup file first");
+      const buf = await restoreFile.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let bin = "";
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return restoreBackup(btoa(bin), confirm);
+    },
+    onSuccess: (r) => {
+      if (r.confirm_required) {
+        setError(r.hint ?? "Restore needs confirmation.");
+        return;
+      }
+      setNotice(`Restored backup from ${r.restored_from ?? "unknown"}. Reindexed ${r.indexed ?? 0} entries.`);
+      setRestoreFile(null);
+      setArmedRestore(false);
+      qc.invalidateQueries();
+    },
+    onError: (e: Error) => { setError(e.message); setArmedRestore(false); },
   });
 
   const profiles = useQuery({ queryKey: ["profiles", remoteOn], queryFn: fetchProfiles });
@@ -337,6 +361,71 @@ export function SettingsPage() {
           >
             <Download className="h-4 w-4" /> Static site
           </Button>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">Full backup</p>
+          <p className="mb-2 text-xs text-neutral-500">
+            Downloads the whole library (database plus content files) as one file. Restoring replaces the library and reindexes it.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {isTauri() ? (
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  setError("");
+                  setNotice("");
+                  try {
+                    const { filename, content } = await backupLibraryContent();
+                    const bin = atob(content);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    const blob = new Blob([bytes], { type: "application/gzip" });
+                    const href = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = href;
+                    a.download = filename;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(href), 5000);
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "backup failed");
+                  }
+                }}
+              >
+                <Download className="h-4 w-4" /> Download backup
+              </Button>
+            ) : (
+              <a href={backupUrl()} download>
+                <Button variant="outline">
+                  <Download className="h-4 w-4" /> Download backup
+                </Button>
+              </a>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              type="file"
+              accept=".tar.gz,.tgz,application/gzip"
+              onChange={(e) => { setRestoreFile(e.target.files?.[0] ?? null); setArmedRestore(false); }}
+              className="text-xs"
+            />
+            <Button
+              variant="outline"
+              onClick={() => {
+                setError("");
+                setNotice("");
+                if (armedRestore) doRestore.mutate(true);
+                else setArmedRestore(true);
+              }}
+              disabled={doRestore.isPending || !restoreFile}
+            >
+              <Upload className="h-4 w-4" /> {armedRestore ? "Sure? Replace library" : "Restore backup"}
+            </Button>
+          </div>
+          {restoreFile && (
+            <p className="mt-1 text-xs text-neutral-500">
+              {(restoreFile.size / 1048576).toFixed(1)} MiB selected. Uploads over 256 MiB are refused by the server.
+            </p>
+          )}
         </div>
       </section>
     </div>
