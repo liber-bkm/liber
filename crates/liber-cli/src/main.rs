@@ -216,7 +216,18 @@ struct CheckArgs {
     apply: bool,
     #[arg(long, default_value_t = 12)]
     workers: usize,
-    #[arg(long)]
+    #[arg(
+        long,
+        value_name = "DURATION",
+        conflicts_with = "stale_hours",
+        help = "Skip bookmarks checked within DURATION, e.g. 720h or 7d"
+    )]
+    stale: Option<String>,
+    #[arg(
+        long,
+        value_name = "HOURS",
+        help = "Deprecated alias for --stale, in hours; use --stale instead"
+    )]
     stale_hours: Option<u64>,
 }
 
@@ -806,7 +817,7 @@ fn applied_counts(
 }
 
 fn run_check(a: CheckArgs, full: bool) -> anyhow::Result<()> {
-    use liber_core::check::{quarantine_bookmark, CheckStatus};
+    use liber_core::check::{parse_stale_duration, quarantine_bookmark, CheckStatus};
     use std::time::Duration;
 
     let (_, mut store) = load_store()?;
@@ -814,9 +825,14 @@ fn run_check(a: CheckArgs, full: bool) -> anyhow::Result<()> {
         Some(s) if !s.trim().is_empty() => Some(liber_core::idspec::parse_id_spec(s)?),
         _ => None,
     };
-    let stale = a
-        .stale_hours
-        .map(|h| Duration::from_secs(h.saturating_mul(3600)));
+    let stale = match (&a.stale, a.stale_hours) {
+        (Some(s), _) => Some(parse_stale_duration(s)?),
+        (None, Some(h)) => {
+            eprintln!("warning: --stale-hours is deprecated, use --stale (e.g. --stale {h}h)");
+            Some(Duration::from_secs(h.saturating_mul(3600)))
+        }
+        (None, None) => None,
+    };
     let (targets, fresh) =
         liber_core::check::resolve_check_targets(&store, tokens.as_deref(), stale)?;
     if fresh > 0 {
@@ -882,6 +898,9 @@ fn run_check(a: CheckArgs, full: bool) -> anyhow::Result<()> {
     if !a.apply {
         return Ok(());
     }
+    if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return run_check_interactive(&mut store, &moved, &dead, &uncertain, full);
+    }
     let (mut updated, mut quarantined, mut skipped) = (0, 0, 0);
     for o in &moved {
         let target = o.result.target.clone().unwrap_or_default();
@@ -907,13 +926,131 @@ fn run_check(a: CheckArgs, full: bool) -> anyhow::Result<()> {
             Err(e) => return Err(e.into()),
         }
     }
-    for o in &dead {
+    for o in dead.iter().chain(uncertain.iter()) {
         if quarantine_bookmark(&mut store, &o.bookmark.uuid)? {
             quarantined += 1;
             println!("Quarantined [{}].", show_id(&o.bookmark, full));
         }
     }
     println!("Done: {updated} updated, {quarantined} quarantined, {skipped} skipped.");
+    Ok(())
+}
+
+enum CheckChoice {
+    Delete,
+    Quarantine,
+    Skip,
+}
+
+fn prompt_check_action(prompt: &str) -> CheckChoice {
+    use std::io::{self, Write};
+    print!("{prompt} [y] delete / [q] quarantine / [N] skip ");
+    let _ = io::stdout().flush();
+    let mut line = String::new();
+    if io::stdin().read_line(&mut line).is_err() {
+        return CheckChoice::Skip;
+    }
+    match line.trim().to_lowercase().as_str() {
+        "y" | "yes" | "delete" => CheckChoice::Delete,
+        "q" | "quarantine" => CheckChoice::Quarantine,
+        _ => CheckChoice::Skip,
+    }
+}
+
+fn confirm_yes(prompt: &str) -> bool {
+    use std::io::{self, Write};
+    print!("{prompt} [Y/n] ");
+    let _ = io::stdout().flush();
+    let mut line = String::new();
+    if io::stdin().read_line(&mut line).is_err() {
+        return false;
+    }
+    !matches!(line.trim().to_lowercase().as_str(), "n" | "no")
+}
+
+fn run_check_interactive(
+    store: &mut liber_core::store::Store,
+    moved: &[&liber_core::check::CheckOutcome],
+    dead: &[&liber_core::check::CheckOutcome],
+    uncertain: &[&liber_core::check::CheckOutcome],
+    full: bool,
+) -> anyhow::Result<()> {
+    use liber_core::check::{quarantine_bookmark, refetch_title};
+    let (mut updated, mut retitled, mut deleted, mut quarantined, mut skipped) = (0, 0, 0, 0, 0);
+    for o in moved {
+        let target = o.result.target.clone().unwrap_or_default();
+        if !confirm_yes(&format!(
+            "Update [{}] URL to {target}?",
+            show_id(&o.bookmark, full)
+        )) {
+            skipped += 1;
+            continue;
+        }
+        match liber_core::edit::edit_bookmark(
+            store,
+            &o.bookmark.uuid,
+            liber_core::edit::EditOptions {
+                url: Some(target.clone()),
+                ..Default::default()
+            },
+        ) {
+            Ok(_) => {
+                updated += 1;
+                println!("Updated [{}].", show_id(&o.bookmark, full));
+            }
+            Err(liber_core::CoreError::Duplicate(_)) => {
+                skipped += 1;
+                println!(
+                    "Skipped [{}]: target URL already bookmarked.",
+                    show_id(&o.bookmark, full)
+                );
+                continue;
+            }
+            Err(e) => return Err(e.into()),
+        }
+        let title = refetch_title(&target);
+        if !title.is_empty()
+            && title != o.bookmark.title
+            && confirm_yes(&format!(
+                "Update [{}] title to {title:?}?",
+                show_id(&o.bookmark, full)
+            ))
+        {
+            liber_core::edit::edit_bookmark(
+                store,
+                &o.bookmark.uuid,
+                liber_core::edit::EditOptions {
+                    title: Some(title),
+                    ..Default::default()
+                },
+            )?;
+            retitled += 1;
+            println!("Retitled [{}].", show_id(&o.bookmark, full));
+        }
+    }
+    for o in dead.iter().chain(uncertain.iter()) {
+        match prompt_check_action(&format!(
+            "Delete dead [{}] {}?",
+            show_id(&o.bookmark, full),
+            o.bookmark.title
+        )) {
+            CheckChoice::Delete => {
+                liber_core::edit::delete_bookmark_with_files(store, &o.bookmark.uuid)?;
+                deleted += 1;
+                println!("Deleted [{}].", show_id(&o.bookmark, full));
+            }
+            CheckChoice::Quarantine => {
+                if quarantine_bookmark(store, &o.bookmark.uuid)? {
+                    quarantined += 1;
+                    println!("Quarantined [{}].", show_id(&o.bookmark, full));
+                }
+            }
+            CheckChoice::Skip => skipped += 1,
+        }
+    }
+    println!(
+        "Done: {updated} updated, {retitled} retitled, {deleted} deleted, {quarantined} quarantined, {skipped} skipped."
+    );
     Ok(())
 }
 
