@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RefreshCw, Upload } from "lucide-react";
-import { deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, runReindex, setRemote, setSetting, switchProfile, useRemote } from "../tauri";
+import { deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, runReindex, setRemote, setSetting, switchProfile, syncCommit, useRemote } from "../tauri";
 import { Button, Field, Input, Spinner } from "../components/ui";
 
 const BACKENDS = ["auto", "builtin", "browser", "single-file", "monolith"];
@@ -18,6 +18,7 @@ export function SettingsPage() {
   const [remoteOn, setRemoteOn] = useState(useRemote());
   const [newProfile, setNewProfile] = useState("");
   const [armedDelete, setArmedDelete] = useState("");
+  const [syncPush, setSyncPush] = useState(false);
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
 
@@ -76,6 +77,15 @@ export function SettingsPage() {
       qc.invalidateQueries();
     },
     onError: (e: Error) => { setError(e.message); setArmedDelete(""); },
+  });
+
+  const doSnapshot = useMutation({
+    mutationFn: () => syncCommit(syncPush),
+    onSuccess: (r) => {
+      if (r.error) setError(r.error);
+      else setNotice(r.output);
+    },
+    onError: (e: Error) => setError(e.message),
   });
 
   const get = (key: string) => String(settings.data?.[key] ?? "");
@@ -178,6 +188,22 @@ export function SettingsPage() {
             onClick={() => { setError(""); setNotice(""); doSwitch.mutate(newProfile.trim()); setNewProfile(""); }}
           >
             Create
+          </Button>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-sm font-semibold">Sync snapshot</h2>
+        <p className="text-xs text-neutral-500">
+          Commits the library directory with git. In remote mode this commits the server library.
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={syncPush} onChange={(e) => setSyncPush(e.target.checked)} />
+          Push after committing
+        </label>
+        <div>
+          <Button variant="outline" onClick={() => { setError(""); setNotice(""); doSnapshot.mutate(); }} disabled={doSnapshot.isPending}>
+            {doSnapshot.isPending ? "Snapshotting..." : "Snapshot now"}
           </Button>
         </div>
       </section>

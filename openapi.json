@@ -1140,6 +1140,45 @@
         }
       }
     },
+    "/api/v2/pick": {
+      "get": {
+        "tags": [
+          "crate::sync"
+        ],
+        "operationId": "pick_bookmark",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Search query, required",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Single URL or up to 30 matches as plain text",
+            "content": {
+              "text/plain": {}
+            }
+          },
+          "400": {
+            "description": "Missing q parameter",
+            "content": {
+              "text/plain": {}
+            }
+          },
+          "404": {
+            "description": "No bookmarks match",
+            "content": {
+              "text/plain": {}
+            }
+          }
+        }
+      }
+    },
     "/api/v2/profiles": {
       "get": {
         "tags": [
@@ -1583,6 +1622,37 @@
           },
           "400": {
             "description": "Unknown key or bad backend",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/sync/commit": {
+      "post": {
+        "tags": [
+          "crate::sync"
+        ],
+        "operationId": "commit_snapshot",
+        "requestBody": {
+          "description": "Snapshot options as {push?}, empty body means no push",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Snapshot output, errors carried in body",
             "content": {
               "application/json": {
                 "schema": {

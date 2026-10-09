@@ -447,3 +447,7 @@ export function switchProfile(name: string): Promise<{ result: string; active: s
 export function deleteProfile(name: string): Promise<{ result: string; name: string }> {
   return request("/api/v2/profiles/delete", { method: "POST", body: JSON.stringify({ name }) });
 }
+
+export function syncCommit(push = false): Promise<{ output: string; error?: string }> {
+  return request("/api/v2/sync/commit", { method: "POST", body: JSON.stringify({ push }) });
+}

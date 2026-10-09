@@ -54,6 +54,7 @@ import {
   saveNotes as restSaveNotes,
   setSetting as restSetSetting,
   switchProfile as restSwitchProfile,
+  syncCommit as restSyncCommit,
   updateBookmark as restUpdate,
   uploadAttachment as restUpload,
 } from "./api";
@@ -372,6 +373,11 @@ export async function switchProfile(name: string): Promise<{ result: string; act
 export async function deleteProfile(name: string): Promise<{ result: string; name: string }> {
   if (!isTauri() || useRemote()) return restDeleteProfile(name);
   return invokeCmd("delete_profile", { name });
+}
+
+export async function syncCommit(push = false): Promise<{ output: string; error?: string }> {
+  if (!isTauri() || useRemote()) return restSyncCommit(push);
+  return invokeCmd("sync_commit", { push });
 }
 
 export async function bulkOp(
