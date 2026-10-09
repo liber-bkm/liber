@@ -212,10 +212,10 @@ async fn frontend_fallback(
     }
 }
 
-fn lan_ip() -> Option<std::net::IpAddr> {
-    let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
-    sock.connect("8.8.8.8:80").ok()?;
-    sock.local_addr().ok().map(|a| a.ip())
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ServeOptions {
+    pub qr: bool,
+    pub mdns: bool,
 }
 
 pub async fn serve(
@@ -223,16 +223,46 @@ pub async fn serve(
     token: String,
     addr: &str,
     static_dir: Option<std::path::PathBuf>,
+    opts: ServeOptions,
 ) -> anyhow::Result<()> {
     let state = AppState::new(cfg, token).with_static_dir(static_dir);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let port = listener.local_addr()?.port();
     println!("liber serving on http://127.0.0.1:{port}");
-    if let Some(ip) = lan_ip() {
-        if !ip.is_loopback() {
-            println!("on your network: http://{ip}:{port}");
+    if let Some(ip) = liber_core::discovery::lan_ip() {
+        let url = format!("http://{ip}:{port}");
+        println!("on your network: {url}");
+        if opts.qr {
+            match liber_core::discovery::qr_ascii(&url) {
+                Ok(art) => println!("{art}"),
+                Err(e) => eprintln!("warning: {e}"),
+            }
         }
+    } else if opts.qr {
+        eprintln!("warning: no LAN address found, skipping QR");
     }
+    let _advertiser = if opts.mdns {
+        let device = state.cfg.read().unwrap().effective_device_id();
+        match liber_core::discovery::advertise(port, &device) {
+            Ok(Some(advertiser)) => {
+                println!(
+                    "advertising as {}",
+                    liber_core::discovery::instance_name(&device)
+                );
+                Some(advertiser)
+            }
+            Ok(None) => {
+                eprintln!("warning: no LAN address found, skipping mDNS");
+                None
+            }
+            Err(e) => {
+                eprintln!("warning: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     axum::serve(listener, build_router(state)).await?;
     Ok(())
 }
