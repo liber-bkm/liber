@@ -66,6 +66,8 @@ struct AddArgs {
     archive: bool,
     #[arg(long)]
     attach: Vec<std::path::PathBuf>,
+    #[arg(short, long)]
+    interactive: bool,
 }
 
 #[derive(clap::Args)]
@@ -363,6 +365,40 @@ fn confirm(prompt: &str) -> bool {
     matches!(line.trim().to_lowercase().as_str(), "y" | "yes")
 }
 
+fn prompt_line(label: &str) -> String {
+    use std::io::{self, Write};
+    print!("{label}: ");
+    let _ = io::stdout().flush();
+    let mut line = String::new();
+    if io::stdin().read_line(&mut line).is_err() {
+        return String::new();
+    }
+    line.trim().to_string()
+}
+
+fn prompt_default(label: &str, def: &str) -> String {
+    use std::io::{self, Write};
+    if def.trim().is_empty() {
+        return prompt_line(label);
+    }
+    print!("{label} [{def}]: ");
+    let _ = io::stdout().flush();
+    let mut line = String::new();
+    if io::stdin().read_line(&mut line).is_err() {
+        return def.to_string();
+    }
+    let line = line.trim().to_string();
+    if line.is_empty() {
+        def.to_string()
+    } else {
+        line
+    }
+}
+
+fn split_tags_line(line: &str) -> Vec<String> {
+    line.split_whitespace().map(str::to_string).collect()
+}
+
 fn open_in_browser(cfg: &liber_core::store::Config, url: &str) -> anyhow::Result<()> {
     println!("{url}");
     let mut cmd = if cfg.browser_cmd.trim().is_empty() {
@@ -388,8 +424,31 @@ fn open_in_browser(cfg: &liber_core::store::Config, url: &str) -> anyhow::Result
 }
 
 fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
+    use std::io::IsTerminal;
     let (_, mut store) = load_store()?;
-    let title = match a.title {
+    let interactive = if a.interactive {
+        if !std::io::stdin().is_terminal() {
+            return Err(anyhow::anyhow!("add --interactive needs a terminal"));
+        }
+        true
+    } else {
+        false
+    };
+    if interactive {
+        if let Some(dup) = store.find_by_url(&liber_core::slug::normalize_url(&a.url))? {
+            println!(
+                "Already bookmarked: [{}] {} (folder: {})",
+                show_id(&dup, full),
+                dup.title,
+                display_folder(&dup.folder)
+            );
+            if !confirm("Add it anyway?") {
+                println!("Cancelled.");
+                return Ok(());
+            }
+        }
+    }
+    let fetched_title = match a.title {
         Some(t) if !t.trim().is_empty() => Some(t),
         _ => {
             println!("Fetching title for {} ...", a.url);
@@ -401,11 +460,28 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
             }
         }
     };
+    let (title, description, tags, folder) = if interactive {
+        let title = Some(prompt_default(
+            "Title",
+            fetched_title.as_deref().unwrap_or(""),
+        ));
+        let description = prompt_default("Description", a.description.as_deref().unwrap_or(""));
+        let tags = split_tags_line(&prompt_default("Tags (space separated)", &a.tags.join(" ")));
+        let folder = prompt_default("Folder", a.folder.as_deref().unwrap_or(""));
+        (title, description, tags, folder)
+    } else {
+        (
+            fetched_title,
+            a.description.unwrap_or_default(),
+            a.tags,
+            a.folder.unwrap_or_default(),
+        )
+    };
     let opts = liber_core::create::CreateOptions {
         title,
-        description: a.description.unwrap_or_default(),
-        tags: a.tags,
-        folder: a.folder.unwrap_or_default(),
+        description,
+        tags,
+        folder,
         markdown: a.markdown,
     };
     match liber_core::create::create_bookmark(&mut store, &a.url, opts) {
@@ -456,7 +532,43 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
                     Err(e) => println!("warning: could not attach {}: {e}", path.display()),
                 }
             }
+            if interactive {
+                run_add_attachments(&mut store, &b.uuid)?;
+            }
             Ok(())
+        }
+    }
+}
+
+fn run_add_attachments(
+    store: &mut liber_core::store::Store,
+    uuid: &uuid::Uuid,
+) -> anyhow::Result<()> {
+    loop {
+        let current = store.get(uuid)?.map(|b| b.attachments).unwrap_or_default();
+        for (i, at) in current.iter().enumerate() {
+            println!("  {}. {}", i + 1, at.name);
+        }
+        let line = prompt_line("Attachments (path to attach, rm <num|name>, empty to finish)");
+        let line = line.trim().to_string();
+        if line.is_empty() {
+            return Ok(());
+        }
+        if let Some(which) = line
+            .strip_prefix("rm ")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            match liber_core::attach::detach_attachment(store, uuid, which) {
+                Ok(name) => println!("Detached {name}"),
+                Err(e) => println!("warning: {e}"),
+            }
+            continue;
+        }
+        let path = std::path::PathBuf::from(&line);
+        match liber_core::attach::attach_file(store, uuid, &path) {
+            Ok(at) => println!("  attach: {}", at.name),
+            Err(e) => println!("warning: could not attach {}: {e}", path.display()),
         }
     }
 }
