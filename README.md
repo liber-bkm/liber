@@ -265,16 +265,25 @@ one match, else up to 30 `[id] title` rows.
 
 Lives at `~/.config/liber-rs/config.json`, overridable with
 `LIBER_CONFIG` and `LIBER_BASE_DIR`. Settable keys: `base_dir`,
+`html_dir`, `markdown_dir`, `archive_dir`, `attachment_dir`,
 `device_id`, `archive_backend` (`builtin`, `browser`, `single-file`,
-`monolith`, `auto`), `browser_path`, `singlefile_cmd`,
-`singlefile_browser_path`, `monolith_cmd`, `browser_cmd`, `auth_token`.
+`monolith`, `auto`), `browser_cmd`, `browser_path`, `editor_cmd`,
+`singlefile_cmd`, `singlefile_browser_path`, `monolith_cmd`.
+`auth_token` is CLI and env only, never set over the API. Changing a
+directory switches it immediately; move your files first, then run
+`reindex` so orphans are adopted. `GET /api/v2/settings` also reports
+`maintenance_status` (bookmark, oplog, quarantine, and short-id gap
+counts) for the future sync status.
 
 ## Sync without loss
 
 Devices share the base dir over any folder sync plus explicit bundle
 exchange (`sync export` on A, `sync import` on B). Newer `updated_at`
 wins scalars, tags and attachments union, tombstones lose to newer
-edits, replay is idempotent so bundles flow freely both ways. Anything
+edits, replay is idempotent so bundles flow freely both ways. Short
+numeric ids stay local-only: every import closes gaps and folds
+collisions into dense `1..N` in creation order, so converged devices
+agree on the mapping. Anything
 automation cannot place safely lands in `unindexed/` for review. It is
 never deleted by automation; data loss is treated as the unforgivable
 bug class.
