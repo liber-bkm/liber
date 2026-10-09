@@ -98,6 +98,8 @@ pub struct Config {
     #[serde(default)]
     pub browser_cmd: String,
     #[serde(default)]
+    pub editor_cmd: String,
+    #[serde(default)]
     pub browser_path: String,
     #[serde(default)]
     pub singlefile_cmd: String,
@@ -126,6 +128,14 @@ impl Config {
             self.device_id.clone()
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct MaintenanceStatus {
+    pub bookmarks: usize,
+    pub oplog_entries: usize,
+    pub quarantine: usize,
+    pub short_id_gaps: usize,
 }
 
 pub struct Store {
@@ -619,6 +629,30 @@ impl Store {
                     .map_err(|e| CoreError::Storage(e.to_string()))
             })
             .collect()
+    }
+
+    pub fn maintenance_status(&self) -> Result<MaintenanceStatus, CoreError> {
+        let count = |sql: &str| {
+            self.conn
+                .query_row(sql, [], |row| row.get::<_, i64>(0))
+                .map_err(|e| CoreError::Storage(e.to_string()))
+        };
+        let bookmarks = count("SELECT COUNT(*) FROM bookmarks")?;
+        let oplog_entries = count("SELECT COUNT(*) FROM oplog")?;
+        let quarantine = count("SELECT COUNT(*) FROM bookmarks WHERE folder = 'quarantine'")?;
+        let assigned = count("SELECT COUNT(short_id) FROM bookmarks")?;
+        let max_id: Option<i64> = self
+            .conn
+            .query_row("SELECT MAX(short_id) FROM bookmarks", [], |row| row.get(0))
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let short_id_gaps = (bookmarks - assigned) + max_id.unwrap_or(0).saturating_sub(assigned);
+        let short_id_gaps = short_id_gaps as usize;
+        Ok(MaintenanceStatus {
+            bookmarks: bookmarks as usize,
+            oplog_entries: oplog_entries as usize,
+            quarantine: quarantine as usize,
+            short_id_gaps,
+        })
     }
 
     pub fn delete_bookmark(&mut self, uuid: &Uuid) -> Result<bool, CoreError> {
@@ -1506,6 +1540,25 @@ mod tests {
         s.delete_bookmark(&b.uuid).unwrap();
         let c = s.add_bookmark(sample("https://example.com/c")).unwrap();
         assert_eq!(c.short_id, Some(3));
+    }
+
+    #[test]
+    fn maintenance_status_counts() {
+        let mut s = mem_store();
+        let a = s.add_bookmark(sample("https://example.com/a")).unwrap();
+        let b = s.add_bookmark(sample("https://example.com/b")).unwrap();
+        s.add_bookmark(sample("https://example.com/c")).unwrap();
+        let st = s.maintenance_status().unwrap();
+        assert_eq!(st.bookmarks, 3);
+        assert!(st.oplog_entries >= 3);
+        assert_eq!(st.quarantine, 0);
+        assert_eq!(st.short_id_gaps, 0);
+        s.delete_bookmark(&b.uuid).unwrap();
+        let st = s.maintenance_status().unwrap();
+        assert_eq!(st.bookmarks, 2);
+        assert_eq!(st.short_id_gaps, 1);
+        crate::check::quarantine_bookmark(&mut s, &a.uuid).unwrap();
+        assert_eq!(s.maintenance_status().unwrap().quarantine, 1);
     }
 
     #[test]
