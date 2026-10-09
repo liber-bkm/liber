@@ -271,6 +271,20 @@ enum SyncCmd {
         #[arg(long, default_value_t = 90)]
         days: i64,
     },
+    Push {
+        url: String,
+        #[arg(long)]
+        token: Option<String>,
+        #[arg(long)]
+        since: Option<i64>,
+    },
+    Pull {
+        url: String,
+        #[arg(long)]
+        token: Option<String>,
+        #[arg(long)]
+        since: Option<i64>,
+    },
 }
 
 #[derive(clap::Args)]
@@ -1239,6 +1253,28 @@ fn run_export(a: ExportArgs) -> anyhow::Result<()> {
     Err(anyhow::anyhow!("specify --site or --bookmarks"))
 }
 
+fn sync_token(flag: &Option<String>) -> String {
+    flag.clone()
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| std::env::var("LIBER_AUTH_TOKEN").unwrap_or_default())
+}
+
+fn print_merge_report(total: usize, rep: &liber_core::sync::MergeReport) {
+    println!(
+        "Merged {total}: {} inserted, {} merged, {} deduped, {} deleted, {} rules, {} renumbered.",
+        rep.inserted, rep.merged, rep.deduped, rep.deleted, rep.rules, rep.renumbered
+    );
+    if rep.short_ids_assigned > 0 {
+        println!("Assigned {} short id(s).", rep.short_ids_assigned);
+    }
+    if rep.short_ids_compacted > 0 {
+        println!(
+            "Compacted {} bookmark(s) to dense short ids.",
+            rep.short_ids_compacted
+        );
+    }
+}
+
 fn run_sync(cmd: SyncCmd) -> anyhow::Result<()> {
     use liber_core::sync::{
         export_bundle, git_snapshot, prune_oplog, read_bundle, replay_entries, write_bundle,
@@ -1258,25 +1294,17 @@ fn run_sync(cmd: SyncCmd) -> anyhow::Result<()> {
         SyncCmd::Import { file } => {
             let entries = read_bundle(&PathBuf::from(&file))?;
             let rep = replay_entries(&mut store, &entries)?;
-            println!(
-                "Merged {}: {} inserted, {} merged, {} deduped, {} deleted, {} rules, {} renumbered.",
-                entries.len(),
-                rep.inserted,
-                rep.merged,
-                rep.deduped,
-                rep.deleted,
-                rep.rules,
-                rep.renumbered
-            );
-            if rep.short_ids_assigned > 0 {
-                println!("Assigned {} short id(s).", rep.short_ids_assigned);
-            }
-            if rep.short_ids_compacted > 0 {
-                println!(
-                    "Compacted {} bookmark(s) to dense short ids.",
-                    rep.short_ids_compacted
-                );
-            }
+            print_merge_report(entries.len(), &rep);
+        }
+        SyncCmd::Push { url, token, since } => {
+            let entries = export_bundle(&store, since)?;
+            let rep = liber_core::sync_http::push_bundle(&url, &sync_token(&token), &entries)?;
+            print_merge_report(entries.len(), &rep);
+        }
+        SyncCmd::Pull { url, token, since } => {
+            let entries = liber_core::sync_http::pull_bundle(&url, &sync_token(&token), since)?;
+            let rep = replay_entries(&mut store, &entries)?;
+            print_merge_report(entries.len(), &rep);
         }
         SyncCmd::Commit { message, push } => {
             if git_snapshot(&cfg.profile_dir(), &message, push)? {
@@ -1631,6 +1659,43 @@ mod tests {
         match cli.cmd {
             Some(Cmd::Add(a)) => assert!(!a.interactive),
             _ => panic!("expected add subcommand"),
+        }
+    }
+
+    #[test]
+    fn sync_push_pull_parse() {
+        let cli = Cli::try_parse_from([
+            "liber",
+            "sync",
+            "push",
+            "http://192.168.1.10:8080",
+            "--since",
+            "5",
+        ])
+        .unwrap();
+        match cli.cmd {
+            Some(Cmd::Sync(a)) => match a.cmd {
+                SyncCmd::Push { url, since, token } => {
+                    assert_eq!(url, "http://192.168.1.10:8080");
+                    assert_eq!(since, Some(5));
+                    assert_eq!(token, None);
+                }
+                _ => panic!("expected sync push"),
+            },
+            _ => panic!("expected sync subcommand"),
+        }
+        let cli = Cli::try_parse_from(["liber", "sync", "pull", "http://x:8080", "--token", "t"])
+            .unwrap();
+        match cli.cmd {
+            Some(Cmd::Sync(a)) => match a.cmd {
+                SyncCmd::Pull { url, since, token } => {
+                    assert_eq!(url, "http://x:8080");
+                    assert_eq!(since, None);
+                    assert_eq!(token, Some("t".to_string()));
+                }
+                _ => panic!("expected sync pull"),
+            },
+            _ => panic!("expected sync subcommand"),
         }
     }
 }
