@@ -197,6 +197,7 @@ An interface built for the library rather than ported from anywhere:
 - Add dialog with live duplicate detection plus optional notes and archive
 - Bulk bar, tags and folders management, rules with learn suggestions
 - Check center with run plus per-row apply, history page, settings
+  with sync snapshots and profile switching
 - Command palette (`Ctrl+K`), token login, notes editor, archive viewer
 
 Served embedded with zero flags in release and nix builds;
@@ -249,13 +250,16 @@ liber-serve --addr 0.0.0.0:8080 --auth-token <token>   # server only
 Serving order is always explicit `--static-dir`, then the embedded
 bundle, then an API-only notice. JSON API lives under `/api/v2`
 (bookmarks, tags, folders, rules, check, bulk, history, settings, sync,
-library, reindex, profiles) with a checked-in `openapi.json` contract. The
+library, reindex, profiles, pick) with a checked-in `openapi.json` contract. The
 bookmark list takes `q/sort/tag/folder/page/per_page/scope` (`scope`
 restricts bare words to fields; `q` also accepts `field:value`
 prefixes, see Quickstart). Auth
 follows one token model: empty means open; browsers use an HMAC signed
 cookie, API clients use `Authorization: Bearer` with the derived bearer
-token.
+token. `POST /api/v2/sync/commit {push?}` snapshots the library
+directory with git (always HTTP 200, errors carried in the body), and
+`GET /api/v2/pick?q=` serves scripts as plain text: a single URL for
+one match, else up to 30 `[id] title` rows.
 
 ## Configuration
 
