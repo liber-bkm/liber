@@ -1413,7 +1413,6 @@ fn run_restore(file: &str, force: bool, yes: bool) -> anyhow::Result<()> {
         manifest.created_at,
         dest.display()
     );
-    println!("Restart any running liber-serve on this profile.");
     run_reindex(false, false)
 }
 
