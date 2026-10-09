@@ -17,6 +17,8 @@ pub struct MergeReport {
     pub deleted: usize,
     pub rules: usize,
     pub renumbered: usize,
+    pub short_ids_assigned: usize,
+    pub short_ids_compacted: usize,
 }
 
 fn entry_key(
@@ -194,6 +196,11 @@ pub fn replay_entries(
             _ => {}
         }
         store.oplog_mark_applied(&key)?;
+    }
+    let changed = rep.merged + rep.inserted + rep.deleted + rep.rules + rep.renumbered;
+    if changed > 0 {
+        rep.short_ids_assigned = store.backfill_short_ids()?;
+        rep.short_ids_compacted = store.compact_short_ids()?.len();
     }
     Ok(rep)
 }
@@ -472,10 +479,39 @@ mod tests {
         let rep = replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
         assert_eq!(rep.inserted, 1);
         assert_eq!(rep.renumbered, 1);
+        assert_eq!(rep.short_ids_compacted, 2);
         let got = b.get(&ba.uuid).unwrap().unwrap();
-        assert_eq!(got.short_id, Some(2));
-        assert_eq!(b.get(&bb.uuid).unwrap().unwrap().short_id, Some(1));
-        assert!(b.resolve_spec(&["2".to_string()]).unwrap()[0].uuid == ba.uuid);
+        assert_eq!(got.short_id, Some(1));
+        assert_eq!(b.get(&bb.uuid).unwrap().unwrap().short_id, Some(2));
+        assert!(b.resolve_spec(&["2".to_string()]).unwrap()[0].uuid == bb.uuid);
+    }
+
+    #[test]
+    fn replay_heals_short_id_gaps() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        let x = add(&mut a, "https://example.com/x", "X");
+        let y = add(&mut a, "https://example.com/y", "Y");
+        add(&mut a, "https://example.com/z", "Z");
+        let rep = replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        assert_eq!(rep.inserted, 3);
+        assert_eq!(rep.short_ids_compacted, 0);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        a.delete_bookmark(&y.uuid).unwrap();
+        let rep = replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        assert_eq!(rep.deleted, 1);
+        assert_eq!(rep.short_ids_compacted, 1);
+        let mut ids: Vec<i64> = b
+            .list()
+            .unwrap()
+            .iter()
+            .map(|bm| bm.short_id.unwrap())
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![1, 2]);
+        assert_eq!(b.maintenance_status().unwrap().short_id_gaps, 0);
+        assert_eq!(b.get(&x.uuid).unwrap().unwrap().short_id, Some(1));
     }
 
     #[test]
