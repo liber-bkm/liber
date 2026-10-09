@@ -477,12 +477,17 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
             a.folder.unwrap_or_default(),
         )
     };
+    let markdown = if interactive {
+        a.markdown || confirm("Add markdown notes?")
+    } else {
+        a.markdown
+    };
     let opts = liber_core::create::CreateOptions {
         title,
         description,
         tags,
         folder,
-        markdown: a.markdown,
+        markdown,
     };
     match liber_core::create::create_bookmark(&mut store, &a.url, opts) {
         Err(liber_core::CoreError::Duplicate(_)) => {
