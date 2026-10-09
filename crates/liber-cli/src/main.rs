@@ -1151,6 +1151,15 @@ fn run_sync(cmd: SyncCmd) -> anyhow::Result<()> {
                 rep.rules,
                 rep.renumbered
             );
+            if rep.short_ids_assigned > 0 {
+                println!("Assigned {} short id(s).", rep.short_ids_assigned);
+            }
+            if rep.short_ids_compacted > 0 {
+                println!(
+                    "Compacted {} bookmark(s) to dense short ids.",
+                    rep.short_ids_compacted
+                );
+            }
         }
         SyncCmd::Commit { message, push } => {
             if git_snapshot(&cfg.profile_dir(), &message, push)? {
@@ -1388,15 +1397,26 @@ fn run_pick(query: Option<&str>) -> anyhow::Result<()> {
     }
 }
 
+fn opt_dir(d: &Option<std::path::PathBuf>) -> String {
+    d.as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "(default)".to_string())
+}
+
 fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
     let (mut cfg, path) = liber_core::config::load_config()?;
     match cmd {
         ConfigCmd::Get { key } => match key.as_str() {
             "base_dir" => println!("{}", cfg.base_dir.display()),
+            "html_dir" => println!("{}", opt_dir(&cfg.html_dir)),
+            "markdown_dir" => println!("{}", opt_dir(&cfg.markdown_dir)),
+            "archive_dir" => println!("{}", opt_dir(&cfg.archive_dir)),
+            "attachment_dir" => println!("{}", opt_dir(&cfg.attachment_dir)),
             "device_id" => println!("{}", cfg.device_id),
             "archive_backend" => println!("{}", cfg.archive_backend),
             "browser_cmd" => println!("{}", cfg.browser_cmd),
             "browser_path" => println!("{}", cfg.browser_path),
+            "editor_cmd" => println!("{}", cfg.editor_cmd),
             "singlefile_cmd" => println!("{}", cfg.singlefile_cmd),
             "singlefile_browser_path" => println!("{}", cfg.singlefile_browser_path),
             "monolith_cmd" => println!("{}", cfg.monolith_cmd),
@@ -1404,20 +1424,11 @@ fn run_config(cmd: ConfigCmd) -> anyhow::Result<()> {
             _ => return Err(anyhow::anyhow!("unknown key {key:?}")),
         },
         ConfigCmd::Set { key, value } => {
-            match key.as_str() {
-                "base_dir" => cfg.base_dir = value.into(),
-                "device_id" => cfg.device_id = value,
-                "archive_backend" => match liber_core::archive::parse_backend(&value) {
-                    Ok(_) => cfg.archive_backend = value,
-                    Err(e) => return Err(anyhow::anyhow!("{e}")),
-                },
-                "browser_cmd" => cfg.browser_cmd = value,
-                "browser_path" => cfg.browser_path = value,
-                "singlefile_cmd" => cfg.singlefile_cmd = value,
-                "singlefile_browser_path" => cfg.singlefile_browser_path = value,
-                "monolith_cmd" => cfg.monolith_cmd = value,
-                "auth_token" => cfg.auth_token = value,
-                _ => return Err(anyhow::anyhow!("unknown key {key:?}")),
+            if key == "auth_token" {
+                cfg.auth_token = value;
+            } else {
+                liber_core::config::apply_setting(&mut cfg, &key, &value)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
             }
             liber_core::config::save_config_to(&path, &cfg)?;
             println!("Set {key} in {}", path.display());
