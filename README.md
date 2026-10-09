@@ -175,6 +175,8 @@ hitting a gap fails naming the missing id.
 | `reindex [--prune --compact-ids]` | Repair library; `--compact-ids` closes id gaps to dense `1..N` |
 | `export --site [dir]` / `--bookmarks <file>` | Static site / Netscape file |
 | `import <file>` | Netscape import (`--markdown --archive`), duplicates skipped, archive failures reported as warnings |
+| `backup <file>` | Self-contained tarball of the library (content plus index plus manifest; `site/` and search index excluded as regenerable) |
+| `restore <file>` | Replace library from a backup (`--force` with confirm, `--yes` skips it), then reindexes; restart any running server on the profile |
 | `tags list\|rename\|delete` | Rename merges onto existing tags |
 | `folders list\|rename\|delete` | Rename moves subtrees, delete moves to root |
 | `auto ...` | Rules: `add`, `list`, `edit`, `apply`, `learn`, `delete` |
@@ -184,6 +186,7 @@ hitting a gap fails naming the missing id.
 | `sync commit [--push]` | Git snapshot of the base dir (never inits a repo) |
 | `sync prune [--days N]` | Drop oplog entries older than N days (default 90) |
 | `config get\|set\|list` | See [Configuration](#configuration) |
+| `init` | First-run setup wizard (base dir, device id, backend, token; refuses when already configured, needs a terminal) |
 | `history` | Recently opened with open counts |
 | `profile list\|switch\|delete` | Named base-dir profiles sharing one config (delete untracks only, files stay) |
 | `completion <shell>` | Shell completions |
