@@ -338,13 +338,17 @@ pub fn git_snapshot(
         .output()
         .map_err(|e| CoreError::Storage(format!("git commit: {e}")))?;
     if !commit.status.success() {
-        let err = String::from_utf8_lossy(&commit.stderr);
-        if err.contains("nothing to commit") {
+        let out = format!(
+            "{}{}",
+            String::from_utf8_lossy(&commit.stdout),
+            String::from_utf8_lossy(&commit.stderr)
+        );
+        if out.contains("nothing to commit") {
             return Ok(true);
         }
         return Err(CoreError::Storage(format!(
             "git commit failed: {}",
-            err.trim()
+            out.trim()
         )));
     }
     if push {

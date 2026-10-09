@@ -1067,6 +1067,25 @@ fn export_site(
     Ok(serde_json::json!({"index": index.to_string_lossy()}))
 }
 
+#[tauri::command]
+fn sync_commit(
+    state: State<'_, AppState>,
+    push: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    let message = chrono::Utc::now()
+        .format("liber sync: %Y-%m-%d %H:%M:%S")
+        .to_string();
+    match liber_core::sync::git_snapshot(&cfg.profile_dir(), &message, push.unwrap_or(false)) {
+        Err(e) => Ok(serde_json::json!({"output": "", "error": e.to_string()})),
+        Ok(false) => Ok(serde_json::json!({
+            "output": "Not a git repository, nothing committed (repos are never initialized automatically).",
+        })),
+        Ok(true) => Ok(serde_json::json!({"output": "Committed sync snapshot."})),
+    }
+}
+
 fn resolve_app_config(
     app: &tauri::AppHandle,
 ) -> Result<(liber_core::store::Config, std::path::PathBuf), String> {
@@ -1132,6 +1151,7 @@ pub(crate) fn main() {
             list_profiles,
             switch_profile,
             delete_profile,
+            sync_commit,
         ])
         .run(tauri::generate_context!())
         .expect("error running liber");
