@@ -491,31 +491,29 @@ fn fetch_history(state: State<'_, AppState>) -> Result<ListResponse, String> {
 }
 
 #[tauri::command]
-fn fetch_settings() -> Result<serde_json::Value, String> {
-    let (cfg, _) = liber_core::config::load_config().map_err(|e| e.to_string())?;
+fn fetch_settings(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    let status = open_store(&state)?
+        .maintenance_status()
+        .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "base_dir": cfg.base_dir.to_string_lossy(),
+        "html_dir": cfg.html_dir,
+        "markdown_dir": cfg.markdown_dir,
+        "archive_dir": cfg.archive_dir,
+        "attachment_dir": cfg.attachment_dir,
         "device_id": cfg.device_id,
         "archive_backend": cfg.archive_backend,
+        "browser_cmd": cfg.browser_cmd,
         "browser_path": cfg.browser_path,
+        "editor_cmd": cfg.editor_cmd,
         "singlefile_cmd": cfg.singlefile_cmd,
         "singlefile_browser_path": cfg.singlefile_browser_path,
         "monolith_cmd": cfg.monolith_cmd,
-        "browser_cmd": cfg.browser_cmd,
         "active_profile": cfg.active_profile,
+        "maintenance_status": status,
     }))
 }
-
-const SETTABLE: &[&str] = &[
-    "base_dir",
-    "archive_backend",
-    "browser_path",
-    "singlefile_cmd",
-    "singlefile_browser_path",
-    "monolith_cmd",
-    "browser_cmd",
-    "device_id",
-];
 
 #[tauri::command]
 fn set_setting(
@@ -523,25 +521,12 @@ fn set_setting(
     key: String,
     value: String,
 ) -> Result<serde_json::Value, String> {
-    if !SETTABLE.contains(&key.as_str()) {
+    if !liber_core::config::API_SETTABLE.contains(&key.as_str()) {
         return Err(format!("unknown key {key:?}"));
-    }
-    if key == "archive_backend" {
-        liber_core::archive::parse_backend(&value).map_err(|e| e.to_string())?;
     }
     let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
     let mut cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
-    match key.as_str() {
-        "base_dir" => cfg.base_dir = value.into(),
-        "archive_backend" => cfg.archive_backend = value,
-        "browser_path" => cfg.browser_path = value,
-        "singlefile_cmd" => cfg.singlefile_cmd = value,
-        "singlefile_browser_path" => cfg.singlefile_browser_path = value,
-        "monolith_cmd" => cfg.monolith_cmd = value,
-        "browser_cmd" => cfg.browser_cmd = value,
-        "device_id" => cfg.device_id = value,
-        _ => unreachable!(),
-    }
+    liber_core::config::apply_setting(&mut cfg, &key, &value).map_err(|e| e.to_string())?;
     liber_core::config::save_config_to(&state.config_path, &cfg).map_err(|e| e.to_string())?;
     *state.cfg.lock().map_err(|e| e.to_string())? = cfg;
     Ok(serde_json::json!({"ok": true}))
