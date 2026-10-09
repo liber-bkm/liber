@@ -98,11 +98,55 @@ pub fn read_manifest(backup_file: &Path) -> Result<BackupManifest, CoreError> {
     }
     Err(CoreError::Invalid("backup has no manifest".to_string()))
 }
-
 pub fn restore_backup(backup_file: &Path, dest_dir: &Path) -> Result<BackupManifest, CoreError> {
     let manifest = read_manifest(backup_file)?;
+    let staging = dest_dir.join(format!(".restore-{}", std::process::id()));
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging)
+            .map_err(|e| CoreError::Storage(format!("clearing staging: {e}")))?;
+    }
+    std::fs::create_dir_all(&staging)
+        .map_err(|e| CoreError::Storage(format!("creating staging: {e}")))?;
+    let staged = unpack_validated(backup_file, &staging);
+    if staged.is_err() {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+    staged?;
     std::fs::create_dir_all(dest_dir)
         .map_err(|e| CoreError::Storage(format!("creating {}: {e}", dest_dir.display())))?;
+    for entry in std::fs::read_dir(&staging)
+        .map_err(|e| CoreError::Storage(format!("listing staging: {e}")))?
+    {
+        let entry = entry.map_err(|e| CoreError::Storage(e.to_string()))?;
+        move_tree(&entry.path(), &dest_dir.join(entry.file_name()))?;
+    }
+    let _ = std::fs::remove_dir_all(&staging);
+    Ok(manifest)
+}
+
+fn move_tree(src: &Path, dst: &Path) -> Result<(), CoreError> {
+    if !dst.exists() {
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| CoreError::Storage(format!("creating {}: {e}", parent.display())))?;
+        }
+        return std::fs::rename(src, dst)
+            .map_err(|e| CoreError::Storage(format!("moving {}: {e}", src.display())));
+    }
+    if src.is_dir() && dst.is_dir() {
+        for entry in std::fs::read_dir(src)
+            .map_err(|e| CoreError::Storage(format!("listing {}: {e}", src.display())))?
+        {
+            let entry = entry.map_err(|e| CoreError::Storage(e.to_string()))?;
+            move_tree(&entry.path(), &dst.join(entry.file_name()))?;
+        }
+        return Ok(());
+    }
+    std::fs::rename(src, dst)
+        .map_err(|e| CoreError::Storage(format!("moving {}: {e}", src.display())))
+}
+
+fn unpack_validated(backup_file: &Path, dest_dir: &Path) -> Result<(), CoreError> {
     let file = std::fs::File::open(backup_file)
         .map_err(|e| CoreError::Storage(format!("opening {}: {e}", backup_file.display())))?;
     let mut archive = tar::Archive::new(GzDecoder::new(file));
@@ -122,7 +166,7 @@ pub fn restore_backup(backup_file: &Path, dest_dir: &Path) -> Result<BackupManif
             .unpack_in(dest_dir)
             .map_err(|e| CoreError::Storage(format!("unpacking {path:?}: {e}")))?;
     }
-    Ok(manifest)
+    Ok(())
 }
 
 pub fn profile_db_path(profile_dir: &Path) -> PathBuf {
