@@ -1104,6 +1104,78 @@ fn export_bookmarks(state: State<'_, AppState>) -> Result<serde_json::Value, Str
 }
 
 #[tauri::command]
+fn backup_library(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    use base64::Engine;
+    let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    let tmp = std::env::temp_dir().join(format!(
+        "liber-backup-{}.tar.gz",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    liber_core::backup::create_backup(&cfg.profile_dir(), &tmp, &cfg.effective_device_id())
+        .map_err(|e| e.to_string())?;
+    let data = std::fs::read(&tmp).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&tmp);
+    Ok(serde_json::json!({
+        "filename": format!("liber-backup-{}.tar.gz", chrono::Utc::now().format("%Y-%m-%d")),
+        "content": base64::engine::general_purpose::STANDARD.encode(&data),
+    }))
+}
+
+#[tauri::command]
+fn restore_library(
+    state: State<'_, AppState>,
+    content: String,
+    confirm: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    use base64::Engine;
+    if !confirm.unwrap_or(false) {
+        return Ok(serde_json::json!({
+            "confirm_required": true,
+            "hint": "repeat with confirm true to replace the library",
+        }));
+    }
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(content.trim())
+        .map_err(|_| "content is not valid base64".to_string())?;
+    let tmp = std::env::temp_dir().join(format!(
+        "liber-restore-{}.tar.gz",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let result = (|| -> Result<_, String> {
+        std::fs::write(&tmp, &raw).map_err(|e| e.to_string())?;
+        let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+        let manifest = liber_core::backup::restore_backup(&tmp, &cfg.profile_dir())
+            .map_err(|e| e.to_string())?;
+        let mut store = open_store(&state)?;
+        let rep = liber_core::reindex::reindex(
+            &mut store,
+            liber_core::reindex::ReindexFlags {
+                prune: false,
+                compact_ids: false,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        Ok((manifest, rep))
+    })();
+    let _ = std::fs::remove_file(&tmp);
+    let (manifest, rep) = result?;
+    Ok(serde_json::json!({
+        "restored_from": manifest.device_id,
+        "created_at": manifest.created_at,
+        "adopted": rep.adopted,
+        "indexed": rep.indexed,
+        "pending": rep.pending,
+    }))
+}
+
+#[tauri::command]
 fn export_site(
     state: State<'_, AppState>,
     dir: Option<String>,
@@ -1197,6 +1269,8 @@ pub(crate) fn main() {
             open_attachment_external,
             import_library,
             export_bookmarks,
+            backup_library,
+            restore_library,
             export_site,
             list_profiles,
             switch_profile,
