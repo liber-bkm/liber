@@ -270,6 +270,67 @@ pub fn scan_targets(
     out
 }
 
+pub fn parse_stale_duration(raw: &str) -> Result<Duration, CoreError> {
+    let bad = || CoreError::Invalid(format!("bad stale duration {raw:?}, e.g. 720h or 7d"));
+    let s = raw.trim();
+    if s.is_empty() {
+        return Err(bad());
+    }
+    if s.chars().all(|c| c.is_ascii_digit()) {
+        let hours: u64 = s.parse().map_err(|_| bad())?;
+        if hours == 0 {
+            return Err(bad());
+        }
+        return Ok(Duration::from_secs(hours.saturating_mul(3600)));
+    }
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    let mut total_ms: u64 = 0;
+    let mut groups = 0;
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        let nstart = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if nstart == i {
+            return Err(bad());
+        }
+        let n: u64 = s[nstart..i].parse().map_err(|_| bad())?;
+        let ustart = i;
+        while i < bytes.len() && bytes[i].is_ascii_alphabetic() {
+            i += 1;
+        }
+        if ustart == i {
+            return Err(bad());
+        }
+        let mult_ms: u64 = match s[ustart..i].to_lowercase().as_str() {
+            "ms" => 1,
+            "s" => 1000,
+            "m" => 60 * 1000,
+            "h" => 3600 * 1000,
+            "d" => 86400 * 1000,
+            "w" => 7 * 86400 * 1000,
+            _ => return Err(bad()),
+        };
+        total_ms = total_ms.saturating_add(n.saturating_mul(mult_ms));
+        groups += 1;
+    }
+    if groups == 0 || total_ms == 0 {
+        return Err(bad());
+    }
+    Ok(Duration::from_millis(total_ms))
+}
+
+pub fn refetch_title(url: &str) -> String {
+    crate::create::fetch_title(url)
+}
+
 pub fn resolve_check_targets(
     store: &Store,
     tokens: Option<&[String]>,
