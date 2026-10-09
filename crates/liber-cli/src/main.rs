@@ -49,6 +49,7 @@ enum Cmd {
     Pick(PickArgs),
     Profile(ProfileArgs),
     Serve(ServeArgs),
+    Discover(DiscoverArgs),
     Completion(CompletionArgs),
 }
 
@@ -346,6 +347,16 @@ struct ServeArgs {
     auth_token: Option<String>,
     #[arg(long)]
     static_dir: Option<std::path::PathBuf>,
+    #[arg(long)]
+    qr: bool,
+    #[arg(long)]
+    no_mdns: bool,
+}
+
+#[derive(clap::Args)]
+struct DiscoverArgs {
+    #[arg(long, default_value_t = 5)]
+    timeout: u64,
 }
 
 #[derive(clap::Args)]
@@ -781,13 +792,38 @@ fn run_serve(
     addr: &str,
     token_flag: Option<&str>,
     static_dir: Option<std::path::PathBuf>,
+    qr: bool,
+    no_mdns: bool,
 ) -> anyhow::Result<()> {
     let (cfg, _) = liber_core::config::load_config()?;
     let token = cfg.resolve_auth_token(token_flag.unwrap_or(""));
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.block_on(liber_server::serve(cfg, token, addr, static_dir))
+    rt.block_on(liber_server::serve(
+        cfg,
+        token,
+        addr,
+        static_dir,
+        liber_server::ServeOptions { qr, mdns: !no_mdns },
+    ))
+}
+
+fn run_discover(timeout_secs: u64) -> anyhow::Result<()> {
+    let peers = liber_core::discovery::browse(std::time::Duration::from_secs(timeout_secs.max(1)))?;
+    if peers.is_empty() {
+        println!("No liber servers found on the local network.");
+        return Ok(());
+    }
+    for p in &peers {
+        let device = if p.device_id.trim().is_empty() {
+            "(unknown device)".to_string()
+        } else {
+            format!("(device {})", p.device_id)
+        };
+        println!("{} {} {device}", p.instance, p.url());
+    }
+    Ok(())
 }
 
 fn run_tags(cmd: Option<TagsCmd>) -> anyhow::Result<()> {
@@ -1734,7 +1770,14 @@ fn main() -> anyhow::Result<()> {
             Cmd::Sync(a) => run_sync(a.cmd),
             Cmd::Config(a) => run_config(a.cmd),
             Cmd::Pick(a) => run_pick(a.query.as_deref()),
-            Cmd::Serve(a) => run_serve(&a.addr, a.auth_token.as_deref(), a.static_dir.clone()),
+            Cmd::Serve(a) => run_serve(
+                &a.addr,
+                a.auth_token.as_deref(),
+                a.static_dir.clone(),
+                a.qr,
+                a.no_mdns,
+            ),
+            Cmd::Discover(a) => run_discover(a.timeout),
             Cmd::History(_) => run_history(cli.uuid),
             Cmd::Profile(a) => run_profile(a.cmd),
             Cmd::Completion(a) => run_completion(&a.shell),
@@ -1830,6 +1873,32 @@ mod tests {
         match cli.cmd {
             Some(Cmd::Init(_)) => {}
             _ => panic!("expected init subcommand"),
+        }
+    }
+
+    #[test]
+    fn serve_and_discover_parse() {
+        let cli = Cli::try_parse_from([
+            "liber",
+            "serve",
+            "--addr",
+            "0.0.0.0:9000",
+            "--qr",
+            "--no-mdns",
+        ])
+        .unwrap();
+        match cli.cmd {
+            Some(Cmd::Serve(a)) => {
+                assert_eq!(a.addr, "0.0.0.0:9000");
+                assert!(a.qr);
+                assert!(a.no_mdns);
+            }
+            _ => panic!("expected serve subcommand"),
+        }
+        let cli = Cli::try_parse_from(["liber", "discover", "--timeout", "2"]).unwrap();
+        match cli.cmd {
+            Some(Cmd::Discover(a)) => assert_eq!(a.timeout, 2),
+            _ => panic!("expected discover subcommand"),
         }
     }
 }
