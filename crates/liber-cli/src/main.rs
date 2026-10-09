@@ -34,6 +34,9 @@ enum Cmd {
     Reindex(ReindexArgs),
     Export(ExportArgs),
     Import(ImportArgs),
+    Backup(BackupArgs),
+    Restore(RestoreArgs),
+    Init(InitArgs),
     Tags(TagsArgs),
     Folders(FoldersArgs),
     Auto(AutoArgs),
@@ -145,6 +148,23 @@ struct TagsArgs {
     #[command(subcommand)]
     cmd: Option<TagsCmd>,
 }
+
+#[derive(clap::Args)]
+struct BackupArgs {
+    file: String,
+}
+
+#[derive(clap::Args)]
+struct RestoreArgs {
+    file: String,
+    #[arg(long)]
+    force: bool,
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(clap::Args)]
+struct InitArgs {}
 
 #[derive(Subcommand)]
 enum TagsCmd {
@@ -1321,6 +1341,94 @@ fn run_sync(cmd: SyncCmd) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_backup(file: &str) -> anyhow::Result<()> {
+    let (cfg, _) = load_store()?;
+    let dir = cfg.profile_dir();
+    let out = std::path::PathBuf::from(file);
+    liber_core::backup::create_backup(&dir, &out, &cfg.effective_device_id())?;
+    println!("Backed up {} to {}.", dir.display(), out.display());
+    Ok(())
+}
+
+fn run_restore(file: &str, force: bool, yes: bool) -> anyhow::Result<()> {
+    let (cfg, _) = load_store()?;
+    let dest = cfg.profile_dir();
+    let db = liber_core::backup::profile_db_path(&dest);
+    if db.exists() && !force {
+        return Err(anyhow::anyhow!(
+            "library already exists in {} (use --force to replace it)",
+            dest.display()
+        ));
+    }
+    if db.exists()
+        && !yes
+        && !confirm(&format!(
+            "Replace library in {} with backup?",
+            dest.display()
+        ))
+    {
+        println!("Cancelled.");
+        return Ok(());
+    }
+    let manifest = liber_core::backup::restore_backup(&std::path::PathBuf::from(file), &dest)?;
+    println!(
+        "Restored backup from {} ({}) to {}.",
+        manifest.device_id,
+        manifest.created_at,
+        dest.display()
+    );
+    println!("Restart any running liber-serve on this profile.");
+    run_reindex(false, false)
+}
+
+fn run_init() -> anyhow::Result<()> {
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        return Err(anyhow::anyhow!("init needs a terminal"));
+    }
+    let path = liber_core::config::config_path()?;
+    if path.exists() {
+        return Err(anyhow::anyhow!(
+            "config already exists at {} (use config set to change it)",
+            path.display()
+        ));
+    }
+    let mut cfg = liber_core::config::default_config();
+    let base = prompt_default("Base directory", &cfg.base_dir.display().to_string());
+    if base.trim().is_empty() {
+        return Err(anyhow::anyhow!("base directory can't be empty"));
+    }
+    cfg.base_dir = base.trim().into();
+    let device = prompt_default("Device id", &uuid::Uuid::new_v4().to_string());
+    cfg.device_id = if device.trim().is_empty() {
+        uuid::Uuid::new_v4().to_string()
+    } else {
+        device
+    };
+    cfg.archive_backend = loop {
+        let b = prompt_default(
+            "Archive backend (auto, builtin, browser, single-file, monolith)",
+            "builtin",
+        );
+        match liber_core::archive::parse_backend(&b) {
+            Ok(_) => break b,
+            Err(e) => println!("warning: {e}"),
+        }
+    };
+    cfg.auth_token = prompt_line("Auth token (empty means open)");
+    liber_core::config::save_config_to(&path, &cfg)?;
+    let _ = liber_core::store::Store::open(cfg.clone())?;
+    println!("Wrote config to {}.", path.display());
+    println!("Library at {}.", cfg.profile_dir().display());
+    if let Ok(base) = std::env::var("LIBER_BASE_DIR") {
+        if !base.trim().is_empty() {
+            println!("Note: LIBER_BASE_DIR overrides the file value at runtime.");
+        }
+    }
+    println!("Next: `liber add <url>` or `liber import <file>`.");
+    Ok(())
+}
+
 fn run_reindex(prune: bool, compact_ids: bool) -> anyhow::Result<()> {
     let (_, mut store) = load_store()?;
     let rep = liber_core::reindex::reindex(
@@ -1619,6 +1727,9 @@ fn main() -> anyhow::Result<()> {
             Cmd::Attachments(a) => run_attachments(&a.spec, cli.uuid),
             Cmd::Import(a) => run_import(a),
             Cmd::Export(a) => run_export(a),
+            Cmd::Backup(a) => run_backup(&a.file),
+            Cmd::Restore(a) => run_restore(&a.file, a.force, a.yes),
+            Cmd::Init(_) => run_init(),
             Cmd::Reindex(a) => run_reindex(a.prune, a.compact_ids),
             Cmd::Sync(a) => run_sync(a.cmd),
             Cmd::Config(a) => run_config(a.cmd),
@@ -1696,6 +1807,29 @@ mod tests {
                 _ => panic!("expected sync pull"),
             },
             _ => panic!("expected sync subcommand"),
+        }
+    }
+
+    #[test]
+    fn backup_restore_init_parse() {
+        let cli = Cli::try_parse_from(["liber", "backup", "b.tar.gz"]).unwrap();
+        match cli.cmd {
+            Some(Cmd::Backup(a)) => assert_eq!(a.file, "b.tar.gz"),
+            _ => panic!("expected backup subcommand"),
+        }
+        let cli = Cli::try_parse_from(["liber", "restore", "b.tar.gz", "--force"]).unwrap();
+        match cli.cmd {
+            Some(Cmd::Restore(a)) => {
+                assert_eq!(a.file, "b.tar.gz");
+                assert!(a.force);
+                assert!(!a.yes);
+            }
+            _ => panic!("expected restore subcommand"),
+        }
+        let cli = Cli::try_parse_from(["liber", "init"]).unwrap();
+        match cli.cmd {
+            Some(Cmd::Init(_)) => {}
+            _ => panic!("expected init subcommand"),
         }
     }
 }

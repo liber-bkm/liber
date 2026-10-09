@@ -2,6 +2,7 @@ pub mod archive;
 pub mod attach;
 pub mod auth;
 pub mod automation;
+pub mod backup;
 pub mod check;
 pub mod config;
 pub mod create;
