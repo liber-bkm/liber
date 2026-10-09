@@ -180,6 +180,7 @@ hitting a gap fails naming the missing id.
 | `auto ...` | Rules: `add`, `list`, `edit`, `apply`, `learn`, `delete` |
 | `check [spec]` | Link check (`--workers N --stale 7d --apply` for bulk update plus quarantine; TTY apply prompts per item with retitle and delete; DNS always uses the system resolver, no third-party fallback) |
 | `sync export\|import` | Exchange merge bundles between devices |
+| `sync push <url> \| pull <url>` | Push or pull bundles over HTTP to a `liber-serve` (`--token` or `LIBER_AUTH_TOKEN`, `--since` cursor) |
 | `sync commit [--push]` | Git snapshot of the base dir (never inits a repo) |
 | `sync prune [--days N]` | Drop oplog entries older than N days (default 90) |
 | `config get\|set\|list` | See [Configuration](#configuration) |
@@ -278,7 +279,9 @@ counts) for the future sync status.
 ## Sync without loss
 
 Devices share the base dir over any folder sync plus explicit bundle
-exchange (`sync export` on A, `sync import` on B). Newer `updated_at`
+exchange (`sync export` on A, `sync import` on B, or `sync push` /
+`sync pull` directly against a `liber-serve` URL with derived-bearer
+auth). Newer `updated_at`
 wins scalars, tags and attachments union, tombstones lose to newer
 edits, replay is idempotent so bundles flow freely both ways. Short
 numeric ids stay local-only: every import closes gaps and folds
