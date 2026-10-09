@@ -79,3 +79,106 @@ pub fn push_bundle(
     serde_json::from_value(v).map_err(|e| CoreError::Storage(format!("bad merge reply: {e}")))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::TcpListener;
+
+    fn mock_once(
+        handle: impl FnOnce(&str, &HashMap<String, String>, &str) -> (u16, String) + Send + 'static,
+    ) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).unwrap();
+            let mut headers = HashMap::new();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let line = line.trim();
+                if line.is_empty() {
+                    break;
+                }
+                if let Some((k, v)) = line.split_once(':') {
+                    headers.insert(k.trim().to_lowercase(), v.trim().to_string());
+                }
+            }
+            let len: usize = headers
+                .get("content-length")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
+            let mut body = vec![0u8; len];
+            reader.read_exact(&mut body).unwrap();
+            let (status, reply) = handle(
+                request_line.trim(),
+                &headers,
+                &String::from_utf8_lossy(&body),
+            );
+            let reason = if status == 200 {
+                "OK"
+            } else if status == 401 {
+                "Unauthorized"
+            } else {
+                "Error"
+            };
+            let mut stream = reader.into_inner();
+            write!(
+                stream,
+                "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                reply.len()
+            )
+            .unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    #[test]
+    fn pull_posts_export_with_bearer() {
+        let base = mock_once(|request, headers, body| {
+            assert!(
+                request.starts_with("POST /api/v2/sync/export "),
+                "{request}"
+            );
+            let expected = format!("Bearer {}", crate::auth::auth_mac("tok", "liber-bearer-v1"));
+            assert_eq!(
+                headers.get("authorization").map(String::as_str),
+                Some(expected.as_str())
+            );
+            let v: serde_json::Value = serde_json::from_str(body).unwrap();
+            assert_eq!(v["since"], serde_json::Value::Null);
+            (200, r#"{"entries": []}"#.to_string())
+        });
+        let entries = pull_bundle(&format!("{base}/"), "tok", None).unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn push_posts_entries_and_reads_report() {
+        let base = mock_once(|request, headers, body| {
+            assert!(
+                request.starts_with("POST /api/v2/sync/import "),
+                "{request}"
+            );
+            assert!(headers.get("authorization").is_none());
+            let v: serde_json::Value = serde_json::from_str(body).unwrap();
+            assert_eq!(v["entries"].as_array().unwrap().len(), 0);
+            (200, r#"{"merged": 0, "inserted": 0, "deduped": 0, "deleted": 0, "rules": 0, "renumbered": 0, "short_ids_assigned": 0, "short_ids_compacted": 0}"#.to_string())
+        });
+        let rep = push_bundle(&base, "", &[]).unwrap();
+        assert_eq!(rep.inserted, 0);
+        assert_eq!(rep.short_ids_compacted, 0);
+    }
+
+    #[test]
+    fn unauthorized_suggests_token() {
+        let base = mock_once(|_, _, _| (401, r#"{"error": "auth"}"#.to_string()));
+        let err = pull_bundle(&base, "", None).unwrap_err();
+        assert!(matches!(err, CoreError::Invalid(_)));
+        assert!(err.to_string().contains("--token"));
+    }
+}
