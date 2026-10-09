@@ -130,6 +130,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v2/sync/export", post(sync::export_oplog))
         .route("/api/v2/sync/import", post(sync::import_oplog))
         .route("/api/v2/sync/prune", post(sync::prune_oplog_ep))
+        .route("/api/v2/sync/commit", post(sync::commit_snapshot))
+        .route("/api/v2/pick", get(sync::pick_bookmark))
         .route("/api/v2/profiles", get(profiles::list_profiles))
         .route("/api/v2/profiles/switch", post(profiles::switch_profile))
         .route("/api/v2/profiles/delete", post(profiles::delete_profile))

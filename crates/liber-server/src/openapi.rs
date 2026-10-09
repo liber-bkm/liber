@@ -44,6 +44,8 @@ use crate::api::{AddRequest, ApiBookmark, ErrorBody, ListResponse, UpdateRequest
         crate::sync::export_oplog,
         crate::sync::import_oplog,
         crate::sync::prune_oplog_ep,
+        crate::sync::commit_snapshot,
+        crate::sync::pick_bookmark,
         crate::profiles::list_profiles,
         crate::profiles::switch_profile,
         crate::profiles::delete_profile,
