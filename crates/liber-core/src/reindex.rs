@@ -332,13 +332,13 @@ pub fn reindex(store: &mut Store, flags: ReindexFlags) -> Result<ReindexReport, 
             let mut content = String::new();
             if let Some(rel) = &b.archive_file {
                 if let Ok(html) = std::fs::read_to_string(store.cfg.archive_dir().join(rel)) {
-                    content.push_str(&crate::archive::extract_archive_text(&html));
+                    content.push_str(&crate::archive::extract_readable_text(&html));
                 }
             }
             if let Some(rel) = &b.markdown_file {
                 if let Ok(md) = std::fs::read_to_string(store.cfg.markdown_dir().join(rel)) {
                     content.push('\n');
-                    content.push_str(&md);
+                    content.push_str(&crate::render::markdown_body(&md));
                 }
             }
             docs.push((b, content));
