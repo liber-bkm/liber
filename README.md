@@ -199,7 +199,7 @@ An interface built for the library rather than ported from anywhere:
 
 - Library with instant search (`field:value` prefixes plus field selector, Deep toggle with match snippets), site icons, sort, card and table views, dark mode
 - Detail drawer with inline edit, two-step delete, attachments, history
-- Add dialog with live duplicate detection plus optional notes and archive
+- Add dialog with live duplicate detection plus optional notes, archive, and attachments at creation
 - Bulk bar, tags and folders management, rules with learn suggestions
 - Check center with run plus per-row apply, history page, settings
   with sync snapshots and profile switching
