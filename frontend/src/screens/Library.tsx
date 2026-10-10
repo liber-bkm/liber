@@ -36,6 +36,7 @@ export function Library({
   const [debounced, setDebounced] = useState("");
   const [sort, setSort] = useState("newest");
   const [scope, setScope] = useState("");
+  const [deep, setDeep] = useState(false);
   const [table, setTable] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const qc = useQueryClient();
@@ -47,7 +48,7 @@ export function Library({
 
   useEffect(() => {
     setSelected(new Set());
-  }, [debounced, sort, folder, tag, scope]);
+  }, [debounced, sort, folder, tag, scope, deep]);
 
   function toggle(uuid: string) {
     setSelected((prev) => {
@@ -59,7 +60,7 @@ export function Library({
   }
 
   const query = useQuery({
-    queryKey: ["bookmarks", debounced, sort, folder, tag, scope],
+    queryKey: ["bookmarks", debounced, sort, folder, tag, scope, deep],
     queryFn: () =>
       listBookmarks({
         q: debounced || undefined,
@@ -68,6 +69,7 @@ export function Library({
         tag: tag ?? undefined,
         per_page: 100,
         scope: scope || undefined,
+        deep: deep || undefined,
       }),
   });
 
@@ -118,6 +120,13 @@ export function Library({
         >
           {table ? <LayoutGrid className="h-4 w-4" /> : <Table2 className="h-4 w-4" />}
         </button>
+        <label
+          className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-2.5 py-1.5 text-sm text-neutral-500 dark:border-neutral-700"
+          title="Include saved page content in search (slower)"
+        >
+          <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} className="h-4 w-4 accent-[#2549a8]" />
+          Deep
+        </label>
       </div>
 
       {(folder || tag) && (
@@ -167,6 +176,38 @@ function Avatar({ title, url }: { title: string; url: string }) {
   );
 }
 
+function Favicon({ title, url }: { title: string; url: string }) {
+  const host = faviconHost(url);
+  const [src, setSrc] = useState<string | null>(!isTauri() && host ? faviconUrl(host) : null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (isTauri() && host) {
+      fetchFaviconContent(host)
+        .then((r) => setSrc(`data:${r.mime};base64,${r.content}`))
+        .catch(() => setFailed(true));
+    }
+  }, [host]);
+  if (!src || failed) return <Avatar title={title} url={url} />;
+  return (
+    <img
+      src={src}
+      alt=""
+      onError={() => setFailed(true)}
+      className="h-9 w-9 shrink-0 rounded-lg object-contain"
+    />
+  );
+}
+
+function Snippet({ html }: { html?: string }) {
+  if (!html) return null;
+  return (
+    <p
+      className="line-clamp-2 text-xs text-neutral-500 [&_b]:text-accent-700"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
 function StatusDot({ b }: { b: Bookmark }) {
   if (!b.check_status || b.check_status === "ok") return null;
   const tone = b.check_status === "dead" ? "red" : b.check_status === "moved" ? "amber" : "neutral";
@@ -188,7 +229,7 @@ function Card({ bookmark: b, selected, onToggle, onOpen }: { bookmark: Bookmark;
       />
       <button onClick={onOpen} className="flex flex-col gap-2 text-left">
         <div className="flex items-start gap-2.5">
-          <Avatar title={b.title} url={b.url} />
+          <Favicon title={b.title} url={b.url} />
           <div className="min-w-0 pr-5">
             <p className="truncate text-sm font-medium">
               <span className="mr-1 font-mono text-xs font-normal text-neutral-400">{displayId(b)}</span>
@@ -198,6 +239,7 @@ function Card({ bookmark: b, selected, onToggle, onOpen }: { bookmark: Bookmark;
           </div>
         </div>
         {b.description && <p className="line-clamp-2 text-sm text-neutral-500">{b.description}</p>}
+        <Snippet html={b.snippet} />
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
           {b.folder && <span className="text-xs text-neutral-400">{b.folder}</span>}
           {(b.tags ?? []).slice(0, 3).map((t) => (
@@ -226,6 +268,12 @@ function Rows({ bookmarks, selected, onToggle, onOpen }: { bookmarks: Bookmark[]
           <button onClick={() => onOpen(b)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
             <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{displayId(b)}</span>
             <span className="min-w-0 flex-1 truncate font-medium">{b.title}</span>
+            {b.snippet && (
+              <span
+                className="hidden max-w-64 flex-1 truncate text-xs text-neutral-400 lg:block [&_b]:text-accent-700"
+                dangerouslySetInnerHTML={{ __html: b.snippet }}
+              />
+            )}
             <span className="hidden max-w-48 truncate text-xs text-neutral-400 sm:block">{domainOf(b.url)}</span>
             <StatusDot b={b} />
             <span className="w-16 shrink-0 text-right text-xs text-neutral-400">{ageOf(b.created_at)}</span>

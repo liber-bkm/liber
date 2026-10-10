@@ -636,14 +636,21 @@ fn run_list(a: ListArgs, full: bool) -> anyhow::Result<()> {
         ..Default::default()
     };
     let (mut found, _) = store.query_bookmarks(&filter, sort, usize::MAX / 2, 0)?;
+    let mut snippets: std::collections::HashMap<uuid::Uuid, String> =
+        std::collections::HashMap::new();
     if a.deep {
         if let Some(q) = &a.query {
             if !q.trim().is_empty() {
                 let mut seen: std::collections::HashSet<uuid::Uuid> =
                     found.iter().map(|b| b.uuid).collect();
-                for uuid in liber_core::search::deep_search_uuids(&store, q, 200, &scope)? {
+                for (uuid, _score, fragment) in
+                    liber_core::search::deep_search_with_snippets(&store, q, 200, &scope)?
+                {
                     if seen.insert(uuid) {
                         if let Some(b) = store.get(&uuid)? {
+                            if !fragment.trim().is_empty() {
+                                snippets.insert(uuid, fragment);
+                            }
                             found.push(b);
                         }
                     }
@@ -662,8 +669,15 @@ fn run_list(a: ListArgs, full: bool) -> anyhow::Result<()> {
             b.url,
             artifact_tags(&b)
         );
+        if let Some(fragment) = snippets.remove(&b.uuid) {
+            println!("    {}", strip_snippet_tags(&fragment));
+        }
     }
     Ok(())
+}
+
+fn strip_snippet_tags(fragment: &str) -> String {
+    fragment.replace("<b>", "").replace("</b>", "")
 }
 
 fn run_open(spec: &str) -> anyhow::Result<()> {

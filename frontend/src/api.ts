@@ -18,6 +18,7 @@ export interface Bookmark {
   open_count?: number;
   last_opened_at?: string;
   check_status?: string;
+  snippet?: string;
 }
 
 export interface BookmarkList {
@@ -35,6 +36,7 @@ export interface ListParams {
   page?: number;
   per_page?: number;
   scope?: string;
+  deep?: boolean;
 }
 
 export interface ExistingBookmark {
@@ -126,6 +128,7 @@ export function fetchBookmarks(params: ListParams = {}): Promise<BookmarkList> {
   if (params.page) q.set("page", String(params.page));
   if (params.per_page) q.set("per_page", String(params.per_page));
   if (params.scope) q.set("scope", params.scope);
+  if (params.deep) q.set("deep", "true");
   const suffix = q.toString();
   return request<BookmarkList>(`/api/v2/bookmarks${suffix ? `?${suffix}` : ""}`);
 }
