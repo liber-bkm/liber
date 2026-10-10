@@ -147,7 +147,12 @@ pub fn create_bookmark(
         markdown_file: md_rel,
         archive_file: None,
         applied_rules: applied,
-    })
+    })?;
+    let b = store
+        .get(&uuid)?
+        .ok_or_else(|| CoreError::Storage("created bookmark vanished".to_string()))?;
+    let _ = crate::search::reindex_one(store, &b.uuid);
+    Ok(b)
 }
 
 #[cfg(test)]

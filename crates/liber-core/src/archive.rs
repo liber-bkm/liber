@@ -972,9 +972,24 @@ pub fn archive_bookmark(
     let mut updated = store
         .get(uuid)?
         .ok_or_else(|| CoreError::NotFound(uuid.to_string()))?;
-    updated.archive_file = Some(rel);
+    updated.archive_file = Some(rel.clone());
     store.update_bookmark(&updated)?;
+    let payload = serde_json::json!({"uuid": uuid.to_string(), "path": rel});
+    store.append_oplog(Some(*uuid), "archive_add", payload)?;
+    let _ = crate::search::reindex_one(store, uuid);
     Ok(warnings)
+}
+
+pub fn adopt_archive_path(store: &mut Store, uuid: &Uuid, path: &str) -> Result<(), CoreError> {
+    let mut b = store
+        .get(uuid)?
+        .ok_or_else(|| CoreError::NotFound(uuid.to_string()))?;
+    b.archive_file = Some(path.to_string());
+    store.update_bookmark(&b)?;
+    let payload = serde_json::json!({"uuid": uuid.to_string(), "path": path});
+    store.append_oplog(Some(*uuid), "archive_add", payload)?;
+    let _ = crate::search::reindex_one(store, uuid);
+    Ok(())
 }
 
 #[cfg(test)]
