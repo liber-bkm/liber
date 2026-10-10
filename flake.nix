@@ -125,7 +125,7 @@
             inherit version;
             src = ./frontend;
             fetcherVersion = 4;
-            hash = "sha256-VRR+Ky196ZIAkB0VeuzKgdQtPDCBNOUa+CC0Qk1zucU=";
+            hash = "sha256-fBjr07irJ23XRq2TWTbXuwQErMarnfx7DpOO3OUOUPM=";
           };
           pnpmRoot = "frontend";
           env.EMBED_UI = "1";
@@ -193,7 +193,7 @@
             inherit version;
             src = ./frontend;
             fetcherVersion = 4;
-            hash = "sha256-VRR+Ky196ZIAkB0VeuzKgdQtPDCBNOUa+CC0Qk1zucU=";
+            hash = "sha256-fBjr07irJ23XRq2TWTbXuwQErMarnfx7DpOO3OUOUPM=";
           };
           pnpmRoot = "frontend";
           cargoBuildFlags = [
