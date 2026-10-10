@@ -230,6 +230,14 @@ mod tests {
         (status, serde_json::from_slice(&bytes).unwrap_or_default())
     }
 
+    fn git_available() -> bool {
+        std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
     fn post(uri: &str, v: serde_json::Value) -> Request<Body> {
         Request::builder()
             .method("POST")
@@ -311,6 +319,10 @@ mod tests {
 
     #[tokio::test]
     async fn commit_outside_repo_reports_in_body() {
+        if !git_available() {
+            eprintln!("skipping: git not on PATH");
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let app = test_app(&dir);
         let (status, v) = body(
@@ -349,6 +361,10 @@ mod tests {
 
     #[tokio::test]
     async fn commit_inside_repo_snapshots() {
+        if !git_available() {
+            eprintln!("skipping: git not on PATH");
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let app = test_app(&dir);
         let run = |args: &[&str]| {
