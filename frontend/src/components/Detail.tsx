@@ -494,15 +494,27 @@ export function AddDialog({ onClose, onAdded, initialUrl = "" }: { onClose: () =
   const [folder, setFolder] = useState("");
   const [markdown, setMarkdown] = useState(false);
   const [archive, setArchive] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState("");
   const [existing, setExisting] = useState<Bookmark | null>(null);
   const [saving, setSaving] = useState(false);
   const qc = useQueryClient();
 
+  async function fileToAttachment(f: File): Promise<{ name: string; content: string }> {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    let bin = "";
+    const CHUNK = 8192;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    return { name: f.name, content: btoa(bin) };
+  }
+
   async function save(confirmed: boolean) {
     setSaving(true);
     setError("");
     try {
+      const attachments = await Promise.all(files.map(fileToAttachment));
       const b = await addBookmark({
         url,
         title: title || undefined,
@@ -511,6 +523,7 @@ export function AddDialog({ onClose, onAdded, initialUrl = "" }: { onClose: () =
         markdown,
         archive,
         confirm_dup: confirmed,
+        attachments: attachments.length ? attachments : undefined,
       });
       qc.invalidateQueries({ queryKey: ["bookmarks"] });
       qc.invalidateQueries({ queryKey: ["tags"] });
@@ -573,6 +586,31 @@ export function AddDialog({ onClose, onAdded, initialUrl = "" }: { onClose: () =
             <input type="checkbox" checked={archive} onChange={(e) => setArchive(e.target.checked)} />
             Save archived copy
           </label>
+          <div>
+            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">Attachments</p>
+            <input
+              type="file"
+              multiple
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+              className="text-xs"
+            />
+            {files.length > 0 && (
+              <ul className="mt-1 flex flex-col gap-1">
+                {files.map((f, i) => (
+                  <li key={`${f.name}-${i}`} className="flex items-center gap-2 text-xs text-neutral-500">
+                    <span className="flex-1 truncate">{f.name}</span>
+                    <button
+                      type="button"
+                      className="text-red-600"
+                      onClick={() => setFiles(files.filter((_, j) => j !== i))}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <div>
             <Button onClick={() => save(false)} disabled={saving || !url.trim()}>
               {saving ? "Saving..." : "Save bookmark"}

@@ -189,6 +189,7 @@ export async function addBookmark(input: AddInput): Promise<Bookmark> {
       markdown: input.markdown ?? null,
       archive: input.archive ?? null,
       confirm_dup: input.confirm_dup ?? null,
+      attachments: input.attachments ?? null,
     });
     return toBookmark(r.bookmark);
   } catch (e) {

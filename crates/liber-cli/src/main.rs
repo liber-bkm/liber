@@ -1331,8 +1331,15 @@ fn sync_token(flag: &Option<String>) -> String {
 
 fn print_merge_report(total: usize, rep: &liber_core::sync::MergeReport) {
     println!(
-        "Merged {total}: {} inserted, {} merged, {} deduped, {} deleted, {} rules, {} renumbered.",
-        rep.inserted, rep.merged, rep.deduped, rep.deleted, rep.rules, rep.renumbered
+        "Merged {total}: {} inserted, {} merged, {} deduped, {} deleted, {} rules, {} renumbered, {} artifacts, {} skipped.",
+        rep.inserted,
+        rep.merged,
+        rep.deduped,
+        rep.deleted,
+        rep.rules,
+        rep.renumbered,
+        rep.artifacts,
+        rep.skipped
     );
     if rep.short_ids_assigned > 0 {
         println!("Assigned {} short id(s).", rep.short_ids_assigned);

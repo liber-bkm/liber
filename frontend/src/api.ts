@@ -133,6 +133,11 @@ export function fetchBookmarks(params: ListParams = {}): Promise<BookmarkList> {
   return request<BookmarkList>(`/api/v2/bookmarks${suffix ? `?${suffix}` : ""}`);
 }
 
+export interface AddAttachment {
+  name: string;
+  content: string;
+}
+
 export interface AddInput {
   url: string;
   title?: string;
@@ -142,6 +147,7 @@ export interface AddInput {
   markdown?: boolean;
   archive?: boolean;
   confirm_dup?: boolean;
+  attachments?: AddAttachment[];
 }
 
 export function addBookmark(input: AddInput): Promise<Bookmark> {

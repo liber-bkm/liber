@@ -2057,6 +2057,20 @@
   },
   "components": {
     "schemas": {
+      "AddAttachment": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "AddRequest": {
         "type": "object",
         "required": [
@@ -2065,6 +2079,12 @@
         "properties": {
           "archive": {
             "type": "boolean"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddAttachment"
+            }
           },
           "confirm_dup": {
             "type": "boolean"
