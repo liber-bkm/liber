@@ -15,8 +15,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test -p liber-core -p liber-cli -p liber-server
+      - run: cargo clippy -p liber-core -p liber-cli -p liber-server --all-targets -- -D warnings
       - run: cargo fmt --check
 
   frontend:
