@@ -329,19 +329,7 @@ pub fn reindex(store: &mut Store, flags: ReindexFlags) -> Result<ReindexReport, 
     if let Ok(index) = SearchIndex::open_or_create(&store.cfg.tantivy_dir()) {
         let mut docs = Vec::new();
         for b in store.list()? {
-            let mut content = String::new();
-            if let Some(rel) = &b.archive_file {
-                if let Ok(html) = std::fs::read_to_string(store.cfg.archive_dir().join(rel)) {
-                    content.push_str(&crate::archive::extract_readable_text(&html));
-                }
-            }
-            if let Some(rel) = &b.markdown_file {
-                if let Ok(md) = std::fs::read_to_string(store.cfg.markdown_dir().join(rel)) {
-                    content.push('\n');
-                    content.push_str(&crate::render::markdown_body(&md));
-                }
-            }
-            docs.push((b, content));
+            docs.push((b.clone(), index_content(store, &b)));
         }
         if index.rebuild_all(&docs).is_ok() {
             rep.indexed = docs.len();
@@ -349,6 +337,22 @@ pub fn reindex(store: &mut Store, flags: ReindexFlags) -> Result<ReindexReport, 
     }
 
     Ok(rep)
+}
+
+pub fn index_content(store: &Store, b: &crate::model::Bookmark) -> String {
+    let mut content = String::new();
+    if let Some(rel) = &b.archive_file {
+        if let Ok(html) = std::fs::read_to_string(store.cfg.archive_dir().join(rel)) {
+            content.push_str(&crate::archive::extract_readable_text(&html));
+        }
+    }
+    if let Some(rel) = &b.markdown_file {
+        if let Ok(md) = std::fs::read_to_string(store.cfg.markdown_dir().join(rel)) {
+            content.push('\n');
+            content.push_str(&crate::render::markdown_body(&md));
+        }
+    }
+    content
 }
 
 #[cfg(test)]
