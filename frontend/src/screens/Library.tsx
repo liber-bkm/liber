@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownWideNarrow, LayoutGrid, Search, Table2 } from "lucide-react";
 import { ageOf, displayId, domainOf, type Bookmark } from "../api";
 import { faviconHost, faviconUrl, fetchFaviconContent, isTauri, listBookmarks } from "../tauri";
@@ -67,11 +68,12 @@ export function Library({
         sort: sort || undefined,
         folder: folder ?? undefined,
         tag: tag ?? undefined,
-        per_page: 100,
+        per_page: 500,
         scope: scope || undefined,
         deep: deep || undefined,
       }),
   });
+  const bookmarks = query.data?.bookmarks ?? [];
 
   return (
     <div className="flex flex-col gap-3">
@@ -145,15 +147,11 @@ export function Library({
       {query.data && query.data.bookmarks.length === 0 && (
         <Empty title="No bookmarks found" hint="Try a different search or add a new bookmark." />
       )}
-      {query.data && query.data.bookmarks.length > 0 && !table && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {query.data.bookmarks.map((b) => (
-            <Card key={b.uuid} bookmark={b} selected={selected.has(b.uuid)} onToggle={() => toggle(b.uuid)} onOpen={() => onOpen(b)} />
-          ))}
-        </div>
+      {bookmarks.length > 0 && !table && (
+        <CardGrid bookmarks={bookmarks} selected={selected} onToggle={toggle} onOpen={onOpen} />
       )}
-      {query.data && query.data.bookmarks.length > 0 && table && (
-        <Rows bookmarks={query.data.bookmarks} selected={selected} onToggle={toggle} onOpen={onOpen} />
+      {bookmarks.length > 0 && table && (
+        <RowList bookmarks={bookmarks} selected={selected} onToggle={toggle} onOpen={onOpen} />
       )}
       <BulkBar
         ids={[...selected]}
@@ -163,6 +161,58 @@ export function Library({
           qc.invalidateQueries({ queryKey: ["bookmarks"] });
         }}
       />
+    </div>
+  );
+}
+
+function useColumns() {
+  const get = () => {
+    if (typeof window.matchMedia !== "function") return 1;
+    return window.matchMedia("(min-width: 1024px)").matches
+      ? 3
+      : window.matchMedia("(min-width: 640px)").matches
+        ? 2
+        : 1;
+  };
+  const [cols, setCols] = useState(get);
+  useEffect(() => {
+    const onResize = () => setCols(get());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return cols;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const rows: T[][] = [];
+  for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size));
+  return rows;
+}
+
+function CardGrid({ bookmarks, selected, onToggle, onOpen }: { bookmarks: Bookmark[]; selected: Set<string>; onToggle: (uuid: string) => void; onOpen: (b: Bookmark) => void }) {
+  const columns = useColumns();
+  const rows = useMemo(() => chunk(bookmarks, columns), [bookmarks, columns]);
+  const virtualizer = useWindowVirtualizer({
+    count: rows.length,
+    estimateSize: () => 240,
+    overscan: 2,
+  });
+  return (
+    <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+      {virtualizer.getVirtualItems().map((vi) => (
+        <div
+          key={vi.key}
+          data-index={vi.index}
+          ref={virtualizer.measureElement}
+          style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vi.start}px)` }}
+        >
+          <div className="grid grid-cols-1 gap-3 pb-3 sm:grid-cols-2 lg:grid-cols-3">
+            {rows[vi.index].map((b) => (
+              <Card key={b.uuid} bookmark={b} selected={selected.has(b.uuid)} onToggle={() => onToggle(b.uuid)} onOpen={() => onOpen(b)} />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -256,30 +306,43 @@ function Card({ bookmark: b, selected, onToggle, onOpen }: { bookmark: Bookmark;
   );
 }
 
-function Rows({ bookmarks, selected, onToggle, onOpen }: { bookmarks: Bookmark[]; selected: Set<string>; onToggle: (uuid: string) => void; onOpen: (b: Bookmark) => void }) {
+function RowList({ bookmarks, selected, onToggle, onOpen }: { bookmarks: Bookmark[]; selected: Set<string>; onToggle: (uuid: string) => void; onOpen: (b: Bookmark) => void }) {
+  const virtualizer = useWindowVirtualizer({
+    count: bookmarks.length,
+    estimateSize: () => 56,
+    overscan: 5,
+  });
   return (
     <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-      {bookmarks.map((b) => (
-        <div
-          key={b.uuid}
-          className={`flex w-full items-center gap-3 border-b border-neutral-100 px-4 py-2 text-left text-sm last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/50 ${selected.has(b.uuid) ? "bg-accent-50 dark:bg-accent-700/10" : ""}`}
-        >
-          <input type="checkbox" checked={selected.has(b.uuid)} onChange={() => onToggle(b.uuid)} className="h-4 w-4 shrink-0 accent-[#2549a8]" title="Select" />
-          <button onClick={() => onOpen(b)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-            <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{displayId(b)}</span>
-            <span className="min-w-0 flex-1 truncate font-medium">{b.title}</span>
-            {b.snippet && (
-              <span
-                className="hidden max-w-64 flex-1 truncate text-xs text-neutral-400 lg:block [&_b]:text-accent-700"
-                dangerouslySetInnerHTML={{ __html: b.snippet }}
-              />
-            )}
-            <span className="hidden max-w-48 truncate text-xs text-neutral-400 sm:block">{domainOf(b.url)}</span>
-            <StatusDot b={b} />
-            <span className="w-16 shrink-0 text-right text-xs text-neutral-400">{ageOf(b.created_at)}</span>
-          </button>
-        </div>
-      ))}
+      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+        {virtualizer.getVirtualItems().map((vi) => {
+          const b = bookmarks[vi.index];
+          return (
+            <div
+              key={b.uuid}
+              data-index={vi.index}
+              ref={virtualizer.measureElement}
+              style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vi.start}px)` }}
+              className={`flex w-full items-center gap-3 border-b border-neutral-100 bg-white px-4 py-2 text-left text-sm last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:bg-neutral-800/50 ${selected.has(b.uuid) ? "bg-accent-50 dark:bg-accent-700/10" : ""}`}
+            >
+              <input type="checkbox" checked={selected.has(b.uuid)} onChange={() => onToggle(b.uuid)} className="h-4 w-4 shrink-0 accent-[#2549a8]" title="Select" />
+              <button onClick={() => onOpen(b)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{displayId(b)}</span>
+                <span className="min-w-0 flex-1 truncate font-medium">{b.title}</span>
+                {b.snippet && (
+                  <span
+                    className="hidden max-w-64 flex-1 truncate text-xs text-neutral-400 lg:block [&_b]:text-accent-700"
+                    dangerouslySetInnerHTML={{ __html: b.snippet }}
+                  />
+                )}
+                <span className="hidden max-w-48 truncate text-xs text-neutral-400 sm:block">{domainOf(b.url)}</span>
+                <StatusDot b={b} />
+                <span className="w-16 shrink-0 text-right text-xs text-neutral-400">{ageOf(b.created_at)}</span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
