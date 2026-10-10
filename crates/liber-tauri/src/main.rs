@@ -25,6 +25,7 @@ fn list_bookmarks(
     page: Option<usize>,
     per_page: Option<usize>,
     scope: Option<String>,
+    deep: Option<bool>,
 ) -> Result<ListResponse, String> {
     let store = open_store(&state)?;
     let mode = resolve_sort_mode(sort.as_deref(), q.as_deref()).map_err(|e| e.to_string())?;
@@ -42,15 +43,47 @@ fn list_bookmarks(
     let per_page = per_page.unwrap_or(50).clamp(1, 500);
     let page_num = page.unwrap_or(1).max(1);
     let start = (page_num - 1) * per_page;
-    let (found, total) = store
+    let (mut found, mut total) = store
         .query_bookmarks(&filter, mode, per_page, start)
         .map_err(|e| e.to_string())?;
+    let mut snippets: std::collections::HashMap<uuid::Uuid, String> =
+        std::collections::HashMap::new();
+    if deep.unwrap_or(false) {
+        if let Some(q) = &q {
+            if !q.trim().is_empty() {
+                let mut seen: std::collections::HashSet<uuid::Uuid> =
+                    found.iter().map(|b| b.uuid).collect();
+                for (uuid, _score, fragment) in
+                    liber_core::search::deep_search_with_snippets(&store, q, 200, &fields)
+                        .map_err(|e| e.to_string())?
+                {
+                    if seen.insert(uuid) {
+                        if let Some(b) = store.get(&uuid).map_err(|e| e.to_string())? {
+                            if !fragment.trim().is_empty() {
+                                snippets.insert(uuid, fragment);
+                            }
+                            found.push(b);
+                            total += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
     let ordered = order_results(found, q.as_deref().unwrap_or(""), mode);
+    let mut bookmarks: Vec<TauriBookmark> = ordered.iter().map(TauriBookmark::from).collect();
+    for b in &mut bookmarks {
+        if let Ok(uuid) = b.uuid.parse::<uuid::Uuid>() {
+            if let Some(fragment) = snippets.remove(&uuid) {
+                b.snippet = Some(fragment);
+            }
+        }
+    }
     Ok(ListResponse {
         total,
         page: page_num,
         per_page,
-        bookmarks: ordered.iter().map(TauriBookmark::from).collect(),
+        bookmarks,
     })
 }
 

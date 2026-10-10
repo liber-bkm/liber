@@ -53,6 +53,7 @@ pub struct TauriBookmark {
     pub open_count: u64,
     pub attachments: Vec<String>,
     pub last_opened_at: Option<String>,
+    pub snippet: Option<String>,
 }
 
 impl From<&liber_core::model::Bookmark> for TauriBookmark {
@@ -72,6 +73,7 @@ impl From<&liber_core::model::Bookmark> for TauriBookmark {
             open_count: b.open_count,
             attachments: b.attachments.iter().map(|a| a.name.clone()).collect(),
             last_opened_at: b.last_opened_at.map(|t| t.to_rfc3339()),
+            snippet: None,
         }
     }
 }

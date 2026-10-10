@@ -344,7 +344,7 @@ fn build_schema() -> (Schema, Field, Field, Field, Field, Field, Field, Field) {
     let url = builder.add_text_field("url", TEXT);
     let tags = builder.add_text_field("tags", TEXT);
     let folder = builder.add_text_field("folder", TEXT);
-    let content = builder.add_text_field("content", TEXT);
+    let content = builder.add_text_field("content", TEXT | STORED);
     (
         builder.build(),
         uuid,
@@ -400,7 +400,17 @@ impl SearchIndex {
     pub fn open_or_create(dir: &Path) -> Result<Self, CoreError> {
         let (schema, _, _, _, _, _, _, _) = build_schema();
         let index = if dir.join("meta.json").exists() {
-            Index::open_in_dir(dir).map_err(map_err)?
+            let existing = Index::open_in_dir(dir).map_err(map_err)?;
+            if existing.schema() != schema {
+                drop(existing);
+                std::fs::remove_dir_all(dir)
+                    .map_err(|e| CoreError::Storage(format!("migrating index: {e}")))?;
+                std::fs::create_dir_all(dir)
+                    .map_err(|e| CoreError::Storage(format!("migrating index: {e}")))?;
+                Index::create_in_dir(dir, schema).map_err(map_err)?
+            } else {
+                existing
+            }
         } else {
             std::fs::create_dir_all(dir).map_err(|e| CoreError::Storage(e.to_string()))?;
             Index::create_in_dir(dir, schema).map_err(map_err)?
@@ -499,6 +509,47 @@ impl SearchIndex {
         }
         Ok(out)
     }
+
+    pub fn search_with_snippets(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(Uuid, f32, String)>, CoreError> {
+        self.reader.reload().map_err(map_err)?;
+        let searcher = self.reader.searcher();
+        let parser = QueryParser::for_index(
+            &self.index,
+            vec![
+                self.title,
+                self.description,
+                self.url,
+                self.tags,
+                self.folder,
+                self.content,
+            ],
+        );
+        let q = parser.parse_query(query).map_err(map_err)?;
+        let top = searcher
+            .search(&q, &TopDocs::with_limit(limit))
+            .map_err(map_err)?;
+        let mut gen =
+            tantivy::SnippetGenerator::create(&searcher, &q, self.content).map_err(map_err)?;
+        gen.set_max_num_chars(200);
+        let mut out = Vec::new();
+        for (score, addr) in top {
+            let doc: tantivy::TantivyDocument = searcher.doc(addr).map_err(map_err)?;
+            let val = doc
+                .get_first(self.uuid)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| CoreError::Storage("index doc missing uuid".to_string()))?;
+            let uuid: Uuid = val
+                .parse()
+                .map_err(|e| CoreError::Storage(format!("bad uuid in index: {e}")))?;
+            let fragment = gen.snippet_from_doc(&doc).to_html();
+            out.push((uuid, score, fragment));
+        }
+        Ok(out)
+    }
 }
 
 fn map_err<E: std::fmt::Display>(e: E) -> CoreError {
@@ -521,6 +572,20 @@ pub fn deep_search_uuids(
         .into_iter()
         .map(|(uuid, _)| uuid)
         .collect())
+}
+
+pub fn deep_search_with_snippets(
+    store: &crate::store::Store,
+    query: &str,
+    limit: usize,
+    default: &SearchFields,
+) -> Result<Vec<(Uuid, f32, String)>, CoreError> {
+    let dir = store.cfg.tantivy_dir();
+    if !dir.join("meta.json").exists() {
+        return Ok(Vec::new());
+    }
+    let index = SearchIndex::open_or_create(&dir)?;
+    index.search_with_snippets(&scoped_tantivy_query(query, default), limit)
 }
 
 #[cfg(test)]
@@ -719,6 +784,27 @@ mod tests {
         assert_eq!(
             scoped_tantivy_query("rust", &two),
             "(title:\"rust\" OR url:\"rust\")"
+        );
+    }
+
+    #[test]
+    fn tantivy_snippets_highlight_matches() {
+        let idx = SearchIndex::open_in_memory().unwrap();
+        let a = bookmark("Rust programming guide", "https://example.com/rust");
+        idx.index_bookmark(&a, "systems language borrow checker triumphs here")
+            .unwrap();
+        let hits = idx.search_with_snippets("borrow", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, a.uuid);
+        assert!(
+            hits[0].2.contains("<b>borrow</b>"),
+            "fragment: {}",
+            hits[0].2
+        );
+        let plain = hits[0].2.replace("<b>", "").replace("</b>", "");
+        assert!(
+            !plain.contains('<') && !plain.contains('>'),
+            "unescaped html: {plain}"
         );
     }
 

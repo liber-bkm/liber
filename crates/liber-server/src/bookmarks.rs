@@ -64,16 +64,21 @@ pub async fn list_bookmarks(
     let (mut found, mut total) = store
         .query_bookmarks(&filter, sort, per_page, start)
         .map_err(core_err)?;
+    let mut snippets: std::collections::HashMap<uuid::Uuid, String> =
+        std::collections::HashMap::new();
     if p.deep.unwrap_or(false) {
         if let Some(q) = &p.q {
             if !q.trim().is_empty() {
                 let mut seen: std::collections::HashSet<uuid::Uuid> =
                     found.iter().map(|b| b.uuid).collect();
-                let deep = liber_core::search::deep_search_uuids(&store, q, 200, &scope)
+                let deep = liber_core::search::deep_search_with_snippets(&store, q, 200, &scope)
                     .map_err(core_err)?;
-                for uuid in deep {
+                for (uuid, _score, fragment) in deep {
                     if seen.insert(uuid) {
                         if let Some(b) = store.get(&uuid).map_err(core_err)? {
+                            if !fragment.trim().is_empty() {
+                                snippets.insert(uuid, fragment);
+                            }
                             found.push(b);
                             total += 1;
                         }
@@ -83,7 +88,16 @@ pub async fn list_bookmarks(
         }
     }
     let ordered = order_results(found, p.q.as_deref().unwrap_or(""), sort);
-    let slice: Vec<ApiBookmark> = ordered.iter().map(ApiBookmark::from).collect();
+    let mut slice: Vec<ApiBookmark> = ordered.iter().map(ApiBookmark::from).collect();
+    for b in &mut slice {
+        if b.snippet.is_none() {
+            if let Ok(uuid) = b.uuid.parse::<uuid::Uuid>() {
+                if let Some(fragment) = snippets.remove(&uuid) {
+                    b.snippet = Some(fragment);
+                }
+            }
+        }
+    }
     Ok(Json(ListResponse {
         total,
         page,

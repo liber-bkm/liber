@@ -23,6 +23,8 @@ pub struct ApiBookmark {
     pub updated_at: String,
     pub has_markdown: bool,
     pub has_archive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<ApiAttachment>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,6 +47,7 @@ impl From<&Bookmark> for ApiBookmark {
             updated_at: b.updated_at.to_rfc3339(),
             has_markdown: b.markdown_file.is_some(),
             has_archive: b.archive_file.is_some(),
+            snippet: None,
             attachments: b
                 .attachments
                 .iter()

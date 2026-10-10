@@ -94,6 +94,7 @@ interface TauriBookmarkPayload {
   open_count: number;
   last_opened_at?: string | null;
   attachments?: string[];
+  snippet?: string | null;
 }
 
 interface TauriListResponse {
@@ -119,6 +120,7 @@ function toBookmark(b: TauriBookmarkPayload): Bookmark {
     open_count: b.open_count,
     last_opened_at: b.last_opened_at ?? undefined,
     attachments: (b.attachments ?? []).map((name) => ({ name })),
+    snippet: b.snippet ?? undefined,
   };
 }
 
@@ -141,6 +143,7 @@ export async function listBookmarks(params: ListParams = {}): Promise<BookmarkLi
     page: params.page ?? null,
     per_page: params.per_page ?? null,
     scope: params.scope ?? null,
+    deep: params.deep ?? null,
   });
   return toBookmarkList(r);
 }
