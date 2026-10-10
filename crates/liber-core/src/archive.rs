@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use lol_html::{doc_text, element, html_content::ContentType, text, HtmlRewriter, Settings};
+use lol_html::{
+    doc_text, element, end_tag, html_content::ContentType, text, HtmlRewriter, Settings,
+};
 use uuid::Uuid;
 
 use crate::store::{Config, Store};
@@ -723,6 +725,87 @@ pub fn extract_archive_text(html: &str) -> String {
     collapsed.chars().take(1 << 20).collect()
 }
 
+pub fn extract_readable_text(html: &str) -> String {
+    let mut stripped = Vec::new();
+    let mut stripper = HtmlRewriter::new(
+        Settings {
+            element_content_handlers: vec![element!(
+                "script, style, nav, aside, footer, header, form, noscript, iframe, select, button, input, dialog, menu",
+                |el| {
+                    el.remove();
+                    Ok(())
+                }
+            )],
+            ..Settings::default()
+        },
+        |chunk: &[u8]| stripped.extend_from_slice(chunk),
+    );
+    let _ = stripper.write(html.as_bytes());
+    let _ = stripper.end();
+    let mut marked = Vec::new();
+    let mut marker = HtmlRewriter::new(
+        Settings {
+            element_content_handlers: vec![element!(
+                "p, li, blockquote, pre, h1, h2, h3, h4, h5, h6",
+                |el| {
+                    el.prepend("\n\x02", ContentType::Text);
+                    Ok(())
+                }
+            )],
+            ..Settings::default()
+        },
+        |chunk: &[u8]| marked.extend_from_slice(chunk),
+    );
+    let _ = marker.write(&stripped);
+    let _ = marker.end();
+    let mut closed = Vec::new();
+    let mut closer = HtmlRewriter::new(
+        Settings {
+            element_content_handlers: vec![element!(
+                "p, li, blockquote, pre, h1, h2, h3, h4, h5, h6",
+                |el| {
+                    el.on_end_tag(end_tag!(move |end| {
+                        end.after("\x03\n", ContentType::Text);
+                        Ok(())
+                    }))?;
+                    Ok(())
+                }
+            )],
+            ..Settings::default()
+        },
+        |chunk: &[u8]| closed.extend_from_slice(chunk),
+    );
+    let _ = closer.write(&marked);
+    let _ = closer.end();
+    let text = Mutex::new(String::new());
+    let mut rewriter = HtmlRewriter::new(
+        Settings {
+            document_content_handlers: vec![doc_text!(|t| {
+                text.lock().unwrap().push_str(t.as_str());
+                Ok(())
+            })],
+            ..Settings::default()
+        },
+        |_: &[u8]| {},
+    );
+    let _ = rewriter.write(&closed);
+    let _ = rewriter.end();
+    let text = text.into_inner().unwrap();
+    let mut blocks = Vec::new();
+    for part in text.split('\x02') {
+        let seg = part.split('\x03').next().unwrap_or("");
+        let line = seg.split_whitespace().collect::<Vec<_>>().join(" ");
+        if line.chars().count() >= 20 {
+            blocks.push(line);
+        }
+    }
+    let joined = blocks.join("\n\n");
+    if blocks.is_empty() {
+        return extract_archive_text(html);
+    }
+    joined.chars().take(1 << 20).collect()
+}
+
 fn fetch_page(
     client: &reqwest::blocking::Client,
     url: &str,
@@ -1007,6 +1090,21 @@ mod tests {
             "<p>Hello</p><script>var x=1</script><style>p{}</style><p>World</p>",
         );
         assert_eq!(text, "Hello World");
+    }
+
+    #[test]
+    fn readable_drops_chrome_keeps_article() {
+        let html = "<html><body><nav><ul><li>Home</li><li>About</li></ul></nav><article><h1>Real Title Here</h1><p>This is the actual article body with more than enough words to pass every length threshold in the extractor.</p><p>A second paragraph continues the story with further details and context for the reader.</p></article><footer>copyright 2026</footer></body></html>";
+        let text = extract_readable_text(html);
+        assert!(text.contains("actual article body"), "article kept: {text}");
+        assert!(!text.contains("Home"), "nav dropped: {text}");
+        assert!(!text.contains("copyright"), "footer dropped: {text}");
+    }
+
+    #[test]
+    fn readable_falls_back_on_thin_pages() {
+        let html = "<html><body><div>Just a short line of text here</div></body></html>";
+        assert_eq!(extract_readable_text(html), extract_archive_text(html));
     }
 
     #[test]
