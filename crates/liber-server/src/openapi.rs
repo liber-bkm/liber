@@ -1,6 +1,6 @@
 use utoipa::OpenApi;
 
-use crate::api::{AddRequest, ApiBookmark, ErrorBody, ListResponse, UpdateRequest};
+use crate::api::{AddAttachment, AddRequest, ApiBookmark, ErrorBody, ListResponse, UpdateRequest};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -59,7 +59,14 @@ use crate::api::{AddRequest, ApiBookmark, ErrorBody, ListResponse, UpdateRequest
         crate::auth::login_submit,
         crate::auth::logout,
     ),
-    components(schemas(ApiBookmark, AddRequest, UpdateRequest, ListResponse, ErrorBody,))
+    components(schemas(
+        ApiBookmark,
+        AddAttachment,
+        AddRequest,
+        UpdateRequest,
+        ListResponse,
+        ErrorBody,
+    ))
 )]
 pub struct ApiDoc;
 

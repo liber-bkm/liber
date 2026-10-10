@@ -105,6 +105,7 @@ async fn add_bookmark(
     markdown: Option<bool>,
     archive: Option<bool>,
     confirm_dup: Option<bool>,
+    attachments: Option<Vec<NewAttachment>>,
 ) -> Result<AddResult, String> {
     if url.trim().is_empty() {
         return Err("url is required".to_string());
@@ -123,10 +124,18 @@ async fn add_bookmark(
             markdown,
             archive,
             confirm_dup,
+            attachments: attachments.unwrap_or_default(),
         })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct NewAttachment {
+    name: String,
+    #[serde(default)]
+    content: String,
 }
 
 struct AddJob {
@@ -140,6 +149,7 @@ struct AddJob {
     markdown: Option<bool>,
     archive: Option<bool>,
     confirm_dup: Option<bool>,
+    attachments: Vec<NewAttachment>,
 }
 
 fn add_bookmark_blocking(job: AddJob) -> Result<AddResult, String> {
@@ -154,6 +164,7 @@ fn add_bookmark_blocking(job: AddJob) -> Result<AddResult, String> {
         markdown,
         archive,
         confirm_dup,
+        attachments,
     } = job;
     let _guard = mu.lock().map_err(|e| e.to_string())?;
     let mut store = Store::open(cfg).map_err(|e| e.to_string())?;
@@ -181,6 +192,36 @@ fn add_bookmark_blocking(job: AddJob) -> Result<AddResult, String> {
             } else {
                 b
             };
+            for at in &attachments {
+                use base64::Engine;
+                if at.name.trim().is_empty() {
+                    warnings.push("attachment skipped: name is required".to_string());
+                    continue;
+                }
+                if at.content.len() > 32 << 20 {
+                    warnings.push(format!("attachment skipped: {} too large", at.name));
+                    continue;
+                }
+                match base64::engine::general_purpose::STANDARD.decode(at.content.as_bytes()) {
+                    Err(_) => warnings.push(format!(
+                        "attachment skipped: {} is not valid base64",
+                        at.name
+                    )),
+                    Ok(data) => match liber_core::attach::attach_bytes(
+                        &mut store,
+                        &b.uuid,
+                        at.name.trim(),
+                        &data,
+                    ) {
+                        Ok(_) => {}
+                        Err(e) => warnings.push(format!(
+                            "attachment skipped: could not attach {}: {e}",
+                            at.name
+                        )),
+                    },
+                }
+            }
+            let b = store.get(&b.uuid).map_err(|e| e.to_string())?.unwrap_or(b);
             Ok(AddResult {
                 status: "created".to_string(),
                 bookmark: TauriBookmark::from(&b),

@@ -82,6 +82,13 @@ pub struct ListResponse {
 }
 
 #[derive(Debug, Deserialize, Default, utoipa::ToSchema)]
+pub struct AddAttachment {
+    pub name: String,
+    #[serde(default)]
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize, Default, utoipa::ToSchema)]
 pub struct AddRequest {
     pub url: String,
     pub title: Option<String>,
@@ -95,6 +102,8 @@ pub struct AddRequest {
     pub archive: bool,
     #[serde(default)]
     pub confirm_dup: bool,
+    #[serde(default)]
+    pub attachments: Vec<AddAttachment>,
 }
 
 #[derive(Debug, Deserialize, Default, utoipa::ToSchema)]

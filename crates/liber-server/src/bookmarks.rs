@@ -165,6 +165,36 @@ pub async fn add_bookmark(
             } else {
                 b
             };
+            for at in &input.attachments {
+                use base64::Engine;
+                if at.name.trim().is_empty() {
+                    warnings.push("attachment skipped: name is required".to_string());
+                    continue;
+                }
+                if at.content.len() > 32 << 20 {
+                    warnings.push(format!("attachment skipped: {} too large", at.name));
+                    continue;
+                }
+                match base64::engine::general_purpose::STANDARD.decode(at.content.as_bytes()) {
+                    Err(_) => warnings.push(format!(
+                        "attachment skipped: {} is not valid base64",
+                        at.name
+                    )),
+                    Ok(data) => match liber_core::attach::attach_bytes(
+                        &mut store,
+                        &b.uuid,
+                        at.name.trim(),
+                        &data,
+                    ) {
+                        Ok(_) => {}
+                        Err(e) => warnings.push(format!(
+                            "attachment skipped: could not attach {}: {e}",
+                            at.name
+                        )),
+                    },
+                }
+            }
+            let b = store.get(&b.uuid).map_err(core_err)?.unwrap_or(b);
             let mut v = serde_json::to_value(ApiBookmark::from(&b)).unwrap_or_default();
             if !warnings.is_empty() {
                 v["warnings"] = serde_json::to_value(warnings).unwrap_or_default();
@@ -1453,5 +1483,33 @@ mod tests {
         let (status, v) = body_json(res).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(v["error"], "not found");
+    }
+
+    #[tokio::test]
+    async fn add_with_attachments_warns_per_file() {
+        use base64::Engine;
+        let (app, _dir) = test_state("");
+        let good = base64::engine::general_purpose::STANDARD.encode(b"hello");
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(post_json(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({
+                        "url": "https://example.com/a",
+                        "attachments": [
+                            {"name": "a.txt", "content": good},
+                            {"name": "", "content": good},
+                            {"name": "b.txt", "content": "!!!"},
+                        ],
+                    }),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(v["attachments"].as_array().unwrap().len(), 1);
+        let warnings = v["warnings"].as_array().unwrap();
+        assert_eq!(warnings.len(), 2);
     }
 }
