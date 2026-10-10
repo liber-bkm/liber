@@ -20,6 +20,8 @@ pub struct MergeReport {
     pub renumbered: usize,
     pub short_ids_assigned: usize,
     pub short_ids_compacted: usize,
+    pub artifacts: usize,
+    pub skipped: usize,
 }
 
 fn entry_key(
@@ -138,17 +140,20 @@ pub fn replay_entries(
             .then_with(|| a.device_id.cmp(&b.device_id))
             .then_with(|| a.seq.cmp(&b.seq))
     });
+    let was_indexing = store.auto_index();
+    store.set_auto_index(false);
+    let mut touched: Vec<(Uuid, bool)> = Vec::new();
     for e in ordered {
         let key = entry_key(&e.device_id, &e.ts, &e.op, &e.uuid);
         if store.oplog_applied(&key)? {
             continue;
         }
+        let before = rep.merged + rep.inserted + rep.deleted + rep.renumbered + rep.artifacts;
         match e.op.as_str() {
-            "upsert" => {
-                let incoming: Bookmark = serde_json::from_value(e.payload.clone())
-                    .map_err(|err| CoreError::Storage(err.to_string()))?;
-                replay_upsert(store, &incoming, &mut rep)?;
-            }
+            "upsert" => match serde_json::from_value::<Bookmark>(e.payload.clone()) {
+                Ok(incoming) => replay_upsert(store, &incoming, &mut rep)?,
+                Err(_) => rep.skipped += 1,
+            },
             "delete" => {
                 replay_delete(store, &e.payload, &mut rep)?;
             }
@@ -194,16 +199,155 @@ pub fn replay_entries(
                     rep.rules += 1;
                 }
             }
+            "attach" => replay_attach(store, &e.payload, &mut rep)?,
+            "notes_save" => replay_notes_save(store, &e.payload, &e.ts, &mut rep)?,
+            "notes_del" => replay_notes_del(store, &e.payload, &mut rep)?,
+            "archive_add" => replay_archive_add(store, &e.payload, &mut rep)?,
+            "archive_del" => replay_archive_del(store, &e.payload, &mut rep)?,
             _ => {}
+        }
+        if rep.merged + rep.inserted + rep.deleted + rep.renumbered + rep.artifacts > before {
+            if let Some(uuid) = e.uuid {
+                touched.push((uuid, e.op == "delete"));
+            }
         }
         store.oplog_mark_applied(&key)?;
     }
-    let changed = rep.merged + rep.inserted + rep.deleted + rep.rules + rep.renumbered;
+    let changed =
+        rep.merged + rep.inserted + rep.deleted + rep.rules + rep.renumbered + rep.artifacts;
     if changed > 0 {
         rep.short_ids_assigned = store.backfill_short_ids()?;
         rep.short_ids_compacted = store.compact_short_ids()?.len();
     }
+    store.set_auto_index(was_indexing);
+    if was_indexing {
+        let _ = crate::search::batch_reindex(store, &touched);
+    }
     Ok(rep)
+}
+
+fn replay_uuid(payload: &serde_json::Value) -> Option<Uuid> {
+    payload
+        .get("uuid")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+}
+
+fn replay_str<'a>(payload: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    payload.get(key).and_then(|v| v.as_str())
+}
+
+fn replay_attach(
+    store: &mut Store,
+    payload: &serde_json::Value,
+    rep: &mut MergeReport,
+) -> Result<(), CoreError> {
+    let (Some(uuid), Some(name), Some(path)) = (
+        replay_uuid(payload),
+        replay_str(payload, "name"),
+        replay_str(payload, "path"),
+    ) else {
+        rep.skipped += 1;
+        return Ok(());
+    };
+    let Some(local) = store.get(&uuid)? else {
+        rep.skipped += 1;
+        return Ok(());
+    };
+    if local.attachments.iter().any(|a| a.path == path) {
+        rep.artifacts += 1;
+        return Ok(());
+    }
+    store.add_attachment(&uuid, name.to_string(), path.to_string())?;
+    rep.artifacts += 1;
+    Ok(())
+}
+
+fn replay_notes_save(
+    store: &mut Store,
+    payload: &serde_json::Value,
+    ts: &chrono::DateTime<chrono::Utc>,
+    rep: &mut MergeReport,
+) -> Result<(), CoreError> {
+    let (Some(uuid), Some(body)) = (replay_uuid(payload), replay_str(payload, "body")) else {
+        rep.skipped += 1;
+        return Ok(());
+    };
+    let Some(local) = store.get(&uuid)? else {
+        rep.skipped += 1;
+        return Ok(());
+    };
+    if *ts <= local.updated_at {
+        rep.skipped += 1;
+        return Ok(());
+    }
+    crate::edit::save_note_body(store, &uuid, body)?;
+    rep.artifacts += 1;
+    Ok(())
+}
+
+fn replay_notes_del(
+    store: &mut Store,
+    payload: &serde_json::Value,
+    rep: &mut MergeReport,
+) -> Result<(), CoreError> {
+    let Some(uuid) = replay_uuid(payload) else {
+        rep.skipped += 1;
+        return Ok(());
+    };
+    if store.get(&uuid)?.is_none() {
+        rep.skipped += 1;
+        return Ok(());
+    }
+    if crate::edit::remove_note_body(store, &uuid)? {
+        rep.artifacts += 1;
+    } else {
+        rep.skipped += 1;
+    }
+    Ok(())
+}
+
+fn replay_archive_add(
+    store: &mut Store,
+    payload: &serde_json::Value,
+    rep: &mut MergeReport,
+) -> Result<(), CoreError> {
+    let (Some(uuid), Some(path)) = (replay_uuid(payload), replay_str(payload, "path")) else {
+        rep.skipped += 1;
+        return Ok(());
+    };
+    let Some(local) = store.get(&uuid)? else {
+        rep.skipped += 1;
+        return Ok(());
+    };
+    if local.archive_file.as_deref() == Some(path) {
+        rep.artifacts += 1;
+        return Ok(());
+    }
+    crate::archive::adopt_archive_path(store, &uuid, path)?;
+    rep.artifacts += 1;
+    Ok(())
+}
+
+fn replay_archive_del(
+    store: &mut Store,
+    payload: &serde_json::Value,
+    rep: &mut MergeReport,
+) -> Result<(), CoreError> {
+    let Some(uuid) = replay_uuid(payload) else {
+        rep.skipped += 1;
+        return Ok(());
+    };
+    if store.get(&uuid)?.is_none() {
+        rep.skipped += 1;
+        return Ok(());
+    }
+    if crate::edit::remove_archive_file(store, &uuid)? {
+        rep.artifacts += 1;
+    } else {
+        rep.skipped += 1;
+    }
+    Ok(())
 }
 
 fn replay_upsert(
@@ -589,5 +733,152 @@ mod tests {
         let rep = replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
         assert_eq!(rep.deduped, 1);
         assert_eq!(b.list_rules().unwrap().len(), 2);
+    }
+
+    fn artifact_entry(
+        uuid: Uuid,
+        op: &str,
+        payload: serde_json::Value,
+        ts: DateTime<Utc>,
+    ) -> crate::model::OpLogEntry {
+        crate::model::OpLogEntry {
+            seq: 999,
+            uuid: Some(uuid),
+            device_id: "a".to_string(),
+            ts,
+            op: op.to_string(),
+            payload,
+        }
+    }
+
+    #[test]
+    fn artifact_ops_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        let ba = add(&mut a, "https://example.com/a", "A");
+        let src = dir.path().join("file.txt");
+        std::fs::write(&src, "data").unwrap();
+        crate::attach::attach_file(&mut a, &ba.uuid, &src).unwrap();
+        crate::edit::save_note_body(&mut a, &ba.uuid, "note body").unwrap();
+        let arc_dir = a.cfg.archive_dir();
+        std::fs::create_dir_all(&arc_dir).unwrap();
+        std::fs::write(arc_dir.join("a.html"), "<html></html>").unwrap();
+        crate::archive::adopt_archive_path(&mut a, &ba.uuid, "a.html").unwrap();
+
+        let rep = replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        assert!(rep.artifacts >= 3, "report: {rep:?}");
+        let got = b.get(&ba.uuid).unwrap().unwrap();
+        assert_eq!(got.attachments.len(), 1);
+        assert_eq!(got.archive_file.as_deref(), Some("a.html"));
+        assert_eq!(
+            crate::edit::read_note_body(&b, &ba.uuid).unwrap(),
+            Some("note body".to_string())
+        );
+    }
+
+    #[test]
+    fn artifact_ops_skip_gracefully() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = device_store(dir.path(), "b");
+        let missing = Uuid::new_v4();
+        let now = Utc::now();
+        let entries = vec![
+            artifact_entry(
+                missing,
+                "attach",
+                serde_json::json!({"uuid": missing.to_string(), "name": "f", "path": "f"}),
+                now,
+            ),
+            artifact_entry(
+                missing,
+                "notes_save",
+                serde_json::json!({"uuid": missing.to_string(), "body": "x"}),
+                now,
+            ),
+            artifact_entry(
+                missing,
+                "notes_del",
+                serde_json::json!({"uuid": missing.to_string()}),
+                now,
+            ),
+            artifact_entry(
+                missing,
+                "archive_add",
+                serde_json::json!({"uuid": missing.to_string(), "path": "a.html"}),
+                now,
+            ),
+            artifact_entry(
+                missing,
+                "archive_del",
+                serde_json::json!({"uuid": missing.to_string()}),
+                now,
+            ),
+            artifact_entry(missing, "bogus-op", serde_json::json!({}), now),
+        ];
+        let rep = replay_entries(&mut b, &entries).unwrap();
+        assert_eq!(rep.artifacts, 0);
+        assert_eq!(rep.skipped, 5);
+    }
+
+    #[test]
+    fn malformed_upsert_no_longer_breaks_import() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = device_store(dir.path(), "b");
+        let uuid = Uuid::new_v4();
+        let entries = vec![artifact_entry(
+            uuid,
+            "upsert",
+            serde_json::json!({"uuid": uuid.to_string(), "name": "legacy-attach"}),
+            Utc::now(),
+        )];
+        let rep = replay_entries(&mut b, &entries).unwrap();
+        assert_eq!(rep.skipped, 1);
+        assert!(b.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn attach_after_delete_skips() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut a = device_store(dir.path(), "a");
+        let mut b = device_store(dir.path(), "b");
+        let ba = add(&mut a, "https://example.com/a", "A");
+        replay_entries(&mut b, &export_bundle(&a, None).unwrap()).unwrap();
+        b.delete_bookmark(&ba.uuid).unwrap();
+        let entries = vec![artifact_entry(
+            ba.uuid,
+            "attach",
+            serde_json::json!({
+                "uuid": ba.uuid.to_string(),
+                "name": "f",
+                "path": "f",
+            }),
+            Utc::now(),
+        )];
+        let rep = replay_entries(&mut b, &entries).unwrap();
+        assert_eq!(rep.artifacts, 0);
+        assert_eq!(rep.skipped, 1);
+        assert!(b.get(&ba.uuid).unwrap().is_none());
+    }
+
+    #[test]
+    fn stale_notes_save_loses_to_newer_local() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = device_store(dir.path(), "b");
+        let ba = add(&mut b, "https://example.com/a", "A");
+        crate::edit::save_note_body(&mut b, &ba.uuid, "local notes").unwrap();
+        let old = artifact_entry(
+            ba.uuid,
+            "notes_save",
+            serde_json::json!({"uuid": ba.uuid.to_string(), "body": "stale remote"}),
+            DateTime::<Utc>::MIN_UTC,
+        );
+        let rep = replay_entries(&mut b, &[old]).unwrap();
+        assert_eq!(rep.artifacts, 0);
+        assert_eq!(rep.skipped, 1);
+        assert_eq!(
+            crate::edit::read_note_body(&b, &ba.uuid).unwrap(),
+            Some("local notes".to_string())
+        );
     }
 }

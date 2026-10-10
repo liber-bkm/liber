@@ -141,6 +141,7 @@ pub struct MaintenanceStatus {
 pub struct Store {
     conn: Connection,
     pub cfg: Config,
+    auto_index: bool,
 }
 
 fn row_bookmark(row: &Row) -> rusqlite::Result<Bookmark> {
@@ -296,15 +297,29 @@ impl Store {
         }
         let conn = Self::connect(Some(&db))?;
         Self::migrate(&conn)?;
-        Ok(Self { conn, cfg })
+        Ok(Self {
+            conn,
+            cfg,
+            auto_index: true,
+        })
     }
 
     pub fn open_in_memory(cfg: Config) -> Result<Self, CoreError> {
         let conn = Self::connect(None)?;
         Self::migrate(&conn)?;
-        Ok(Self { conn, cfg })
+        Ok(Self {
+            conn,
+            cfg,
+            auto_index: true,
+        })
+    }
+    pub fn set_auto_index(&mut self, on: bool) {
+        self.auto_index = on;
     }
 
+    pub fn auto_index(&self) -> bool {
+        self.auto_index
+    }
     fn attachments_of(&self, uuid: &Uuid) -> Result<Vec<Attachment>, CoreError> {
         let mut stmt = self
             .conn
@@ -1017,8 +1032,12 @@ impl Store {
                 params![uuid.to_string(), name, path],
             )
             .map_err(|e| CoreError::Storage(e.to_string()))?;
-        let payload = serde_json::json!({"uuid": uuid.to_string(), "name": name});
-        self.append_oplog(Some(*uuid), "upsert", payload)
+        let payload = serde_json::json!({
+            "uuid": uuid.to_string(),
+            "name": name,
+            "path": path,
+        });
+        self.append_oplog(Some(*uuid), "attach", payload)
     }
 
     pub fn remove_attachment(&mut self, uuid: &Uuid, path: &str) -> Result<bool, CoreError> {

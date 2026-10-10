@@ -107,6 +107,8 @@ pub fn apply_edit(
         MarkdownAction::Remove => {
             if let Some(rel) = b.markdown_file.take() {
                 let _ = std::fs::remove_file(store.cfg.markdown_dir().join(&rel));
+                let payload = serde_json::json!({"uuid": uuid.to_string()});
+                store.append_oplog(Some(*uuid), "notes_del", payload)?;
             }
             if !b.html_file.is_empty() {
                 write_html_bookmark(&store.cfg.html_dir().join(&b.html_file), &b)?;
@@ -131,6 +133,8 @@ pub fn apply_edit(
         ArchiveAction::Remove => {
             if let Some(rel) = b.archive_file.take() {
                 let _ = std::fs::remove_file(store.cfg.archive_dir().join(&rel));
+                let payload = serde_json::json!({"uuid": uuid.to_string()});
+                store.append_oplog(Some(*uuid), "archive_del", payload)?;
             }
             store.update_bookmark(&b)?;
             b = store
@@ -159,6 +163,7 @@ pub fn apply_edit(
     let b = store
         .get(uuid)?
         .ok_or_else(|| CoreError::NotFound(uuid.to_string()))?;
+    let _ = crate::search::reindex_one(store, &b.uuid);
     Ok(EditApplied {
         bookmark: b,
         warnings,
@@ -329,7 +334,41 @@ pub fn save_note_body(store: &mut Store, uuid: &Uuid, body: &str) -> Result<(), 
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, doc).map_err(|e| CoreError::Storage(e.to_string()))?;
     std::fs::rename(&tmp, &path).map_err(|e| CoreError::Storage(e.to_string()))?;
-    store.update_bookmark(&b)
+    store.update_bookmark(&b)?;
+    let payload = serde_json::json!({"uuid": uuid.to_string(), "body": body});
+    store.append_oplog(Some(*uuid), "notes_save", payload)?;
+    let _ = crate::search::reindex_one(store, uuid);
+    Ok(())
+}
+
+pub fn remove_note_body(store: &mut Store, uuid: &Uuid) -> Result<bool, CoreError> {
+    let Some(mut b) = store.get(uuid)? else {
+        return Err(CoreError::NotFound(uuid.to_string()));
+    };
+    let Some(rel) = b.markdown_file.take() else {
+        return Ok(false);
+    };
+    let _ = std::fs::remove_file(store.cfg.markdown_dir().join(&rel));
+    store.update_bookmark(&b)?;
+    let payload = serde_json::json!({"uuid": uuid.to_string()});
+    store.append_oplog(Some(*uuid), "notes_del", payload)?;
+    let _ = crate::search::reindex_one(store, uuid);
+    Ok(true)
+}
+
+pub fn remove_archive_file(store: &mut Store, uuid: &Uuid) -> Result<bool, CoreError> {
+    let Some(mut b) = store.get(uuid)? else {
+        return Err(CoreError::NotFound(uuid.to_string()));
+    };
+    let Some(rel) = b.archive_file.take() else {
+        return Ok(false);
+    };
+    let _ = std::fs::remove_file(store.cfg.archive_dir().join(&rel));
+    store.update_bookmark(&b)?;
+    let payload = serde_json::json!({"uuid": uuid.to_string()});
+    store.append_oplog(Some(*uuid), "archive_del", payload)?;
+    let _ = crate::search::reindex_one(store, uuid);
+    Ok(true)
 }
 
 #[cfg(test)]

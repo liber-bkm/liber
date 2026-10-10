@@ -588,6 +588,50 @@ pub fn deep_search_with_snippets(
     index.search_with_snippets(&scoped_tantivy_query(query, default), limit)
 }
 
+pub fn reindex_one(store: &crate::store::Store, uuid: &Uuid) -> Result<(), CoreError> {
+    if !store.auto_index() {
+        return Ok(());
+    }
+    let index = SearchIndex::open_or_create(&store.cfg.tantivy_dir())?;
+    match store.get(uuid)? {
+        None => index.delete_bookmark(uuid),
+        Some(b) => {
+            let content = crate::reindex::index_content(store, &b);
+            index.index_bookmark(&b, &content)
+        }
+    }
+}
+
+pub fn drop_one(store: &crate::store::Store, uuid: &Uuid) -> Result<(), CoreError> {
+    if !store.auto_index() {
+        return Ok(());
+    }
+    if !store.cfg.tantivy_dir().join("meta.json").exists() {
+        return Ok(());
+    }
+    let index = SearchIndex::open_or_create(&store.cfg.tantivy_dir())?;
+    index.delete_bookmark(uuid)
+}
+
+pub fn batch_reindex(
+    store: &crate::store::Store,
+    touched: &[(Uuid, bool)],
+) -> Result<(), CoreError> {
+    if touched.is_empty() {
+        return Ok(());
+    }
+    let index = SearchIndex::open_or_create(&store.cfg.tantivy_dir())?;
+    for (uuid, removed) in touched {
+        if *removed {
+            index.delete_bookmark(uuid)?;
+        } else if let Some(b) = store.get(uuid)? {
+            let content = crate::reindex::index_content(store, &b);
+            index.index_bookmark(&b, &content)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -785,6 +829,50 @@ mod tests {
             scoped_tantivy_query("rust", &two),
             "(title:\"rust\" OR url:\"rust\")"
         );
+    }
+
+    #[test]
+    fn writes_stay_indexed_without_reindex() {
+        use crate::create::{create_bookmark, CreateOptions};
+        use crate::store::{Config, Store};
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(Config {
+            base_dir: dir.path().to_path_buf(),
+            device_id: "test-device".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+        let b = create_bookmark(
+            &mut store,
+            "https://example.com/fresh",
+            CreateOptions {
+                title: Some("Fresh zxylophone".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let hits =
+            deep_search_with_snippets(&store, "zxylophone", 10, &SearchFields::all()).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, b.uuid);
+
+        crate::edit::edit_bookmark(
+            &mut store,
+            &b.uuid,
+            crate::edit::EditOptions {
+                title: Some("Renamed qwerticle".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let hits =
+            deep_search_with_snippets(&store, "qwerticle", 10, &SearchFields::all()).unwrap();
+        assert_eq!(hits.len(), 1);
+
+        crate::edit::delete_bookmark_with_files(&mut store, &b.uuid).unwrap();
+        let hits =
+            deep_search_with_snippets(&store, "qwerticle", 10, &SearchFields::all()).unwrap();
+        assert!(hits.is_empty());
     }
 
     #[test]

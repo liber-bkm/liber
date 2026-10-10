@@ -176,6 +176,9 @@ pub fn import_data(
     archive: bool,
 ) -> Result<ImportReport, CoreError> {
     let mut report = ImportReport::default();
+    let was_indexing = store.auto_index();
+    store.set_auto_index(false);
+    let mut added: Vec<uuid::Uuid> = Vec::new();
     for e in parse_netscape(content) {
         if e.url.trim().is_empty() {
             report.skipped_bad += 1;
@@ -210,12 +213,18 @@ pub fn import_data(
                             .push(format!("warning: archive failed for {url}: {err}"));
                     }
                 }
+                added.push(b.uuid);
                 report.added += 1;
             }
             Err(err) => report
                 .warnings
                 .push(format!("warning: could not import {url}: {err}")),
         }
+    }
+    store.set_auto_index(was_indexing);
+    if was_indexing {
+        let touched: Vec<(uuid::Uuid, bool)> = added.into_iter().map(|u| (u, false)).collect();
+        let _ = crate::search::batch_reindex(store, &touched);
     }
     Ok(report)
 }
