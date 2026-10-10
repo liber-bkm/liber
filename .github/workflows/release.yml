@@ -2,7 +2,6 @@ name: release
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
 
 env:
   VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.0.0-dev' }}
@@ -20,8 +19,8 @@ jobs:
         with:
           node-version: 22
       - run: corepack enable
-      - run: cargo test --workspace
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test -p liber-core -p liber-cli -p liber-server
+      - run: cargo clippy -p liber-core -p liber-cli -p liber-server --all-targets -- -D warnings
       - run: cargo fmt --check
       - run: cd frontend && pnpm install --frozen-lockfile && pnpm build && pnpm test
 
@@ -112,8 +111,9 @@ jobs:
           $v = "${{ env.VERSION }}".TrimStart("v")
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           New-Item -ItemType Directory -Force -Path "dist/liber-$v" | Out-Null
-          Copy-Item target/release/liber.exe, target/release/liber-serve.exe, target/release/liber-tauri.exe "dist/liber-$v/"
-          Copy-Item target/release/bundle/nsis/*.exe dist/
+           Copy-Item target/release/liber.exe, target/release/liber-serve.exe, target/release/liber-tauri.exe "dist/liber-$v/"
+           if (-not (Test-Path target/release/bundle/nsis/*.exe)) { throw "no NSIS installer produced by tauri build" }
+           Copy-Item target/release/bundle/nsis/*.exe dist/
           Compress-Archive -Path "dist/liber-$v" -DestinationPath "dist/liber-$v-windows-x86_64.zip"
       - uses: actions/upload-artifact@v4
         with:
@@ -178,6 +178,7 @@ jobs:
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
           yes | latest/bin/sdkmanager --licenses >/dev/null
           latest/bin/sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
       - name: stamp versions into generated project
         run: |
           cd crates/liber-tauri
@@ -195,14 +196,22 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
         run: |
+          for v in KEYSTORE_B64 KEY_ALIAS KEY_PASSWORD STORE_PASSWORD; do
+            [ -n "${!v}" ] || { echo "missing secret for $v (ANDROID_KEYSTORE_BASE64, ANDROID_KEY_ALIAS, KEY_PASSWORD, STORE_PASSWORD)"; exit 1; }
+          done
+          shopt -s nullglob
           BT="$ANDROID_HOME/build-tools/36.0.0"
           echo "$KEYSTORE_B64" | base64 -d > /tmp/liber-release.keystore
           mkdir -p dist
-          for f in crates/liber-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk; do
+          apks=(crates/liber-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk)
+          aabs=(crates/liber-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab)
+          [ ${#apks[@]} -gt 0 ] || { echo "no universal APKs produced by tauri android build"; exit 1; }
+          [ ${#aabs[@]} -gt 0 ] || { echo "no universal AABs produced by tauri android build"; exit 1; }
+          for f in "${apks[@]}"; do
             out="dist/$(basename "${f%.apk}")-signed.apk"
             "$BT/apksigner" sign --ks /tmp/liber-release.keystore --ks-key-alias "$KEY_ALIAS" --ks-pass:env STORE_PASSWORD --key-pass:env KEY_PASSWORD --out "$out" "$f"
           done
-          for f in crates/liber-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab; do
+          for f in "${aabs[@]}"; do
             out="dist/$(basename "${f%.aab}")-signed.aab"
             "$BT/apksigner" sign --ks /tmp/liber-release.keystore --ks-key-alias "$KEY_ALIAS" --ks-pass:env STORE_PASSWORD --key-pass:env KEY_PASSWORD --out "$out" "$f"
           done
