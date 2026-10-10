@@ -918,6 +918,43 @@
         }
       }
     },
+    "/api/v2/favicons/{host}": {
+      "get": {
+        "tags": [
+          "crate::library"
+        ],
+        "operationId": "get_favicon",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "Hostname to fetch the icon for",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Site icon bytes",
+            "content": {
+              "image/png": {}
+            }
+          },
+          "404": {
+            "description": "No usable icon",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/folders": {
       "get": {
         "tags": [
@@ -2128,6 +2165,12 @@
               "null"
             ],
             "format": "int64"
+          },
+          "snippet": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "tags": {
             "type": "array",

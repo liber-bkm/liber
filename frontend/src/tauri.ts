@@ -148,6 +148,25 @@ export async function listBookmarks(params: ListParams = {}): Promise<BookmarkLi
   return toBookmarkList(r);
 }
 
+export function faviconUrl(host: string): string {
+  const path = `/api/v2/favicons/${encodeURIComponent(host)}`;
+  const base = getRemoteBase();
+  return base ? `${base}${path}` : path;
+}
+
+export function faviconHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
+export async function fetchFaviconContent(host: string): Promise<{ mime: string; content: string }> {
+  if (!isTauri()) throw new Error("fetchFaviconContent is Tauri-only; use faviconUrl on web");
+  return invokeCmd("fetch_favicon", { host });
+}
+
 export async function fetchBookmark(uuid: string): Promise<Bookmark> {
   if (!isTauri() || useRemote()) return restGet(uuid);
   const b = await invokeCmd<TauriBookmarkPayload>("get_bookmark", { id: uuid });
