@@ -292,7 +292,11 @@ pub fn delete_bookmark_with_files(store: &mut Store, uuid: &Uuid) -> Result<bool
     for at in &b.attachments {
         let _ = std::fs::remove_file(store.cfg.attachment_dir().join(&at.path));
     }
-    store.delete_bookmark(uuid)
+    let gone = store.delete_bookmark(uuid)?;
+    if gone {
+        let _ = crate::search::drop_one(store, uuid);
+    }
+    Ok(gone)
 }
 
 pub fn read_note_body(store: &Store, uuid: &Uuid) -> Result<Option<String>, CoreError> {
