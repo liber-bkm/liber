@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownWideNarrow, LayoutGrid, Search, Table2 } from "lucide-react";
 import { ageOf, displayId, domainOf, type Bookmark } from "../api";
-import { listBookmarks } from "../tauri";
+import { faviconHost, faviconUrl, fetchFaviconContent, isTauri, listBookmarks } from "../tauri";
 import { Badge, Empty, Input, Spinner } from "../components/ui";
 import { BulkBar } from "../components/BulkBar";
 

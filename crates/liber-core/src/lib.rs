@@ -11,6 +11,7 @@ pub mod discovery;
 pub mod edit;
 pub mod error;
 pub mod export;
+pub mod favicon;
 pub mod idspec;
 pub mod import;
 pub mod model;

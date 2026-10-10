@@ -128,6 +128,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/v2/library/export-site", post(library::export_site_ep))
         .route("/api/v2/library/backup", get(library::backup_library))
+        .route("/api/v2/favicons/:host", get(library::get_favicon))
         .route(
             "/api/v2/library/restore",
             post(library::restore_library).route_layer(axum::extract::DefaultBodyLimit::disable()),

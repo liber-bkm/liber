@@ -1241,6 +1241,39 @@ fn sync_commit(
     }
 }
 
+#[tauri::command]
+async fn fetch_favicon(
+    state: State<'_, AppState>,
+    host: String,
+) -> Result<serde_json::Value, String> {
+    let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    let dir = cfg.profile_dir();
+    if let Some(hit) = liber_core::favicon::cached_icon(&dir, &host.to_lowercase()) {
+        return read_icon(&hit);
+    }
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        liber_core::favicon::fetch_host_icon(&dir, &host)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    read_icon(&path)
+}
+
+fn read_icon(path: &std::path::Path) -> Result<serde_json::Value, String> {
+    use base64::Engine;
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_string();
+    let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "mime": liber_core::favicon::icon_mime(&ext),
+        "content": base64::engine::general_purpose::STANDARD.encode(&data),
+    }))
+}
+
 fn resolve_app_config(
     app: &tauri::AppHandle,
 ) -> Result<(liber_core::store::Config, std::path::PathBuf), String> {
@@ -1298,6 +1331,7 @@ pub(crate) fn main() {
             upload_attachment,
             delete_attachment,
             download_attachment,
+            fetch_favicon,
             open_archive_external,
             open_attachment_external,
             import_library,

@@ -1,5 +1,5 @@
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::Json;
 use axum::response::{IntoResponse, Response};
@@ -112,6 +112,59 @@ pub async fn backup_library(State(state): State<AppState>) -> Result<Response, A
         .into_response())
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v2/favicons/{host}",
+    params(("host" = String, Path, description = "Hostname to fetch the icon for")),
+    responses(
+        (status = 200, description = "Site icon bytes", content_type = "image/png"),
+        (status = 404, description = "No usable icon", body = Object),
+    )
+)]
+pub async fn get_favicon(State(state): State<AppState>, Path(host): Path<String>) -> Response {
+    let cfg = crate::live_config(&state);
+    let dir = cfg.profile_dir();
+    if let Some(hit) = liber_core::favicon::cached_icon(&dir, &host.to_lowercase()) {
+        return file_response(&hit).await;
+    }
+    let fetched =
+        tokio::task::spawn_blocking(move || liber_core::favicon::fetch_host_icon(&dir, &host))
+            .await;
+    match fetched {
+        Ok(Ok(path)) => file_response(&path).await,
+        _ => (
+            StatusCode::NOT_FOUND,
+            [(header::CONTENT_TYPE, "text/plain")],
+            "no favicon",
+        )
+            .into_response(),
+    }
+}
+
+async fn file_response(path: &std::path::Path) -> Response {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_string();
+    match tokio::fs::read(path).await {
+        Ok(data) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, liber_core::favicon::icon_mime(&ext)),
+                (header::CACHE_CONTROL, "public, max-age=86400"),
+            ],
+            data,
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            [(header::CONTENT_TYPE, "text/plain")],
+            "no favicon",
+        )
+            .into_response(),
+    }
+}
 #[derive(Deserialize, Default)]
 pub struct RestoreBody {
     #[serde(default)]
@@ -263,6 +316,15 @@ mod tests {
     fn post(uri: &str, v: serde_json::Value) -> Request<Body> {
         Request::builder()
             .method("POST")
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(v.to_string()))
+            .unwrap()
+    }
+
+    fn put(uri: &str, v: serde_json::Value) -> Request<Body> {
+        Request::builder()
+            .method("PUT")
             .uri(uri)
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(v.to_string()))
@@ -457,6 +519,86 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(v["total"], 1);
+    }
+
+    #[tokio::test]
+    async fn favicon_rejects_bad_host_and_misses_cleanly() {
+        let (app, _dir) = test_app();
+        for uri in [
+            "/api/v2/favicons/",
+            "/api/v2/favicons/bad%20host",
+            "/api/v2/favicons/127.0.0.1",
+        ] {
+            let res = app
+                .clone()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert!(
+                res.status() == StatusCode::NOT_FOUND || res.status() == StatusCode::BAD_REQUEST,
+                "{uri}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn deep_search_returns_snippets() {
+        let (app, _dir) = test_app();
+        let (status, bytes) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "https://example.com/a"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let uuid = v["uuid"].as_str().unwrap().to_string();
+        assert!(v.get("snippet").is_none());
+
+        let (status, _) = body(
+            app.clone()
+                .oneshot(put(
+                    format!("/api/v2/bookmarks/{uuid}/notes").as_str(),
+                    serde_json::json!({"body": "wombat husbandry notes"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _) = body(
+            app.clone()
+                .oneshot(post("/api/v2/reindex", serde_json::json!({})))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, bytes) = body(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/v2/bookmarks?q=wombat&deep=true")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let rows = v["bookmarks"].as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        let snippet = rows[0]["snippet"].as_str().unwrap();
+        assert!(snippet.contains("<b>wombat</b>"), "{snippet}");
+        assert!(!snippet.contains("uuid:"), "frontmatter leaked: {snippet}");
     }
 }
 
