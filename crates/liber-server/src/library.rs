@@ -274,9 +274,19 @@ pub async fn import_library(
     Json(input): Json<ImportBody>,
 ) -> Result<Json<serde_json::Value>, ApiErr> {
     let _guard = state.write_mu.lock().await;
-    let mut store = store_of(&state)?;
-    let report =
-        import_data(&mut store, &input.content, input.markdown, input.archive).map_err(core_err)?;
+    let cfg = crate::live_config(&state);
+    let report = tokio::task::spawn_blocking(move || {
+        let mut store = Store::open(cfg)?;
+        import_data(&mut store, &input.content, input.markdown, input.archive)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+    })?
+    .map_err(core_err)?;
     Ok(Json(serde_json::json!({
         "added": report.added,
         "skipped_dup": report.skipped_dup,

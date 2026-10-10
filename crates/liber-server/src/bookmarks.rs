@@ -152,7 +152,19 @@ pub async fn add_bookmark(
         Ok(b) => {
             let mut warnings = Vec::new();
             let b = if input.archive {
-                match liber_core::archive::archive_bookmark(&mut store, &b.uuid, None) {
+                let cfg = crate::live_config(&state);
+                let uuid = b.uuid;
+                match tokio::task::spawn_blocking(move || {
+                    let mut store = Store::open(cfg)?;
+                    liber_core::archive::archive_bookmark(&mut store, &uuid, None)
+                })
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": e.to_string()})),
+                    )
+                })? {
                     Ok(w) => {
                         warnings.extend(w);
                         store.get(&b.uuid).map_err(core_err)?.unwrap_or(b)
@@ -270,7 +282,7 @@ pub async fn update_bookmark(
     Path(id): Path<String>,
     Json(input): Json<UpdateRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
-    use liber_core::edit::{apply_edit, ArchiveAction, EditDraft, MarkdownAction};
+    use liber_core::edit::{ArchiveAction, EditDraft, MarkdownAction};
     if let Some(t) = &input.title {
         if t.trim().is_empty() {
             return Err(err(StatusCode::BAD_REQUEST, "title must not be empty"));
@@ -307,7 +319,20 @@ pub async fn update_bookmark(
         attach_paths: Vec::new(),
         detach: input.detach,
     };
-    let mut applied = apply_edit(&mut store, &hits.remove(0).uuid, draft).map_err(core_err)?;
+    let uuid = hits.remove(0).uuid;
+    let cfg = crate::live_config(&state);
+    let mut applied = tokio::task::spawn_blocking(move || {
+        let mut store = Store::open(cfg)?;
+        liber_core::edit::apply_edit(&mut store, &uuid, draft)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+    })?
+    .map_err(core_err)?;
     for at in &input.attachments {
         use base64::Engine;
         if at.name.trim().is_empty() {
@@ -632,17 +657,27 @@ pub async fn post_archive(
 ) -> Result<Json<serde_json::Value>, ApiErr> {
     let target = resolve_one(&state, &id).await?;
     let _guard = state.write_mu.lock().await;
-    let mut store = open_store(&state)?;
-    let applied = liber_core::edit::apply_edit(
-        &mut store,
-        &target.uuid,
-        liber_core::edit::EditDraft {
-            archive: liber_core::edit::ArchiveAction::Add {
-                backend: input.backend,
+    let cfg = crate::live_config(&state);
+    let uuid = target.uuid;
+    let backend = input.backend;
+    let applied = tokio::task::spawn_blocking(move || {
+        let mut store = Store::open(cfg)?;
+        liber_core::edit::apply_edit(
+            &mut store,
+            &uuid,
+            liber_core::edit::EditDraft {
+                archive: liber_core::edit::ArchiveAction::Add { backend },
+                ..Default::default()
             },
-            ..Default::default()
-        },
-    )
+        )
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e.to_string()})),
+        )
+    })?
     .map_err(core_err)?;
     Ok(Json(serde_json::json!({
         "ok": true,
