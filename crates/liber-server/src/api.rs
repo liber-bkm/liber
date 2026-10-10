@@ -113,6 +113,12 @@ pub struct UpdateRequest {
     pub tags: Option<Vec<String>>,
     pub folder: Option<String>,
     pub url: Option<String>,
+    pub markdown: Option<bool>,
+    pub archive: Option<bool>,
+    #[serde(default)]
+    pub attachments: Vec<AddAttachment>,
+    #[serde(default)]
+    pub detach: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default, utoipa::IntoParams)]

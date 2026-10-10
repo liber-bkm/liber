@@ -261,7 +261,12 @@ fn update_bookmark(
     tags: Option<Vec<String>>,
     folder: Option<String>,
     url: Option<String>,
-) -> Result<TauriBookmark, String> {
+    markdown: Option<bool>,
+    archive: Option<bool>,
+    attachments: Option<Vec<NewAttachment>>,
+    detach: Option<Vec<String>>,
+) -> Result<serde_json::Value, String> {
+    use liber_core::edit::{apply_edit, ArchiveAction, EditDraft, MarkdownAction};
     if let Some(t) = &title {
         if t.trim().is_empty() {
             return Err("title must not be empty".to_string());
@@ -275,20 +280,72 @@ fn update_bookmark(
     let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
     let mut store = open_store(&state)?;
     let target = resolve_one(&store, &id)?;
-    let out = edit_bookmark(
+    let mut applied = apply_edit(
         &mut store,
         &target.uuid,
-        EditOptions {
+        EditDraft {
             title,
             description,
             tags,
             folder,
             url,
-            add_markdown: false,
+            markdown: match markdown {
+                Some(true) => MarkdownAction::Add,
+                Some(false) => MarkdownAction::Remove,
+                None => MarkdownAction::Keep,
+            },
+            archive: match archive {
+                Some(true) => ArchiveAction::Add { backend: None },
+                Some(false) => ArchiveAction::Remove,
+                None => ArchiveAction::Keep,
+            },
+            attach_paths: Vec::new(),
+            detach: detach.unwrap_or_default(),
         },
     )
     .map_err(|e| e.to_string())?;
-    Ok(TauriBookmark::from(&out))
+    for at in attachments.unwrap_or_default() {
+        use base64::Engine;
+        if at.name.trim().is_empty() {
+            applied
+                .warnings
+                .push("attachment skipped: name is required".to_string());
+            continue;
+        }
+        if at.content.len() > 32 << 20 {
+            applied
+                .warnings
+                .push(format!("attachment skipped: {} too large", at.name));
+            continue;
+        }
+        match base64::engine::general_purpose::STANDARD.decode(at.content.as_bytes()) {
+            Err(_) => applied.warnings.push(format!(
+                "attachment skipped: {} is not valid base64",
+                at.name
+            )),
+            Ok(data) => match liber_core::attach::attach_bytes(
+                &mut store,
+                &applied.bookmark.uuid,
+                at.name.trim(),
+                &data,
+            ) {
+                Ok(_) => {}
+                Err(e) => applied.warnings.push(format!(
+                    "attachment skipped: could not attach {}: {e}",
+                    at.name
+                )),
+            },
+        }
+    }
+    let bookmark = store
+        .get(&applied.bookmark.uuid)
+        .map_err(|e| e.to_string())?
+        .unwrap_or(applied.bookmark);
+    let mut v = serde_json::to_value(TauriBookmark::from(&bookmark)).map_err(|e| e.to_string())?;
+    if !applied.warnings.is_empty() {
+        v["warnings"] = serde_json::to_value(&applied.warnings).unwrap_or_default();
+    }
+    Ok(v)
 }
 
 #[tauri::command]

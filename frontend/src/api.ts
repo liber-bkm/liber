@@ -167,6 +167,10 @@ export interface UpdateInput {
   tags?: string[];
   folder?: string;
   url?: string;
+  markdown?: boolean;
+  archive?: boolean;
+  attachments?: AddAttachment[];
+  detach?: string[];
 }
 
 export function updateBookmark(uuid: string, input: UpdateInput): Promise<Bookmark> {

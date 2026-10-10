@@ -248,7 +248,7 @@
           }
         ],
         "requestBody": {
-          "description": "Partial fields to update",
+          "description": "Partial fields plus artifact toggles",
           "content": {
             "application/json": {
               "schema": {
@@ -260,7 +260,7 @@
         },
         "responses": {
           "200": {
-            "description": "Updated bookmark",
+            "description": "Updated bookmark, plus warnings when artifact work warns",
             "content": {
               "application/json": {
                 "schema": {
@@ -2255,15 +2255,39 @@
       "UpdateRequest": {
         "type": "object",
         "properties": {
+          "archive": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AddAttachment"
+            }
+          },
           "description": {
             "type": [
               "string",
               "null"
             ]
           },
+          "detach": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "folder": {
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "markdown": {
+            "type": [
+              "boolean",
               "null"
             ]
           },

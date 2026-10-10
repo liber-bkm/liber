@@ -223,6 +223,10 @@ export async function updateBookmark(uuid: string, input: UpdateInput): Promise<
     tags: input.tags ?? null,
     folder: input.folder ?? null,
     url: input.url ?? null,
+    markdown: input.markdown ?? null,
+    archive: input.archive ?? null,
+    attachments: input.attachments ?? null,
+    detach: input.detach ?? null,
   });
   return toBookmark(b);
 }

@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json};
 
 use liber_core::create::{create_bookmark, CreateOptions};
-use liber_core::edit::{delete_bookmark_with_files, edit_bookmark, EditOptions};
+use liber_core::edit::delete_bookmark_with_files;
 use liber_core::search::order_results;
 use liber_core::store::Store;
 
@@ -258,9 +258,9 @@ pub async fn get_bookmark(
     put,
     path = "/api/v2/bookmarks/{id}",
     params(("id" = String, Path, description = "Short id or UUID prefix")),
-    request_body(content = crate::api::UpdateRequest, description = "Partial fields to update"),
+    request_body(content = crate::api::UpdateRequest, description = "Partial fields plus artifact toggles"),
     responses(
-        (status = 200, description = "Updated bookmark", body = crate::api::ApiBookmark),
+        (status = 200, description = "Updated bookmark, plus warnings when artifact work warns", body = crate::api::ApiBookmark),
         (status = 400, description = "Empty title or url", body = crate::api::ErrorBody),
         (status = 404, description = "Not found", body = crate::api::ErrorBody),
     )
@@ -269,7 +269,8 @@ pub async fn update_bookmark(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(input): Json<UpdateRequest>,
-) -> Result<Json<ApiBookmark>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
+    use liber_core::edit::{apply_edit, ArchiveAction, EditDraft, MarkdownAction};
     if let Some(t) = &input.title {
         if t.trim().is_empty() {
             return Err(err(StatusCode::BAD_REQUEST, "title must not be empty"));
@@ -287,16 +288,68 @@ pub async fn update_bookmark(
     if hits.is_empty() {
         return Err(err(StatusCode::NOT_FOUND, "not found"));
     }
-    let opts = EditOptions {
+    let draft = EditDraft {
         title: input.title,
         description: input.description,
         tags: input.tags,
         folder: input.folder,
         url: input.url,
-        add_markdown: false,
+        markdown: match input.markdown {
+            Some(true) => MarkdownAction::Add,
+            Some(false) => MarkdownAction::Remove,
+            None => MarkdownAction::Keep,
+        },
+        archive: match input.archive {
+            Some(true) => ArchiveAction::Add { backend: None },
+            Some(false) => ArchiveAction::Remove,
+            None => ArchiveAction::Keep,
+        },
+        attach_paths: Vec::new(),
+        detach: input.detach,
     };
-    let out = edit_bookmark(&mut store, &hits.remove(0).uuid, opts).map_err(core_err)?;
-    Ok(Json(ApiBookmark::from(&out)))
+    let mut applied = apply_edit(&mut store, &hits.remove(0).uuid, draft).map_err(core_err)?;
+    for at in &input.attachments {
+        use base64::Engine;
+        if at.name.trim().is_empty() {
+            applied
+                .warnings
+                .push("attachment skipped: name is required".to_string());
+            continue;
+        }
+        if at.content.len() > 32 << 20 {
+            applied
+                .warnings
+                .push(format!("attachment skipped: {} too large", at.name));
+            continue;
+        }
+        match base64::engine::general_purpose::STANDARD.decode(at.content.as_bytes()) {
+            Err(_) => applied.warnings.push(format!(
+                "attachment skipped: {} is not valid base64",
+                at.name
+            )),
+            Ok(data) => match liber_core::attach::attach_bytes(
+                &mut store,
+                &applied.bookmark.uuid,
+                at.name.trim(),
+                &data,
+            ) {
+                Ok(_) => {}
+                Err(e) => applied.warnings.push(format!(
+                    "attachment skipped: could not attach {}: {e}",
+                    at.name
+                )),
+            },
+        }
+    }
+    let bookmark = store
+        .get(&applied.bookmark.uuid)
+        .map_err(core_err)?
+        .unwrap_or(applied.bookmark);
+    let mut v = serde_json::to_value(ApiBookmark::from(&bookmark)).unwrap_or_default();
+    if !applied.warnings.is_empty() {
+        v["warnings"] = serde_json::to_value(&applied.warnings).unwrap_or_default();
+    }
+    Ok((StatusCode::OK, Json(v)))
 }
 
 #[utoipa::path(
@@ -1511,5 +1564,77 @@ mod tests {
         assert_eq!(v["attachments"].as_array().unwrap().len(), 1);
         let warnings = v["warnings"].as_array().unwrap();
         assert_eq!(warnings.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn update_toggles_artifacts() {
+        use base64::Engine;
+        let (app, _dir) = test_state("");
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(post_json(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "https://example.com/a"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let uuid = v["uuid"].as_str().unwrap().to_string();
+        assert!(v.get("has_markdown").is_none() || v["has_markdown"] == false);
+
+        let good = base64::engine::general_purpose::STANDARD.encode(b"hello");
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri(format!("/api/v2/bookmarks/{uuid}"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            serde_json::json!({
+                                "title": "Renamed",
+                                "markdown": true,
+                                "archive": false,
+                                "attachments": [
+                                    {"name": "a.txt", "content": good},
+                                    {"name": "b.txt", "content": "!!!"},
+                                ],
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["title"], "Renamed");
+        assert_eq!(v["has_markdown"], true);
+        assert_eq!(v["attachments"].as_array().unwrap().len(), 1);
+        assert_eq!(v["warnings"].as_array().unwrap().len(), 1);
+
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri(format!("/api/v2/bookmarks/{uuid}"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            serde_json::json!({"markdown": false, "detach": ["a.txt"]}).to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["has_markdown"], false);
+        assert!(v.get("attachments").is_none());
+        assert_eq!(v["warnings"], serde_json::json!(["detached a.txt"]));
     }
 }
