@@ -1,4 +1,4 @@
-#!/rub/current-system/sw/bin/sh
+#!/run/current-system/sw/bin/sh
 # bump-version.sh - bump every liber version string in one command.
 #
 #   bash dist/bump-version.sh X.Y.Z [--code N]
