@@ -124,6 +124,21 @@ macOS build is unsigned for now, so Gatekeeper needs a one-time
 `liber` source package under `dist/arch/`; refresh their checksums per
 release with `dist/arch/bump-pkgbuild.sh <version>`.
 
+**Direct downloads (always the latest release):** asset filenames are
+stable, so these links never change. Replace `latest` with
+`download/vX.Y.Z` for a pinned version.
+
+| Platform | Download |
+|---|---|
+| Windows installer | [liber-setup-x64.exe](https://github.com/liber-bkm/liber/releases/latest/download/liber-setup-x64.exe) |
+| Windows portable | [liber-windows-x86_64.zip](https://github.com/liber-bkm/liber/releases/latest/download/liber-windows-x86_64.zip) |
+| Linux x86_64 | [liber-linux-x86_64.tar.gz](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-x86_64.tar.gz) |
+| Linux ARM64 | [liber-linux-aarch64.tar.gz](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-aarch64.tar.gz) |
+| macOS (Apple Silicon and Intel) | [liber-darwin.dmg](https://github.com/liber-bkm/liber/releases/latest/download/liber-darwin.dmg) |
+| macOS CLI tools | [liber-darwin.tar.gz](https://github.com/liber-bkm/liber/releases/latest/download/liber-darwin.tar.gz) |
+| Android app | [liber-app-universal.apk](https://github.com/liber-bkm/liber/releases/latest/download/liber-app-universal.apk) |
+| Android Play upload | [liber-app-universal.aab](https://github.com/liber-bkm/liber/releases/latest/download/liber-app-universal.aab) |
+
 **Without Nix:** install stable Rust (via rustup), Node 22 with pnpm,
 then follow [Building from source](#building-from-source). Only the
 desktop app needs system libraries (webkit stack); CLI and server build

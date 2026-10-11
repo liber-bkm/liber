@@ -16,7 +16,7 @@ sha_of_url() {
 }
 
 echo "fetching release assets for v$ver..."
-tarball_sum="$(sha_of_url "$base/liber-rs-$ver-linux-x86_64.tar.gz")"
+tarball_sum="$(sha_of_url "$base/liber-linux-x86_64.tar.gz")"
 desktop_sum="$(sha_of_url "$raw/dist/arch/liber.desktop")"
 icon32_sum="$(sha_of_url "$raw/crates/liber-tauri/icons/32x32.png")"
 icon128_sum="$(sha_of_url "$raw/crates/liber-tauri/icons/128x128.png")"

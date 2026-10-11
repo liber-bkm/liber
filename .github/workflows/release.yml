@@ -72,7 +72,7 @@ jobs:
           cp target/release/bundle/deb/*.deb release/ 2>/dev/null || true
           cp target/release/bundle/rpm/*.rpm release/ 2>/dev/null || true
           cp target/release/bundle/appimage/*.AppImage release/ 2>/dev/null || true
-          (cd release && tar -czf "liber-$v-linux-${{ matrix.arch }}.tar.gz" "liber-$v")
+          (cd release && tar -czf "liber-linux-${{ matrix.arch }}.tar.gz" "liber-$v")
       - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.arch }}
@@ -101,9 +101,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path release | Out-Null
           New-Item -ItemType Directory -Force -Path "release/liber-$v" | Out-Null
            Copy-Item target/release/liber.exe, target/release/liber-serve.exe, target/release/liber-tauri.exe "release/liber-$v/"
-           if (-not (Test-Path target/release/bundle/nsis/*.exe)) { throw "no NSIS installer produced by tauri build" }
-           Copy-Item target/release/bundle/nsis/*.exe release/
-          Compress-Archive -Path "release/liber-$v" -DestinationPath "release/liber-$v-windows-x86_64.zip"
+           $setups = @(Get-Item target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue)
+           if ($setups.Count -ne 1) { throw "expected exactly one NSIS installer, found $($setups.Count)" }
+           Move-Item $setups[0].FullName "release/liber-setup-x64.exe"
+          Compress-Archive -Path "release/liber-$v" -DestinationPath "release/liber-windows-x86_64.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x86_64
@@ -136,8 +137,8 @@ jobs:
           lipo -create target/aarch64-apple-darwin/release/liber-serve target/x86_64-apple-darwin/release/liber-serve -output release/liber-$v/liber-serve
           dmg=(target/universal-apple-darwin/release/bundle/dmg/*.dmg)
           [ ${#dmg[@]} -eq 1 ] || { echo "expected exactly one dmg, found ${#dmg[@]}"; exit 1; }
-          mv "${dmg[0]}" "release/liber-$v-darwin.dmg"
-          (cd release && tar -czf liber-$v-darwin.tar.gz liber-$v)
+          mv "${dmg[0]}" "release/liber-darwin.dmg"
+          (cd release && tar -czf liber-darwin.tar.gz liber-$v)
       - uses: actions/upload-artifact@v4
         with:
           name: macos-universal
@@ -194,7 +195,6 @@ jobs:
           shopt -s nullglob
           BT="$ANDROID_HOME/build-tools/36.0.0"
           echo "$KEYSTORE_B64" | base64 -d > /tmp/liber-release.keystore
-          v="${VERSION#v}"
           mkdir -p release
           apks=(crates/liber-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk)
           aabs=(crates/liber-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab)
@@ -204,16 +204,16 @@ jobs:
             unzip -l "$f" | grep -q "AndroidManifest.xml" || { echo "artifact has no AndroidManifest.xml: $f"; exit 1; }
           done
           for f in "${apks[@]}"; do
-            out="release/liber-app-universal-$v.apk"
+            out="release/liber-app-universal.apk"
             "$BT/apksigner" sign --min-sdk-version 24 --ks /tmp/liber-release.keystore --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$out" "$f"
           done
           for f in "${aabs[@]}"; do
-            out="release/liber-app-universal-$v.aab"
+            out="release/liber-app-universal.aab"
             "$BT/apksigner" sign --min-sdk-version 24 --ks /tmp/liber-release.keystore --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$out" "$f"
           done
           rm -f /tmp/liber-release.keystore
-          "$BT/apksigner" verify --print-certs "release/liber-app-universal-$v.apk" | head -3
-          "$BT/aapt" dump badging "release/liber-app-universal-$v.apk" | grep -o "version\(Code\|Name\)='[^']*'" | head -2
+          "$BT/apksigner" verify --print-certs "release/liber-app-universal.apk" | head -3
+          "$BT/aapt" dump badging "release/liber-app-universal.apk" | grep -o "version\(Code\|Name\)='[^']*'" | head -2
       - uses: actions/upload-artifact@v4
         with:
           name: android
