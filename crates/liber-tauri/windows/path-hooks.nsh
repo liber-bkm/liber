@@ -12,6 +12,9 @@
 !include "StrFunc.nsh"
 !include "WinMessages.nsh"
 
+${Using:StrFunc} StrStr
+${Using:StrFunc} StrRep
+
 !macro NSIS_HOOK_POSTINSTALL
   ReadRegStr $0 HKCU "Environment" "Path"
   ${StrStr} $1 "$0" "$INSTDIR"
