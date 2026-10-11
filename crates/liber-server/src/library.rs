@@ -40,6 +40,7 @@ pub struct ImportBody {
     pub markdown: bool,
     #[serde(default)]
     pub archive: bool,
+    pub archive_backend: Option<String>,
 }
 
 #[utoipa::path(
@@ -264,7 +265,7 @@ pub async fn restore_library(
 #[utoipa::path(
     post,
     path = "/api/v2/library/import",
-    request_body(content = Object, description = "Netscape file as {content, markdown?, archive?}"),
+    request_body(content = Object, description = "Netscape file as {content, markdown?, archive?, archive_backend?}"),
     responses(
         (status = 200, description = "Added, skipped, and warning counts", body = Object),
     )
@@ -273,11 +274,25 @@ pub async fn import_library(
     State(state): State<AppState>,
     Json(input): Json<ImportBody>,
 ) -> Result<Json<serde_json::Value>, ApiErr> {
+    if let Some(backend) = &input.archive_backend {
+        liber_core::archive::parse_backend(backend).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+    }
     let _guard = state.write_mu.lock().await;
     let cfg = crate::live_config(&state);
     let report = tokio::task::spawn_blocking(move || {
         let mut store = Store::open(cfg)?;
-        import_data(&mut store, &input.content, input.markdown, input.archive)
+        import_data(
+            &mut store,
+            &input.content,
+            input.markdown,
+            input.archive,
+            input.archive_backend.as_deref(),
+        )
     })
     .await
     .map_err(|e| {
@@ -393,7 +408,7 @@ mod tests {
         let (status, bytes) = body(
             app.oneshot(post(
                 "/api/v2/library/import",
-                serde_json::json!({"content": sample, "archive": true}),
+                serde_json::json!({"content": sample, "archive": true, "archive_backend": "builtin"}),
             ))
             .await
             .unwrap(),

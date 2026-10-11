@@ -100,6 +100,7 @@ pub struct AddRequest {
     pub markdown: bool,
     #[serde(default)]
     pub archive: bool,
+    pub archive_backend: Option<String>,
     #[serde(default)]
     pub confirm_dup: bool,
     #[serde(default)]

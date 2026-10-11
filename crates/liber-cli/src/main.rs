@@ -1280,7 +1280,8 @@ fn run_import(a: ImportArgs) -> anyhow::Result<()> {
     let (_, mut store) = load_store()?;
     let data = std::fs::read(&a.file)?;
     let content = String::from_utf8_lossy(&data);
-    let report = liber_core::import::import_data(&mut store, &content, a.markdown, a.archive)?;
+    let report =
+        liber_core::import::import_data(&mut store, &content, a.markdown, a.archive, None)?;
     for w in &report.warnings {
         println!("{w}");
     }

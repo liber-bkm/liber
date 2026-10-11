@@ -124,6 +124,14 @@ pub async fn add_bookmark(
     if input.url.trim().is_empty() {
         return Err(err(StatusCode::BAD_REQUEST, "url is required"));
     }
+    if let Some(backend) = &input.archive_backend {
+        liber_core::archive::parse_backend(backend).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": e.to_string()})),
+            )
+        })?;
+    }
     let _guard = state.write_mu.lock().await;
     let mut store = open_store(&state)?;
     let title = match input.title {
@@ -154,9 +162,10 @@ pub async fn add_bookmark(
             let b = if input.archive {
                 let cfg = crate::live_config(&state);
                 let uuid = b.uuid;
+                let backend = input.archive_backend.clone();
                 match tokio::task::spawn_blocking(move || {
                     let mut store = Store::open(cfg)?;
-                    liber_core::archive::archive_bookmark(&mut store, &uuid, None)
+                    liber_core::archive::archive_bookmark(&mut store, &uuid, backend.as_deref())
                 })
                 .await
                 .map_err(|e| {
@@ -1172,7 +1181,7 @@ mod tests {
             app.clone()
                 .oneshot(post_json(
                     "/api/v2/bookmarks",
-                    serde_json::json!({"url": "http://127.0.0.1:1/unreachable", "archive": true}),
+                    serde_json::json!({"url": "http://127.0.0.1:1/unreachable", "archive": true, "archive_backend": "builtin"}),
                 ))
                 .await
                 .unwrap(),
@@ -1185,6 +1194,22 @@ mod tests {
             .unwrap()
             .contains("archive failed"));
         assert_eq!(v["has_archive"], false);
+    }
+
+    #[tokio::test]
+    async fn add_rejects_bogus_archive_backend() {
+        let (app, _dir) = test_state("");
+        let (status, _) = body_json(
+            app.clone()
+                .oneshot(post_json(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "https://example.com/a", "archive_backend": "bogus"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

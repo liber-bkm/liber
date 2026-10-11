@@ -174,6 +174,7 @@ pub fn import_data(
     content: &str,
     markdown: bool,
     archive: bool,
+    archive_backend: Option<&str>,
 ) -> Result<ImportReport, CoreError> {
     let mut report = ImportReport::default();
     let was_indexing = store.auto_index();
@@ -207,7 +208,7 @@ pub fn import_data(
         ) {
             Ok(b) => {
                 if archive {
-                    if let Err(err) = archive_bookmark(store, &b.uuid, None) {
+                    if let Err(err) = archive_bookmark(store, &b.uuid, archive_backend) {
                         report
                             .warnings
                             .push(format!("warning: archive failed for {url}: {err}"));
@@ -274,10 +275,10 @@ mod tests {
             ..Default::default()
         })
         .unwrap();
-        let report = import_data(&mut store, SAMPLE, false, false).unwrap();
+        let report = import_data(&mut store, SAMPLE, false, false, None).unwrap();
         assert_eq!(report.added, 3);
         assert_eq!(report.skipped_bad, 1);
-        let again = import_data(&mut store, SAMPLE, false, false).unwrap();
+        let again = import_data(&mut store, SAMPLE, false, false, None).unwrap();
         assert_eq!(again.added, 0);
         assert_eq!(again.skipped_dup, 3);
         let all = store.list().unwrap();

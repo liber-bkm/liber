@@ -1217,6 +1217,7 @@ fn import_library(
         &content,
         markdown.unwrap_or(false),
         archive.unwrap_or(false),
+        None,
     )
     .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({

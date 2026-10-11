@@ -1169,7 +1169,7 @@
         ],
         "operationId": "import_library",
         "requestBody": {
-          "description": "Netscape file as {content, markdown?, archive?}",
+          "description": "Netscape file as {content, markdown?, archive?, archive_backend?}",
           "content": {
             "application/json": {
               "schema": {
@@ -2079,6 +2079,12 @@
         "properties": {
           "archive": {
             "type": "boolean"
+          },
+          "archive_backend": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "attachments": {
             "type": "array",
