@@ -327,6 +327,8 @@ Verify with `cargo test --workspace`, `cargo clippy --workspace
 --all-targets -- -D warnings`, `cargo fmt --check`, and
 `cd frontend && pnpm install && pnpm build && pnpm test`.
 
+## Versioning
+
 ## License
 
 GPL-3.0-or-later. See the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html).
