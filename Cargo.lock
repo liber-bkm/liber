@@ -2699,7 +2699,7 @@ dependencies = [
 
 [[package]]
 name = "liber-cli"
-version = "0.1.0"
+version = "0.10.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -2717,7 +2717,7 @@ dependencies = [
 
 [[package]]
 name = "liber-core"
-version = "0.1.0"
+version = "0.10.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2746,7 +2746,7 @@ dependencies = [
 
 [[package]]
 name = "liber-server"
-version = "0.1.0"
+version = "0.10.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -2770,7 +2770,7 @@ dependencies = [
 
 [[package]]
 name = "liber-tauri"
-version = "0.1.0"
+version = "0.10.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use liber_core::create::{create_bookmark, CreateOptions};
 use liber_core::edit::{delete_bookmark_with_files, edit_bookmark, EditOptions};
 use liber_core::search::{order_results, resolve_sort_mode, SearchFields};
