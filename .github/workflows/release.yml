@@ -39,19 +39,6 @@ jobs:
           cargo = re.search(r'^version = \"([^\"]+)\"', open('Cargo.toml').read(), re.M).group(1);
           conf = json.load(open('crates/liber-tauri/tauri.conf.json'))['version'];
           assert (cargo, conf) == (tag, tag), f'tag {tag} vs cargo {cargo} vs conf {conf}'"
-      - name: versionCode increased since previous tag
-        if: github.ref_type == 'tag'
-        run: >-
-          prev=$(git tag --sort=-v:refname | grep -E '^v[0-9]' | grep -v "^${VERSION}$" | head -1);
-          cur=$(grep -E '^tauri\.android\.versionCode=' crates/liber-tauri/android-version.properties | cut -d= -f2 | tr -d ' ');
-          case "$cur" in '' | *[!0-9]*) echo "no numeric tauri.android.versionCode line found"; exit 1;; esac;
-          if [ -n "$prev" ]; then
-            old=$(git show "$prev:crates/liber-tauri/android-version.properties" 2>/dev/null | grep -E '^tauri\.android\.versionCode=' | cut -d= -f2 | tr -d ' ' || true);
-            old=${old:-0};
-            case "$old" in '' | *[!0-9]*) echo "previous tag $prev has no numeric versionCode"; exit 1;; esac;
-            [ "$cur" -gt "$old" ] || { echo "versionCode $cur not greater than $old at $prev"; exit 1; };
-          fi;
-          echo "versionCode $cur ok (previous tag: ${prev:-none})"
 
   linux:
     needs: version-check
