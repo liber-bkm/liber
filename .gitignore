@@ -3,6 +3,7 @@
 frontend/dist/
 frontend/node_modules/
 result*
+/release/
 .README.oml.html
 
 # Android
