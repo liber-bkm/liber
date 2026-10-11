@@ -14,6 +14,7 @@
 
 ${Using:StrFunc} StrStr
 ${Using:StrFunc} StrRep
+${Using:StrFunc} UnStrRep
 
 !macro NSIS_HOOK_POSTINSTALL
   ReadRegStr $0 HKCU "Environment" "Path"

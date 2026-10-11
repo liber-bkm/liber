@@ -131,9 +131,12 @@ jobs:
         run: |
           v="${VERSION#v}"
           mkdir -p dist/liber-$v
+          shopt -s nullglob
           lipo -create target/aarch64-apple-darwin/release/liber target/x86_64-apple-darwin/release/liber -output dist/liber-$v/liber
           lipo -create target/aarch64-apple-darwin/release/liber-serve target/x86_64-apple-darwin/release/liber-serve -output dist/liber-$v/liber-serve
-          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg dist/
+          dmg=(target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          [ ${#dmg[@]} -gt 0 ] || { echo "no dmg produced by tauri build"; exit 1; }
+          cp "${dmg[@]}" dist/
           (cd dist && tar -czf liber-$v-macos-universal.tar.gz liber-$v)
       - uses: actions/upload-artifact@v4
         with:
