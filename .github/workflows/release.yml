@@ -196,13 +196,16 @@ jobs:
           aabs=(crates/liber-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab)
           [ ${#apks[@]} -gt 0 ] || { echo "no universal APKs produced by tauri android build"; exit 1; }
           [ ${#aabs[@]} -gt 0 ] || { echo "no universal AABs produced by tauri android build"; exit 1; }
+          for f in "${apks[@]}" "${aabs[@]}"; do
+            unzip -l "$f" | grep -q "AndroidManifest.xml" || { echo "artifact has no AndroidManifest.xml: $f"; exit 1; }
+          done
           for f in "${apks[@]}"; do
             out="dist/$(basename "${f%.apk}")-signed.apk"
-            "$BT/apksigner" sign --ks /tmp/liber-release.keystore --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$out" "$f"
+            "$BT/apksigner" sign --min-sdk-version 24 --ks /tmp/liber-release.keystore --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$out" "$f"
           done
           for f in "${aabs[@]}"; do
             out="dist/$(basename "${f%.aab}")-signed.aab"
-            "$BT/apksigner" sign --ks /tmp/liber-release.keystore --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$out" "$f"
+            "$BT/apksigner" sign --min-sdk-version 24 --ks /tmp/liber-release.keystore --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out "$out" "$f"
           done
           rm -f /tmp/liber-release.keystore
           "$BT/apksigner" verify --print-certs dist/*signed.apk | head -3

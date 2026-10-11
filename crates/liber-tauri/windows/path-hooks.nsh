@@ -25,9 +25,9 @@ ${Using:StrFunc} StrRep
 
 !macro NSIS_HOOK_POSTUNINSTALL
   ReadRegStr $0 HKCU "Environment" "Path"
-  ${StrRep} $0 "$0" ";$INSTDIR" ""
-  ${StrRep} $0 "$0" "$INSTDIR;" ""
-  ${StrRep} $0 "$0" "$INSTDIR" ""
+  ${UnStrRep} $0 "$0" ";$INSTDIR" ""
+  ${UnStrRep} $0 "$0" "$INSTDIR;" ""
+  ${UnStrRep} $0 "$0" "$INSTDIR" ""
   WriteRegExpandStr HKCU "Environment" "Path" "$0"
   SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
 !macroend
