@@ -107,6 +107,8 @@ pub struct Config {
     pub singlefile_browser_path: String,
     #[serde(default)]
     pub monolith_cmd: String,
+    #[serde(default)]
+    pub saved_searches: Vec<crate::config::SavedSearch>,
 }
 
 impl Config {
