@@ -109,6 +109,57 @@ pub fn cached_icon(profile_dir: &Path, host: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+pub fn remove_cached_icon(profile_dir: &Path, host: &str) {
+    let stem = sanitize_host(&host.to_lowercase());
+    for ext in ICON_EXTS {
+        let _ = std::fs::remove_file(favicon_dir(profile_dir).join(format!("{stem}.{ext}")));
+    }
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct IconRefreshReport {
+    pub hosts: usize,
+    pub fetched: usize,
+    pub cached: usize,
+    pub failed: Vec<String>,
+}
+
+pub fn refresh_host_icon(profile_dir: &Path, host: &str) -> Result<PathBuf, CoreError> {
+    let host = host.trim().to_lowercase();
+    if host.is_empty() || host.contains(['/', '\\', ' ', ':', '?', '#', '@']) {
+        return Err(CoreError::Invalid(format!("bad hostname: {host:?}")));
+    }
+    remove_cached_icon(profile_dir, &host);
+    fetch_host_icon(profile_dir, &host)
+}
+
+pub fn refresh_library_icons(
+    profile_dir: &Path,
+    hosts: &[String],
+    refresh_cached: bool,
+) -> IconRefreshReport {
+    let mut report = IconRefreshReport {
+        hosts: hosts.len(),
+        ..Default::default()
+    };
+    for host in hosts {
+        if !refresh_cached && cached_icon(profile_dir, host).is_some() {
+            report.cached += 1;
+            continue;
+        }
+        let res = if refresh_cached {
+            refresh_host_icon(profile_dir, host)
+        } else {
+            fetch_host_icon(profile_dir, host)
+        };
+        match res {
+            Ok(_) => report.fetched += 1,
+            Err(_) => report.failed.push(host.clone()),
+        }
+    }
+    report
+}
+
 fn icon_href(html: &[u8]) -> Option<String> {
     let found = std::sync::Mutex::new(None::<String>);
     let mut rewriter = lol_html::HtmlRewriter::new(
@@ -288,5 +339,44 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert!(fetch_icon(dir.path(), "http://127.0.0.1:1/none").is_err());
         assert!(cached_icon(dir.path(), "127.0.0.1").is_none());
+    }
+
+    #[test]
+    fn remove_cached_clears_all_exts() {
+        let dir = tempfile::tempdir().unwrap();
+        let favdir = favicon_dir(dir.path());
+        std::fs::create_dir_all(&favdir).unwrap();
+        std::fs::write(favdir.join("example.com.png"), [0x89, b'P', b'N', b'G']).unwrap();
+        assert!(cached_icon(dir.path(), "example.com").is_some());
+        remove_cached_icon(dir.path(), "EXAMPLE.com");
+        assert!(cached_icon(dir.path(), "example.com").is_none());
+    }
+
+    #[test]
+    fn refresh_report_counts_cached_and_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let favdir = favicon_dir(dir.path());
+        std::fs::create_dir_all(&favdir).unwrap();
+        std::fs::write(favdir.join("cached.example.png"), [0x89, b'P', b'N', b'G']).unwrap();
+        let hosts = vec!["cached.example".to_string(), "bad host".to_string()];
+        let report = refresh_library_icons(dir.path(), &hosts, false);
+        assert_eq!(report.hosts, 2);
+        assert_eq!(report.cached, 1);
+        assert_eq!(report.fetched, 0);
+        assert_eq!(report.failed, vec!["bad host".to_string()]);
+    }
+
+    #[test]
+    fn refresh_cached_retries_instead_of_skipping() {
+        let dir = tempfile::tempdir().unwrap();
+        let favdir = favicon_dir(dir.path());
+        std::fs::create_dir_all(&favdir).unwrap();
+        std::fs::write(favdir.join("cached.example.png"), [0x89, b'P', b'N', b'G']).unwrap();
+        let hosts = vec!["cached.example".to_string()];
+        let report = refresh_library_icons(dir.path(), &hosts, true);
+        assert_eq!(report.hosts, 1);
+        assert_eq!(report.cached, 0);
+        assert_eq!(report.fetched + report.failed.len(), 1);
+        assert!(cached_icon(dir.path(), "cached.example").is_none() || report.fetched == 1);
     }
 }
