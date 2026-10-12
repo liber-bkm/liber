@@ -696,6 +696,47 @@ fn delete_profile(state: State<'_, AppState>, name: String) -> Result<serde_json
 }
 
 #[tauri::command]
+fn list_searches(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    Ok(serde_json::json!({"searches": cfg.saved_searches}))
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn add_search(
+    state: State<'_, AppState>,
+    name: String,
+    query: Option<String>,
+    scope: Option<String>,
+    sort: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    let saved = liber_core::config::add_saved_search(
+        &mut cfg,
+        name,
+        query.unwrap_or_default(),
+        scope.unwrap_or_default(),
+        sort.unwrap_or_default(),
+    )
+    .map_err(|e| e.to_string())?;
+    liber_core::config::save_config_to(&state.config_path, &cfg).map_err(|e| e.to_string())?;
+    *state.cfg.lock().map_err(|e| e.to_string())? = cfg;
+    Ok(serde_json::json!({"result": "saved", "search": saved}))
+}
+
+#[tauri::command]
+fn delete_search(state: State<'_, AppState>, name: String) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    let deleted =
+        liber_core::config::delete_saved_search(&mut cfg, &name).map_err(|e| e.to_string())?;
+    liber_core::config::save_config_to(&state.config_path, &cfg).map_err(|e| e.to_string())?;
+    *state.cfg.lock().map_err(|e| e.to_string())? = cfg;
+    Ok(serde_json::json!({"result": "deleted", "name": deleted}))
+}
+
+#[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn bulk_op(
     state: State<'_, AppState>,
@@ -1473,6 +1514,9 @@ pub(crate) fn main() {
             list_profiles,
             switch_profile,
             delete_profile,
+            list_searches,
+            add_search,
+            delete_search,
             sync_commit,
         ])
         .run(tauri::generate_context!())
