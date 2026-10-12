@@ -44,6 +44,7 @@ use crate::api::{AddAttachment, AddRequest, ApiBookmark, ErrorBody, ListResponse
         crate::library::backup_library,
         crate::library::restore_library,
         crate::library::get_favicon,
+        crate::library::refresh_favicons,
         crate::sync::export_oplog,
         crate::sync::import_oplog,
         crate::sync::prune_oplog_ep,

@@ -166,6 +166,59 @@ async fn file_response(path: &std::path::Path) -> Response {
             .into_response(),
     }
 }
+
+#[derive(Deserialize, Default)]
+pub struct RefreshFaviconsBody {
+    #[serde(default)]
+    pub refresh_cached: bool,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v2/favicons/refresh",
+    request_body(content = Object, description = "Refresh as {refresh_cached?}"),
+    responses(
+        (status = 200, description = "Per-host fetch counts with failures listed", body = Object),
+    )
+)]
+pub async fn refresh_favicons(
+    State(state): State<AppState>,
+    Json(input): Json<RefreshFaviconsBody>,
+) -> Result<Json<serde_json::Value>, ApiErr> {
+    let cfg = crate::live_config(&state);
+    let report = tokio::task::spawn_blocking(move || {
+        let store = Store::open(cfg.clone()).map_err(|e| format!("opening store: {e}"))?;
+        let hosts = store
+            .distinct_hosts()
+            .map_err(|e| format!("listing hosts: {e}"))?;
+        let dir = cfg.profile_dir();
+        Ok::<_, String>(liber_core::favicon::refresh_library_icons(
+            &dir,
+            &hosts,
+            input.refresh_cached,
+        ))
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("refresh task: {e}")})),
+        )
+    })?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": e})),
+        )
+    })?;
+    Ok(Json(serde_json::json!({
+        "hosts": report.hosts,
+        "fetched": report.fetched,
+        "cached": report.cached,
+        "failed": report.failed,
+    })))
+}
+
 #[derive(Deserialize, Default)]
 pub struct RestoreBody {
     #[serde(default)]
@@ -564,6 +617,57 @@ mod tests {
                 "{uri}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn favicon_refresh_reports_counts() {
+        let (app, _dir) = test_app();
+        let (status, bytes) = body(
+            app.clone()
+                .oneshot(post("/api/v2/favicons/refresh", serde_json::json!({})))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["hosts"], 0);
+        assert_eq!(v["fetched"], 0);
+        assert_eq!(v["cached"], 0);
+        assert_eq!(v["failed"], serde_json::json!([]));
+
+        let (status, _) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/bookmarks",
+                    serde_json::json!({"url": "http://127.0.0.1:9/none"}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+
+        let (status, bytes) = body(
+            app.clone()
+                .oneshot(post(
+                    "/api/v2/favicons/refresh",
+                    serde_json::json!({"refresh_cached": false}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["hosts"], 1);
+        assert_eq!(
+            v["fetched"].as_u64().unwrap()
+                + v["cached"].as_u64().unwrap()
+                + v["failed"].as_array().unwrap().len() as u64,
+            1
+        );
+        assert_eq!(v["failed"], serde_json::json!(["127.0.0.1"]));
     }
 
     #[tokio::test]
