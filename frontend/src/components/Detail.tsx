@@ -487,11 +487,11 @@ function ArtifactSection({ bookmark: b }: { bookmark: Bookmark }) {
   );
 }
 
-export function AddDialog({ onClose, onAdded, initialUrl = "" }: { onClose: () => void; onAdded: (b: Bookmark) => void; initialUrl?: string }) {
+export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = "", initialTags = "", initialFolder = "" }: { onClose: () => void; onAdded: (b: Bookmark) => void; initialUrl?: string; initialTitle?: string; initialTags?: string; initialFolder?: string }) {
   const [url, setUrl] = useState(initialUrl);
-  const [title, setTitle] = useState("");
-  const [tags, setTags] = useState("");
-  const [folder, setFolder] = useState("");
+  const [title, setTitle] = useState(initialTitle);
+  const [tags, setTags] = useState(initialTags);
+  const [folder, setFolder] = useState(initialFolder);
   const [markdown, setMarkdown] = useState(false);
   const [archive, setArchive] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
