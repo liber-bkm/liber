@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { BookOpen, CheckCircle2, Clock3, FolderTree, Menu, Moon, Plus, Settings as SettingsIcon, Sparkles, Sun, Tags, X } from "lucide-react";
-import { fetchFolders, fetchTags } from "../tauri";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BookOpen, CheckCircle2, Clock3, FolderTree, Menu, Moon, Plus, Search, Settings as SettingsIcon, Sparkles, Sun, Tags, X } from "lucide-react";
+import { deleteSearch, fetchFolders, fetchSearches, fetchTags } from "../tauri";
+import type { SavedSearch } from "../api";
 import { useTheme } from "../theme";
 
 export type View = "library" | "history" | "tags" | "folders" | "rules" | "check" | "settings";
@@ -14,6 +15,7 @@ export function Layout({
   setFolder,
   tag,
   setTag,
+  onApplySearch,
   children,
 }: {
   view: View;
@@ -23,6 +25,7 @@ export function Layout({
   setFolder: (f: string | null) => void;
   tag: string | null;
   setTag: (t: string | null) => void;
+  onApplySearch: (s: SavedSearch) => void;
   children: React.ReactNode;
 }) {
   const { effective, setTheme } = useTheme();
@@ -92,6 +95,7 @@ export function Layout({
           </button>
         ))}
       </div>
+      <SavedSearches onApply={(s) => go(() => onApplySearch(s))()} />
     </>
   );
 
@@ -132,8 +136,41 @@ export function Layout({
   );
 }
 
-function NavItem({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+export function SavedSearches({ onApply }: { onApply: (s: SavedSearch) => void }) {
+  const qc = useQueryClient();
+  const searches = useQuery({ queryKey: ["searches"], queryFn: fetchSearches });
+  const del = useMutation({
+    mutationFn: (name: string) => deleteSearch(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["searches"] }),
+  });
+  const items = searches.data?.searches ?? [];
+  if (items.length === 0) return null;
   return (
+    <>
+      <SectionTitle icon={<Search className="h-3.5 w-3.5" />} label="Saved searches" />
+      {items.map((s) => (
+        <div key={s.name} className="group flex items-center gap-1 pr-1">
+          <button
+            onClick={() => onApply(s)}
+            title={[s.query, s.scope && `in ${s.scope}`, s.sort].filter(Boolean).join(" ") || "empty search"}
+            className="flex min-w-0 flex-1 items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            <span className="truncate">{s.name}</span>
+          </button>
+          <button
+            onClick={() => { if (window.confirm(`Delete saved search ${s.name}?`)) del.mutate(s.name); }}
+            title={`Delete ${s.name}`}
+            className="invisible rounded p-0.5 text-neutral-400 hover:text-red-600 group-hover:visible"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function NavItem({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {  return (
     <button
       onClick={onClick}
       className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${active ? "bg-accent-50 font-medium text-accent-700 dark:bg-accent-700/20 dark:text-accent-100" : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}
