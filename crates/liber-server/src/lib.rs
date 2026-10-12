@@ -30,6 +30,7 @@ pub mod openapi;
 pub mod profiles;
 pub mod reindex;
 pub mod rules;
+pub mod searches;
 pub mod settings;
 pub mod sync;
 pub mod taxonomy;
@@ -142,6 +143,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v2/profiles", get(profiles::list_profiles))
         .route("/api/v2/profiles/switch", post(profiles::switch_profile))
         .route("/api/v2/profiles/delete", post(profiles::delete_profile))
+        .route(
+            "/api/v2/searches",
+            get(searches::list_searches).post(searches::add_search),
+        )
+        .route("/api/v2/searches/delete", post(searches::delete_search))
         .route(
             "/api/v2/settings",
             get(settings::get_settings).put(settings::set_setting),
