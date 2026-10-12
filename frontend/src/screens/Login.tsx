@@ -2,6 +2,13 @@ import { useState } from "react";
 
 export function Login() {
   const [error, setError] = useState("");
+  let next = "/";
+  try {
+    const n = new URLSearchParams(window.location.search).get("next");
+    if (n && n.startsWith("/")) next = n;
+  } catch {
+    /* keep default */
+  }
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 dark:bg-neutral-950">
       <form
@@ -21,7 +28,7 @@ export function Login() {
           autoFocus
           className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm outline-none focus:border-accent-500 dark:border-neutral-700 dark:bg-neutral-800"
         />
-        <input type="hidden" name="next" value="/" />
+        <input type="hidden" name="next" value={next} />
         <button type="submit" className="mt-3 w-full rounded-lg bg-accent-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-700">
           Log in
         </button>
