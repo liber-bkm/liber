@@ -212,7 +212,7 @@ hitting a gap fails naming the missing id.
 
 An interface built for the library rather than ported from anywhere:
 
-- Library with instant search (`field:value` prefixes plus field selector, Deep toggle with match snippets), saved search presets in the sidebar with a save button, site icons in card and table views with a Settings refresh action, sort, card and table views with windowed rendering for large libraries, dark mode
+- Library with instant search (`field:value` prefixes plus field selector, Deep toggle with expandable match snippets), saved search presets in the sidebar with a save button, site icons in card and table views with a Settings refresh action, sort, card and table views with windowed rendering for large libraries, dark mode
 - Detail drawer with inline edit, two-step delete, attachments, history
 - Add dialog with live duplicate detection plus tag autocomplete and folder suggestions, optional notes, archive, and attachments at creation
 - Bulk bar, tags and folders management, rules with learn suggestions

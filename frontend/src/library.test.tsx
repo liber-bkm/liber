@@ -90,4 +90,38 @@ describe("Library virtualization", () => {
       expect(img.getAttribute("class")).toContain("h-5");
     }
   });
+
+  it("expands a deep-search snippet on click without opening", async () => {
+    window.scrollTo = () => {};
+    window.scrollBy = () => {};
+    const items = [{ ...bookmark(0), snippet: "match with <b>wombat</b> inside" }];
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({ total: items.length, page: 1, per_page: 500, bookmarks: items }),
+      } as Response;
+    });
+
+    const opened: string[] = [];
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <Library folder={null} tag={null} onOpen={(b) => opened.push(b.uuid)} />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(container.innerHTML).toContain("wombat");
+    });
+    const snippet = container.querySelector('span[title="Show full match"]');
+    if (!snippet) throw new Error("snippet missing");
+    expect(snippet.getAttribute("class")).toContain("line-clamp-2");
+    fireEvent.click(snippet);
+    const expanded = container.querySelector('span[title="Show less"]');
+    if (!expanded) throw new Error("snippet did not expand");
+    expect(expanded.getAttribute("class")).not.toContain("line-clamp-2");
+    expect(opened).toEqual([]);
+  });
 });

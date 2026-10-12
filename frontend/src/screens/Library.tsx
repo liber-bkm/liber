@@ -152,7 +152,7 @@ export function Library({
         </button>
         <label
           className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-2.5 py-1.5 text-sm text-neutral-500 dark:border-neutral-700"
-          title="Include saved page content in search (slower)"
+          title="Include saved page content and notes in search (slower). Matches show highlighted snippets; click a snippet to expand it."
         >
           <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} className="h-4 w-4 accent-[#2549a8]" />
           Deep
@@ -301,17 +301,37 @@ function Favicon({ title, url, size = "md" }: { title: string; url: string; size
 }
 
 function Snippet({ html }: { html?: string }) {
+  const [expanded, setExpanded] = useState(false);
   if (!html) return null;
   return (
-    <p
-      className="line-clamp-2 text-xs text-neutral-500 [&_b]:text-accent-700"
+    <span
+      onClick={(e) => {
+        e.stopPropagation();
+        setExpanded((v) => !v);
+      }}
+      title={expanded ? "Show less" : "Show full match"}
+      className={`cursor-pointer text-xs text-neutral-500 [&_b]:text-accent-700 ${expanded ? "" : "line-clamp-2"}`}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
 }
 
-function StatusDot({ b }: { b: Bookmark }) {
-  if (!b.check_status || b.check_status === "ok") return null;
+function RowSnippet({ html }: { html: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <span
+      onClick={(e) => {
+        e.stopPropagation();
+        setExpanded((v) => !v);
+      }}
+      title={expanded ? "Show less" : "Show full match"}
+      className={`hidden max-w-64 flex-1 cursor-pointer text-xs text-neutral-400 lg:block [&_b]:text-accent-700 ${expanded ? "whitespace-normal" : "truncate"}`}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
+function StatusDot({ b }: { b: Bookmark }) {  if (!b.check_status || b.check_status === "ok") return null;
   const tone = b.check_status === "dead" ? "red" : b.check_status === "moved" ? "amber" : "neutral";
   return <Badge tone={tone as "red" | "amber" | "neutral"}>{b.check_status}</Badge>;
 }
@@ -382,12 +402,7 @@ function RowList({ bookmarks, selected, onToggle, onOpen }: { bookmarks: Bookmar
                 <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{displayId(b)}</span>
                 <Favicon title={b.title} url={b.url} size="sm" />
                 <span className="min-w-0 flex-1 truncate font-medium">{b.title}</span>
-                {b.snippet && (
-                  <span
-                    className="hidden max-w-64 flex-1 truncate text-xs text-neutral-400 lg:block [&_b]:text-accent-700"
-                    dangerouslySetInnerHTML={{ __html: b.snippet }}
-                  />
-                )}
+                {b.snippet && <RowSnippet html={b.snippet} />}
                 <span className="hidden max-w-48 truncate text-xs text-neutral-400 sm:block">{domainOf(b.url)}</span>
                 <StatusDot b={b} />
                 <span className="w-16 shrink-0 text-right text-xs text-neutral-400">{ageOf(b.created_at)}</span>
