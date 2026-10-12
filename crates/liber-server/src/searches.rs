@@ -255,5 +255,6 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+        std::env::remove_var("LIBER_CONFIG");
     }
 }

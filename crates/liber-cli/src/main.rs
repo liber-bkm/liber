@@ -56,7 +56,7 @@ enum Cmd {
 
 #[derive(clap::Args)]
 struct AddArgs {
-    url: String,
+    url: Vec<String>,
     #[arg(long)]
     title: Option<String>,
     #[arg(short, long)]
@@ -495,9 +495,75 @@ fn open_in_browser(cfg: &liber_core::store::Config, url: &str) -> anyhow::Result
     Ok(())
 }
 
+enum AddOutcome {
+    Added,
+    SkippedDuplicate,
+}
+
 fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
-    use std::io::IsTerminal;
+    if a.url.is_empty() {
+        return Err(anyhow::anyhow!("add needs at least one URL"));
+    }
+    if a.url.len() > 1 {
+        if a.interactive {
+            return Err(anyhow::anyhow!("add --interactive needs a single URL"));
+        }
+        if a.title.as_ref().is_some_and(|t| !t.trim().is_empty()) {
+            return Err(anyhow::anyhow!("--title needs a single URL"));
+        }
+        if a.description.as_ref().is_some_and(|t| !t.trim().is_empty()) {
+            return Err(anyhow::anyhow!("--description needs a single URL"));
+        }
+        if !a.attach.is_empty() {
+            return Err(anyhow::anyhow!("--attach needs a single URL"));
+        }
+        let (_, mut store) = load_store()?;
+        let total = a.url.len();
+        let (mut added, mut skipped, mut failed) = (0, 0, 0);
+        for (i, url) in a.url.iter().enumerate() {
+            let one = AddArgs {
+                url: Vec::new(),
+                title: None,
+                description: None,
+                tags: a.tags.clone(),
+                folder: a.folder.clone(),
+                markdown: a.markdown,
+                archive: a.archive,
+                attach: Vec::new(),
+                interactive: false,
+            };
+            print!("[{}/{}] {url} ... ", i + 1, total);
+            match add_one(&mut store, url, &one, true, full) {
+                Ok(AddOutcome::Added) => {
+                    println!("saved");
+                    added += 1;
+                }
+                Ok(AddOutcome::SkippedDuplicate) => {
+                    println!("skipped (duplicate)");
+                    skipped += 1;
+                }
+                Err(e) => {
+                    println!("failed: {e}");
+                    failed += 1;
+                }
+            }
+        }
+        println!("Added {added}, skipped {skipped} duplicates, failed {failed} of {total}.");
+        return Ok(());
+    }
     let (_, mut store) = load_store()?;
+    let url = a.url.first().cloned().unwrap();
+    add_one(&mut store, &url, &a, false, full).map(|_| ())
+}
+
+fn add_one(
+    store: &mut liber_core::store::Store,
+    url: &str,
+    a: &AddArgs,
+    bulk: bool,
+    full: bool,
+) -> anyhow::Result<AddOutcome> {
+    use std::io::IsTerminal;
     let interactive = if a.interactive {
         if !std::io::stdin().is_terminal() {
             return Err(anyhow::anyhow!("add --interactive needs a terminal"));
@@ -507,7 +573,7 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
         false
     };
     if interactive {
-        if let Some(dup) = store.find_by_url(&liber_core::slug::normalize_url(&a.url))? {
+        if let Some(dup) = store.find_by_url(&liber_core::slug::normalize_url(url))? {
             println!(
                 "Already bookmarked: [{}] {} (folder: {})",
                 show_id(&dup, full),
@@ -516,15 +582,15 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
             );
             if !confirm("Add it anyway?") {
                 println!("Cancelled.");
-                return Ok(());
+                return Ok(AddOutcome::SkippedDuplicate);
             }
         }
     }
-    let fetched_title = match a.title {
-        Some(t) if !t.trim().is_empty() => Some(t),
+    let fetched_title = match &a.title {
+        Some(t) if !t.trim().is_empty() => Some(t.clone()),
         _ => {
-            println!("Fetching title for {} ...", a.url);
-            let fetched = liber_core::create::fetch_title(&liber_core::slug::normalize_url(&a.url));
+            println!("Fetching title for {url} ...");
+            let fetched = liber_core::create::fetch_title(&liber_core::slug::normalize_url(url));
             if fetched.trim().is_empty() {
                 None
             } else {
@@ -544,9 +610,9 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
     } else {
         (
             fetched_title,
-            a.description.unwrap_or_default(),
-            a.tags,
-            a.folder.unwrap_or_default(),
+            a.description.clone().unwrap_or_default(),
+            a.tags.clone(),
+            a.folder.clone().unwrap_or_default(),
         )
     };
     let markdown = if interactive {
@@ -561,10 +627,10 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
         folder,
         markdown,
     };
-    match liber_core::create::create_bookmark(&mut store, &a.url, opts) {
+    match liber_core::create::create_bookmark(&mut *store, url, opts) {
         Err(liber_core::CoreError::Duplicate(_)) => {
             let dup = store
-                .find_by_url(&liber_core::slug::normalize_url(&a.url))?
+                .find_by_url(&liber_core::slug::normalize_url(url))?
                 .unwrap();
             println!(
                 "Already bookmarked: [{}] {} (folder: {})",
@@ -572,12 +638,15 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
                 dup.title,
                 display_folder(&dup.folder)
             );
+            if bulk {
+                return Ok(AddOutcome::SkippedDuplicate);
+            }
             if !confirm("Add it anyway?") {
                 println!("Cancelled.");
-                return Ok(());
+                return Ok(AddOutcome::SkippedDuplicate);
             }
             println!("Use a distinct URL to add a second copy.");
-            Ok(())
+            Ok(AddOutcome::SkippedDuplicate)
         }
         Err(e) => Err(e.into()),
         Ok(b) => {
@@ -593,7 +662,7 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
                 );
             }
             if a.archive {
-                match liber_core::archive::archive_bookmark(&mut store, &b.uuid, None) {
+                match liber_core::archive::archive_bookmark(&mut *store, &b.uuid, None) {
                     Ok(warnings) => {
                         for w in warnings {
                             println!("warning: {w}");
@@ -604,15 +673,15 @@ fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
                 }
             }
             for path in &a.attach {
-                match liber_core::attach::attach_file(&mut store, &b.uuid, path) {
+                match liber_core::attach::attach_file(&mut *store, &b.uuid, path) {
                     Ok(at) => println!("  attach: {}", at.name),
                     Err(e) => println!("warning: could not attach {}: {e}", path.display()),
                 }
             }
             if interactive {
-                run_add_attachments(&mut store, &b.uuid)?;
+                run_add_attachments(&mut *store, &b.uuid)?;
             }
-            Ok(())
+            Ok(AddOutcome::Added)
         }
     }
 }
@@ -1915,13 +1984,19 @@ mod tests {
         match cli.cmd {
             Some(Cmd::Add(a)) => {
                 assert!(a.interactive);
-                assert_eq!(a.url, "https://example.com");
+                assert_eq!(a.url, vec!["https://example.com".to_string()]);
             }
             _ => panic!("expected add subcommand"),
         }
         let cli = Cli::try_parse_from(["liber", "add", "https://example.com"]).unwrap();
         match cli.cmd {
             Some(Cmd::Add(a)) => assert!(!a.interactive),
+            _ => panic!("expected add subcommand"),
+        }
+        let cli = Cli::try_parse_from(["liber", "add", "https://a.example", "https://b.example"])
+            .unwrap();
+        match cli.cmd {
+            Some(Cmd::Add(a)) => assert_eq!(a.url.len(), 2),
             _ => panic!("expected add subcommand"),
         }
     }
