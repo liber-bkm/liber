@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./theme";
 import { Layout, type View } from "./components/Layout";
-import { Library } from "./screens/Library";
+import { Library, type SearchPreset } from "./screens/Library";
 import { Login } from "./screens/Login";
 import { AddDialog, DetailDrawer } from "./components/Detail";
 import { isTauri, subscribeSharedUrls } from "./tauri";
@@ -41,6 +41,14 @@ function Shell() {
   const [adding, setAdding] = useState(false);
   const [palette, setPalette] = useState(false);
   const [version, setVersion] = useState(0);
+  const [preset, setPreset] = useState<SearchPreset | null>(null);
+
+  function applySearch(s: { query: string; scope: string; sort: string }) {
+    setPreset({ q: s.query, scope: s.scope, sort: s.sort, nonce: Date.now() });
+    setView("library");
+    setFolder(null);
+    setTag(null);
+  }
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareTitle, setShareTitle] = useState("");
   const [shareTags, setShareTags] = useState("");
@@ -154,6 +162,7 @@ function Shell() {
       setFolder={setFolder}
       tag={tag}
       setTag={setTag}
+      onApplySearch={applySearch}
     >
       {view === "library" && (
         <Library
@@ -161,6 +170,7 @@ function Shell() {
           folder={folder}
           tag={tag}
           onOpen={(b: Bookmark) => setOpenUuid(b.uuid)}
+          preset={preset}
         />
       )}
       {view === "history" && <HistoryPage onOpen={(b: Bookmark) => setOpenUuid(b.uuid)} />}
