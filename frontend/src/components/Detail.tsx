@@ -2,8 +2,49 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Pencil, Trash2, Upload, X } from "lucide-react";
 import { displayId, domainOf, getArchiveView, setArchiveView, shortUuid, ApiError, type Bookmark } from "../api";
-import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, fetchArchive, fetchBookmark, fetchNotes, isTauri, openArchiveExternal, openAttachmentExternal, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment } from "../tauri";
+import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, fetchArchive, fetchBookmark, fetchFolders, fetchNotes, fetchTags, isTauri, openArchiveExternal, openAttachmentExternal, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment } from "../tauri";
 import { Badge, Button, Field, Input, Modal, Spinner } from "./ui";
+
+function useTaxonomyNames() {
+  const tags = useQuery({ queryKey: ["tags"], queryFn: fetchTags, staleTime: 60_000 });
+  const folders = useQuery({ queryKey: ["folders"], queryFn: fetchFolders, staleTime: 60_000 });
+  return {
+    tagNames: (tags.data?.tags ?? []).map((t) => t.name),
+    folderNames: (folders.data?.folders ?? []).map((f) => f.name),
+  };
+}
+
+function lastToken(value: string): string {
+  const parts = value.split(/[\s,]+/);
+  return parts[parts.length - 1] ?? "";
+}
+
+function appendToken(value: string, token: string): string {
+  const sep = value === "" || /[\s,]$/.test(value) ? "" : " ";
+  return `${value}${sep}${token} `;
+}
+
+function TagSuggest({ value, names, onPick }: { value: string; names: string[]; onPick: (next: string) => void }) {
+  const token = lastToken(value).toLowerCase();
+  if (!token) return null;
+  const have = new Set(value.split(/[\s,]+/).filter(Boolean).map((t) => t.toLowerCase()));
+  const matches = names.filter((n) => n.toLowerCase().startsWith(token) && !have.has(n.toLowerCase())).slice(0, 6);
+  if (matches.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {matches.map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => onPick(appendToken(value, m))}
+          className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 hover:bg-accent-50 hover:text-accent-700 dark:bg-neutral-800 dark:text-neutral-300"
+        >
+          {m}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 type Tab = "details" | "notes" | "archive";
 
@@ -355,6 +396,7 @@ function EditForm({ bookmark: b, onDone }: { bookmark: Bookmark; onDone: () => v
   const [tags, setTags] = useState((b.tags ?? []).join(" "));
   const [folder, setFolder] = useState(b.folder ?? "");
   const [error, setError] = useState("");
+  const { tagNames, folderNames } = useTaxonomyNames();
   const save = useMutation({
     mutationFn: () =>
       updateBookmark(b.uuid, {
@@ -381,9 +423,15 @@ function EditForm({ bookmark: b, onDone }: { bookmark: Bookmark; onDone: () => v
       </Field>
       <Field label="Tags (space separated)">
         <Input value={tags} onChange={(e) => setTags(e.target.value)} />
+        <TagSuggest value={tags} names={tagNames} onPick={setTags} />
       </Field>
       <Field label="Folder">
-        <Input value={folder} onChange={(e) => setFolder(e.target.value)} />
+        <Input value={folder} onChange={(e) => setFolder(e.target.value)} list="liber-folder-edit" />
+        <datalist id="liber-folder-edit">
+          {folderNames.map((f) => (
+            <option key={f} value={f} />
+          ))}
+        </datalist>
       </Field>
       <ArtifactSection bookmark={b} />
       <div>
@@ -498,6 +546,7 @@ export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = ""
   const [error, setError] = useState("");
   const [existing, setExisting] = useState<Bookmark | null>(null);
   const [saving, setSaving] = useState(false);
+  const { tagNames, folderNames } = useTaxonomyNames();
   const qc = useQueryClient();
 
   async function fileToAttachment(f: File): Promise<{ name: string; content: string }> {
@@ -573,9 +622,15 @@ export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = ""
           <div className="grid grid-cols-2 gap-3">
             <Field label="Tags">
               <Input value={tags} onChange={(e) => setTags(e.target.value)} />
+              <TagSuggest value={tags} names={tagNames} onPick={setTags} />
             </Field>
             <Field label="Folder">
-              <Input value={folder} onChange={(e) => setFolder(e.target.value)} />
+              <Input value={folder} onChange={(e) => setFolder(e.target.value)} list="liber-folder-add" />
+              <datalist id="liber-folder-add">
+                {folderNames.map((f) => (
+                  <option key={f} value={f} />
+                ))}
+              </datalist>
             </Field>
           </div>
           <label className="flex items-center gap-2 text-sm">
