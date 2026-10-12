@@ -1709,6 +1709,106 @@
         }
       }
     },
+    "/api/v2/searches": {
+      "get": {
+        "tags": [
+          "crate::searches"
+        ],
+        "operationId": "list_searches",
+        "responses": {
+          "200": {
+            "description": "Saved search presets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "crate::searches"
+        ],
+        "operationId": "add_search",
+        "requestBody": {
+          "description": "Preset as {name, query?, scope?, sort?}",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Saved preset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid name, scope, or sort",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/searches/delete": {
+      "post": {
+        "tags": [
+          "crate::searches"
+        ],
+        "operationId": "delete_search",
+        "requestBody": {
+          "description": "Preset as {name}",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted preset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such preset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/settings": {
       "get": {
         "tags": [

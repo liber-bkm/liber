@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDownWideNarrow, LayoutGrid, Search, Table2 } from "lucide-react";
+import { ArrowDownWideNarrow, BookmarkPlus, LayoutGrid, Search, Table2 } from "lucide-react";
 import { ageOf, displayId, domainOf, type Bookmark } from "../api";
-import { faviconHost, faviconUrl, fetchFaviconContent, isTauri, listBookmarks } from "../tauri";
+import { addSearch, faviconHost, faviconUrl, fetchFaviconContent, isTauri, listBookmarks } from "../tauri";
 import { Badge, Empty, Input, Spinner } from "../components/ui";
 import { BulkBar } from "../components/BulkBar";
 
@@ -24,14 +24,23 @@ const SCOPES = [
   { value: "desc", label: "Notes" },
 ];
 
+export interface SearchPreset {
+  q: string;
+  scope: string;
+  sort: string;
+  nonce: number;
+}
+
 export function Library({
   folder,
   tag,
   onOpen,
+  preset,
 }: {
   folder: string | null;
   tag: string | null;
   onOpen: (b: Bookmark) => void;
+  preset?: SearchPreset | null;
 }) {
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -40,7 +49,26 @@ export function Library({
   const [deep, setDeep] = useState(false);
   const [table, setTable] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [saveError, setSaveError] = useState("");
   const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!preset) return;
+    setQ(preset.q);
+    setScope(preset.scope);
+    setSort(preset.sort);
+  }, [preset]);
+
+  const savePreset = useMutation({
+    mutationFn: (name: string) => addSearch({ name, query: debounced, scope, sort }),
+    onSuccess: () => {
+      setSaveError("");
+      qc.invalidateQueries({ queryKey: ["searches"] });
+    },
+    onError: (e: Error) => setSaveError(e.message),
+  });
+
+  const canSave = debounced.trim() !== "" || scope !== "" || (sort !== "" && sort !== "newest");
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebounced(q), 250);
@@ -129,7 +157,21 @@ export function Library({
           <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} className="h-4 w-4 accent-[#2549a8]" />
           Deep
         </label>
+        {canSave && (
+          <button
+            onClick={() => {
+              const name = window.prompt("Name this search");
+              if (name && name.trim()) savePreset.mutate(name.trim());
+            }}
+            disabled={savePreset.isPending}
+            className="rounded-lg border border-neutral-300 p-1.5 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+            title="Save current search"
+          >
+            <BookmarkPlus className="h-4 w-4" />
+          </button>
+        )}
       </div>
+      {saveError && <p className="text-sm text-red-600">{saveError}</p>}
 
       {(folder || tag) && (
         <div className="flex items-center gap-2 text-sm text-neutral-500">
