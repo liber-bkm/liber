@@ -338,6 +338,7 @@ function RowList({ bookmarks, selected, onToggle, onOpen }: { bookmarks: Bookmar
               <input type="checkbox" checked={selected.has(b.uuid)} onChange={() => onToggle(b.uuid)} className="h-4 w-4 shrink-0 accent-[#2549a8]" title="Select" />
               <button onClick={() => onOpen(b)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                 <span className="w-16 shrink-0 font-mono text-xs text-neutral-400">{displayId(b)}</span>
+                <Favicon title={b.title} url={b.url} size="sm" />
                 <span className="min-w-0 flex-1 truncate font-medium">{b.title}</span>
                 {b.snippet && (
                   <span
