@@ -535,6 +535,12 @@ function ArtifactSection({ bookmark: b }: { bookmark: Bookmark }) {
   );
 }
 
+export function parseAddUrls(text: string): string[] {
+  return text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+}
+
+type MultiResult = { url: string; status: "added" | "duplicate" | "failed"; detail: string };
+
 export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = "", initialTags = "", initialFolder = "" }: { onClose: () => void; onAdded: (b: Bookmark) => void; initialUrl?: string; initialTitle?: string; initialTags?: string; initialFolder?: string }) {
   const [url, setUrl] = useState(initialUrl);
   const [title, setTitle] = useState(initialTitle);
@@ -546,8 +552,11 @@ export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = ""
   const [error, setError] = useState("");
   const [existing, setExisting] = useState<Bookmark | null>(null);
   const [saving, setSaving] = useState(false);
+  const [results, setResults] = useState<MultiResult[] | null>(null);
   const { tagNames, folderNames } = useTaxonomyNames();
   const qc = useQueryClient();
+  const urls = parseAddUrls(url);
+  const isMulti = urls.length > 1;
 
   async function fileToAttachment(f: File): Promise<{ name: string; content: string }> {
     const bytes = new Uint8Array(await f.arrayBuffer());
@@ -592,11 +601,59 @@ export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = ""
     }
   }
 
+  async function saveMulti() {
+    setSaving(true);
+    setError("");
+    const out: MultiResult[] = [];
+    const sharedTags = tags.split(/[\s,]+/).filter(Boolean);
+    for (const u of urls) {
+      try {
+        await addBookmark({
+          url: u,
+          tags: sharedTags,
+          folder: folder || undefined,
+          archive,
+        });
+        out.push({ url: u, status: "added", detail: "saved" });
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          const body = e.body as { existing?: Bookmark };
+          out.push({ url: u, status: "duplicate", detail: body.existing ? `already saved as ${body.existing.title}` : "already saved" });
+        } else {
+          out.push({ url: u, status: "failed", detail: e instanceof Error ? e.message : "add failed" });
+        }
+      }
+      setResults([...out]);
+    }
+    qc.invalidateQueries({ queryKey: ["bookmarks"] });
+    qc.invalidateQueries({ queryKey: ["tags"] });
+    qc.invalidateQueries({ queryKey: ["folders"] });
+    setSaving(false);
+  }
+
   return (
     <Modal onClose={onClose}>
       <h2 className="mb-3 text-base font-semibold">Add bookmark</h2>
       {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
-      {existing ? (
+      {results ? (
+        <div className="flex flex-col gap-2">
+          {results.map((r) => (
+            <div key={r.url} className="flex items-center gap-2 text-sm">
+              <Badge tone={r.status === "added" ? "green" : r.status === "duplicate" ? "amber" : "red"}>{r.status}</Badge>
+              <span className="min-w-0 flex-1 truncate font-mono text-xs">{r.url}</span>
+              <span className="max-w-48 truncate text-xs text-neutral-500">{r.detail}</span>
+            </div>
+          ))}
+          {saving && <p className="text-xs text-neutral-500">Working through the list...</p>}
+          {!saving && (
+            <div>
+              <Button variant="outline" onClick={onClose}>
+                Done
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : existing ? (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-neutral-600 dark:text-neutral-300">
             Already in your library as <span className="font-medium">{existing.title}</span>
@@ -613,12 +670,21 @@ export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = ""
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <Field label="URL">
-            <Input value={url} placeholder="https://example.com" onChange={(e) => setUrl(e.target.value)} autoFocus />
+          <Field label={isMulti ? `URLs (one per line, ${urls.length})` : "URL"}>
+            <textarea
+              value={url}
+              placeholder="https://example.com"
+              onChange={(e) => setUrl(e.target.value)}
+              autoFocus
+              rows={isMulti ? 4 : 2}
+              className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500 dark:border-neutral-700 dark:bg-neutral-900"
+            />
           </Field>
-          <Field label="Title (optional)">
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-          </Field>
+          {!isMulti && (
+            <Field label="Title (optional)">
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            </Field>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Tags">
               <Input value={tags} onChange={(e) => setTags(e.target.value)} />
@@ -633,43 +699,53 @@ export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = ""
               </datalist>
             </Field>
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown(e.target.checked)} />
-            Start with notes
-          </label>
+          {!isMulti && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={markdown} onChange={(e) => setMarkdown(e.target.checked)} />
+              Start with notes
+            </label>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={archive} onChange={(e) => setArchive(e.target.checked)} />
             Save archived copy
           </label>
+          {!isMulti && (
+            <div>
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">Attachments</p>
+              <input
+                type="file"
+                multiple
+                onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+                className="text-xs"
+              />
+              {files.length > 0 && (
+                <ul className="mt-1 flex flex-col gap-1">
+                  {files.map((f, i) => (
+                    <li key={`${f.name}-${i}`} className="flex items-center gap-2 text-xs text-neutral-500">
+                      <span className="flex-1 truncate">{f.name}</span>
+                      <button
+                        type="button"
+                        className="text-red-600"
+                        onClick={() => setFiles(files.filter((_, j) => j !== i))}
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <div>
-            <p className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">Attachments</p>
-            <input
-              type="file"
-              multiple
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-              className="text-xs"
-            />
-            {files.length > 0 && (
-              <ul className="mt-1 flex flex-col gap-1">
-                {files.map((f, i) => (
-                  <li key={`${f.name}-${i}`} className="flex items-center gap-2 text-xs text-neutral-500">
-                    <span className="flex-1 truncate">{f.name}</span>
-                    <button
-                      type="button"
-                      className="text-red-600"
-                      onClick={() => setFiles(files.filter((_, j) => j !== i))}
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            {isMulti ? (
+              <Button onClick={() => void saveMulti()} disabled={saving}>
+                {saving ? "Saving..." : `Save ${urls.length} bookmarks`}
+              </Button>
+            ) : (
+              <Button onClick={() => save(false)} disabled={saving || !url.trim()}>
+                {saving ? "Saving..." : "Save bookmark"}
+              </Button>
             )}
-          </div>
-          <div>
-            <Button onClick={() => save(false)} disabled={saving || !url.trim()}>
-              {saving ? "Saving..." : "Save bookmark"}
-            </Button>
           </div>
         </div>
       )}
