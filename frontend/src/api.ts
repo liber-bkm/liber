@@ -502,3 +502,17 @@ export function deleteProfile(name: string): Promise<{ result: string; name: str
 export function syncCommit(push = false): Promise<{ output: string; error?: string }> {
   return request("/api/v2/sync/commit", { method: "POST", body: JSON.stringify({ push }) });
 }
+
+export interface FaviconRefreshReport {
+  hosts: number;
+  fetched: number;
+  cached: number;
+  failed: string[];
+}
+
+export function refreshFavicons(refreshCached = false): Promise<FaviconRefreshReport> {
+  return request("/api/v2/favicons/refresh", {
+    method: "POST",
+    body: JSON.stringify({ refresh_cached: refreshCached }),
+  });
+}

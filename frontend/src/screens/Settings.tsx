@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RefreshCw, Upload } from "lucide-react";
-import { backupLibraryContent, backupUrl, deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, restoreBackup, runReindex, setRemote, setSetting, switchProfile, syncCommit, useRemote } from "../tauri";
+import { backupLibraryContent, backupUrl, deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, refreshFavicons, restoreBackup, runReindex, setRemote, setSetting, switchProfile, syncCommit, useRemote } from "../tauri";
 import { Badge, Button, Field, Input, Spinner } from "../components/ui";
 
 const BACKENDS = ["auto", "builtin", "browser", "single-file", "monolith"];
@@ -34,6 +34,7 @@ export function SettingsPage() {
   const [armedRestore, setArmedRestore] = useState(false);
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [syncPush, setSyncPush] = useState(false);
+  const [refreshCached, setRefreshCached] = useState(false);
   const [lastSnapshot, setLastSnapshot] = useState<{ output: string; time: string } | null>(readLastSnapshot);
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
@@ -135,6 +136,15 @@ export function SettingsPage() {
     onError: (e: Error) => setError(e.message),
   });
 
+  const doRefreshIcons = useMutation({
+    mutationFn: () => refreshFavicons(refreshCached),
+    onSuccess: (r) => {
+      const failed = r.failed.length ? `, failed: ${r.failed.join(", ")}` : "";
+      setNotice(`Icons: ${r.hosts} hosts, ${r.fetched} fetched, ${r.cached} already cached${failed}. Reload the library to see new icons.`);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
   const get = (key: string) => String(settings.data?.[key] ?? "");
   const maintenance = settings.data?.maintenance_status as unknown as
     | { bookmarks: number; oplog_entries: number; quarantine: number; short_id_gaps: number }
@@ -172,6 +182,22 @@ export function SettingsPage() {
         ) : (
           <p className="text-xs text-neutral-500">Status loads with settings.</p>
         )}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-sm font-semibold">Site icons</h2>
+        <p className="text-xs text-neutral-500">
+          Fetches icons for hosts missing one. Cached icons are kept unless re-fetch is checked.
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={refreshCached} onChange={(e) => setRefreshCached(e.target.checked)} />
+          Re-fetch icons already cached
+        </label>
+        <div>
+          <Button variant="outline" onClick={() => { setError(""); setNotice(""); doRefreshIcons.mutate(); }} disabled={doRefreshIcons.isPending}>
+            {doRefreshIcons.isPending ? "Refreshing..." : "Refresh icons"}
+          </Button>
+        </div>
       </section>
 
       <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">

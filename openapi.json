@@ -918,6 +918,37 @@
         }
       }
     },
+    "/api/v2/favicons/refresh": {
+      "post": {
+        "tags": [
+          "crate::library"
+        ],
+        "operationId": "refresh_favicons",
+        "requestBody": {
+          "description": "Refresh as {refresh_cached?}",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Per-host fetch counts with failures listed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/favicons/{host}": {
       "get": {
         "tags": [

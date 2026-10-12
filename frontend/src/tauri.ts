@@ -6,6 +6,7 @@ import type {
   CheckApplyResult,
   CheckReport,
   CheckUpdate,
+  FaviconRefreshReport,
   FolderCount,
   ListParams,
   ProfileInfo,
@@ -18,8 +19,7 @@ import type {
   UpdateInput,
 } from "./api";
 import {
-  addBookmark as restAdd,
-  addRule as restAddRule,
+  addBookmark as restAdd,  addRule as restAddRule,
   ApiError,
   getRemoteBase,
   useRemote,
@@ -53,6 +53,7 @@ import {
   openBookmark as restOpen,
   renameFolder as restRenameFolder,
   renameTag as restRenameTag,
+  refreshFavicons as restRefreshFavicons,
   restoreBackup as restRestoreBackup,
   runReindex as restReindex,
   saveNotes as restSaveNotes,
@@ -165,6 +166,11 @@ export function faviconHost(url: string): string {
 export async function fetchFaviconContent(host: string): Promise<{ mime: string; content: string }> {
   if (!isTauri()) throw new Error("fetchFaviconContent is Tauri-only; use faviconUrl on web");
   return invokeCmd("fetch_favicon", { host });
+}
+
+export async function refreshFavicons(refreshCached = false): Promise<FaviconRefreshReport> {
+  if (!isTauri() || useRemote()) return restRefreshFavicons(refreshCached);
+  return invokeCmd("refresh_favicons", { refresh_cached: refreshCached });
 }
 
 export async function fetchBookmark(uuid: string): Promise<Bookmark> {

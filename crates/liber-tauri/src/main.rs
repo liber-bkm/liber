@@ -1361,6 +1361,35 @@ async fn fetch_favicon(
     read_icon(&path)
 }
 
+#[tauri::command]
+async fn refresh_favicons(
+    state: State<'_, AppState>,
+    refresh_cached: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
+    let refresh_cached = refresh_cached.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = liber_core::store::Store::open(cfg.clone()).map_err(|e| e.to_string())?;
+        let hosts = store.distinct_hosts().map_err(|e| e.to_string())?;
+        let dir = cfg.profile_dir();
+        Ok::<_, String>(liber_core::favicon::refresh_library_icons(
+            &dir,
+            &hosts,
+            refresh_cached,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map(|report| {
+        serde_json::json!({
+            "hosts": report.hosts,
+            "fetched": report.fetched,
+            "cached": report.cached,
+            "failed": report.failed,
+        })
+    })
+}
+
 fn read_icon(path: &std::path::Path) -> Result<serde_json::Value, String> {
     use base64::Engine;
     let ext = path
@@ -1433,6 +1462,7 @@ pub(crate) fn main() {
             delete_attachment,
             download_attachment,
             fetch_favicon,
+            refresh_favicons,
             open_archive_external,
             open_attachment_external,
             import_library,
