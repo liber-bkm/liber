@@ -107,6 +107,73 @@ pub fn save_config(cfg: &Config) -> Result<PathBuf, CoreError> {
     Ok(path)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSearch {
+    pub name: String,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub scope: String,
+    #[serde(default)]
+    pub sort: String,
+}
+
+pub const SAVED_SEARCH_NAME_MAX: usize = 64;
+
+pub fn validate_saved_search(name: &str, scope: &str, sort: &str) -> Result<(), CoreError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CoreError::Invalid("search name can't be empty".to_string()));
+    }
+    if name.len() > SAVED_SEARCH_NAME_MAX {
+        return Err(CoreError::Invalid(format!(
+            "search name over {SAVED_SEARCH_NAME_MAX} chars"
+        )));
+    }
+    if !scope.trim().is_empty() {
+        crate::search::parse_field_list(scope)?;
+    }
+    if !sort.trim().is_empty() {
+        crate::search::parse_sort_mode(sort)?;
+    }
+    Ok(())
+}
+
+pub fn add_saved_search(
+    cfg: &mut Config,
+    name: String,
+    query: String,
+    scope: String,
+    sort: String,
+) -> Result<SavedSearch, CoreError> {
+    validate_saved_search(&name, &scope, &sort)?;
+    cfg.saved_searches
+        .retain(|s| s.name.to_lowercase() != name.trim().to_lowercase());
+    let entry = SavedSearch {
+        name: name.trim().to_string(),
+        query: query.trim().to_string(),
+        scope: scope.trim().to_string(),
+        sort: sort.trim().to_string(),
+    };
+    cfg.saved_searches.push(entry.clone());
+    cfg.saved_searches.sort_by_key(|a| a.name.to_lowercase());
+    Ok(entry)
+}
+
+pub fn delete_saved_search(cfg: &mut Config, name: &str) -> Result<String, CoreError> {
+    let pos = cfg
+        .saved_searches
+        .iter()
+        .position(|s| s.name.to_lowercase() == name.trim().to_lowercase());
+    match pos {
+        Some(i) => Ok(cfg.saved_searches.remove(i).name),
+        None => Err(CoreError::NotFound(format!(
+            "no saved search {:?}",
+            name.trim()
+        ))),
+    }
+}
+
 pub const API_SETTABLE: &[&str] = &[
     "base_dir",
     "html_dir",
@@ -279,5 +346,51 @@ mod tests {
         apply_setting(&mut cfg, "base_dir", "/tmp/base").unwrap();
         assert_eq!(cfg.base_dir, PathBuf::from("/tmp/base"));
         assert!(apply_setting(&mut cfg, "auth_token", "x").is_err());
+    }
+
+    #[test]
+    fn saved_search_validation_vectors() {
+        assert!(validate_saved_search("rust", "title", "newest").is_ok());
+        assert!(validate_saved_search("all", "", "").is_ok());
+        assert!(validate_saved_search("  ", "", "").is_err());
+        assert!(validate_saved_search("x", "bogus", "").is_err());
+        assert!(validate_saved_search("x", "", "nope").is_err());
+        assert!(validate_saved_search(&"n".repeat(65), "", "").is_err());
+    }
+
+    #[test]
+    fn saved_search_add_upsert_delete() {
+        let mut cfg = default_config();
+        add_saved_search(
+            &mut cfg,
+            "Rust".to_string(),
+            "tag:rust".to_string(),
+            String::new(),
+            "newest".to_string(),
+        )
+        .unwrap();
+        add_saved_search(
+            &mut cfg,
+            "blogs".to_string(),
+            String::new(),
+            "url".to_string(),
+            String::new(),
+        )
+        .unwrap();
+        assert_eq!(cfg.saved_searches.len(), 2);
+        assert_eq!(cfg.saved_searches[0].name, "blogs");
+        add_saved_search(
+            &mut cfg,
+            "rust".to_string(),
+            "tag:rust lang".to_string(),
+            String::new(),
+            String::new(),
+        )
+        .unwrap();
+        assert_eq!(cfg.saved_searches.len(), 2);
+        assert_eq!(cfg.saved_searches[1].query, "tag:rust lang");
+        assert_eq!(delete_saved_search(&mut cfg, "RUST").unwrap(), "rust");
+        assert_eq!(cfg.saved_searches.len(), 1);
+        assert!(delete_saved_search(&mut cfg, "missing").is_err());
     }
 }
