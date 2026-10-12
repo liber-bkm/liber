@@ -2,9 +2,22 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RefreshCw, Upload } from "lucide-react";
 import { backupLibraryContent, backupUrl, deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, restoreBackup, runReindex, setRemote, setSetting, switchProfile, syncCommit, useRemote } from "../tauri";
-import { Button, Field, Input, Spinner } from "../components/ui";
+import { Badge, Button, Field, Input, Spinner } from "../components/ui";
 
 const BACKENDS = ["auto", "builtin", "browser", "single-file", "monolith"];
+const LAST_SNAPSHOT_KEY = "liber-last-snapshot";
+
+function readLastSnapshot(): { output: string; time: string } | null {
+  try {
+    const raw = localStorage.getItem(LAST_SNAPSHOT_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { output?: unknown; time?: unknown };
+    if (typeof v.output !== "string" || typeof v.time !== "string") return null;
+    return { output: v.output, time: v.time };
+  } catch {
+    return null;
+  }
+}
 
 export function SettingsPage() {
   const [error, setError] = useState("");
@@ -21,6 +34,7 @@ export function SettingsPage() {
   const [armedRestore, setArmedRestore] = useState(false);
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [syncPush, setSyncPush] = useState(false);
+  const [lastSnapshot, setLastSnapshot] = useState<{ output: string; time: string } | null>(readLastSnapshot);
   const qc = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
 
@@ -107,7 +121,16 @@ export function SettingsPage() {
     mutationFn: () => syncCommit(syncPush),
     onSuccess: (r) => {
       if (r.error) setError(r.error);
-      else setNotice(r.output);
+      else {
+        setNotice(r.output);
+        const snap = { output: r.output, time: new Date().toISOString() };
+        setLastSnapshot(snap);
+        try {
+          localStorage.setItem(LAST_SNAPSHOT_KEY, JSON.stringify(snap));
+        } catch {
+          /* private mode: notice already shows the result */
+        }
+      }
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -123,6 +146,33 @@ export function SettingsPage() {
       {error && <p className="text-sm text-red-600">{error}</p>}
       {notice && <p className="text-sm text-green-700 dark:text-green-400">{notice}</p>}
       {settings.isLoading && <Spinner />}
+
+      <section className="flex flex-col gap-2 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-sm font-semibold">Library status</h2>
+        {maintenance != null ? (
+          <>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge>{maintenance.bookmarks} bookmarks</Badge>
+              <Badge>{maintenance.oplog_entries} oplog entries</Badge>
+              <Badge tone={maintenance.quarantine > 0 ? "amber" : "neutral"}>{maintenance.quarantine} quarantined</Badge>
+              <Badge tone={maintenance.short_id_gaps > 0 ? "amber" : "neutral"}>{maintenance.short_id_gaps} short-id gaps</Badge>
+            </div>
+            <p className="text-xs text-neutral-500">
+              {get("device_id") && <>Device {get("device_id")} on profile {get("active_profile") || "default"}. </>}
+              {maintenance.quarantine > 0 && <>Review the quarantine folder for dead links. </>}
+              {maintenance.short_id_gaps > 0 && <>Run reindex with prune plus compact to close id gaps. </>}
+              {maintenance.quarantine === 0 && maintenance.short_id_gaps === 0 && <>Library looks healthy. </>}
+            </p>
+            {lastSnapshot && (
+              <p className="text-xs text-neutral-500">
+                Last snapshot {new Date(lastSnapshot.time).toLocaleString()}: {lastSnapshot.output}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-neutral-500">Status loads with settings.</p>
+        )}
+      </section>
 
       <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Archive backend</h2>
@@ -278,12 +328,7 @@ export function SettingsPage() {
 
       <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Maintenance</h2>
-        {maintenance != null && (
-          <p className="text-xs text-neutral-500">
-            {maintenance.bookmarks} bookmarks, {maintenance.oplog_entries} oplog entries,{" "}
-            {maintenance.quarantine} quarantined, {maintenance.short_id_gaps} short-id gaps.
-          </p>
-        )}
+        <p className="text-xs text-neutral-500">Counts live in Library status above; reindex acts on them.</p>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={prune} onChange={(e) => setPrune(e.target.checked)} />
           Prune entries with missing files

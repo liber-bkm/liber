@@ -219,9 +219,22 @@ An interface built for the library rather than ported from anywhere:
 - Check center with run plus per-row apply, history page, settings
   with sync snapshots and profile switching
 - Command palette (`Ctrl+K`), token login, notes editor, archive viewer
+- Settings opens with a Library status section (counts, health hints, last snapshot)
 
 Served embedded with zero flags in release and nix builds;
 `--static-dir` overrides for development.
+
+One-click capture without an extension via a bookmarklet. Create a
+bookmark with this URL (change `LIBER_BASE` to match your `serve
+--addr`, default `http://127.0.0.1:8080`, LAN address included):
+
+```js
+javascript:(function(){var B='http://127.0.0.1:8080';open(B+'/?add='+encodeURIComponent(location.href)+'&title='+encodeURIComponent(document.title),'_blank')})()
+```
+
+It opens the liber add dialog prefilled with the page URL and title;
+tags and folder are typed in the dialog. Token-gated servers reuse
+the login cookie, so log in once first.
 
 ### Desktop app
 
