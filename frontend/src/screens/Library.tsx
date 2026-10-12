@@ -217,16 +217,20 @@ function CardGrid({ bookmarks, selected, onToggle, onOpen }: { bookmarks: Bookma
   );
 }
 
-function Avatar({ title, url }: { title: string; url: string }) {
+function Avatar({ title, url, size = "md" }: { title: string; url: string; size?: "sm" | "md" }) {
   const letter = (title || url || "?").slice(0, 1).toUpperCase();
+  const cls =
+    size === "sm"
+      ? "h-5 w-5 rounded-md text-xs"
+      : "h-9 w-9 rounded-lg text-sm";
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-50 text-sm font-semibold text-accent-700 dark:bg-accent-700/20 dark:text-accent-100">
+    <div className={`flex shrink-0 items-center justify-center bg-accent-50 font-semibold text-accent-700 dark:bg-accent-700/20 dark:text-accent-100 ${cls}`}>
       {letter}
     </div>
   );
 }
 
-function Favicon({ title, url }: { title: string; url: string }) {
+function Favicon({ title, url, size = "md" }: { title: string; url: string; size?: "sm" | "md" }) {
   const host = faviconHost(url);
   const [src, setSrc] = useState<string | null>(!isTauri() && host ? faviconUrl(host) : null);
   const [failed, setFailed] = useState(false);
@@ -237,13 +241,19 @@ function Favicon({ title, url }: { title: string; url: string }) {
         .catch(() => setFailed(true));
     }
   }, [host]);
-  if (!src || failed) return <Avatar title={title} url={url} />;
+  if (!src || failed) return <Avatar title={title} url={url} size={size} />;
   return (
     <img
       src={src}
       alt=""
+      loading="lazy"
+      decoding="async"
       onError={() => setFailed(true)}
-      className="h-9 w-9 shrink-0 rounded-lg object-contain"
+      className={
+        size === "sm"
+          ? "h-5 w-5 shrink-0 rounded-md object-contain"
+          : "h-9 w-9 shrink-0 rounded-lg object-contain"
+      }
     />
   );
 }
