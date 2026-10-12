@@ -670,6 +670,25 @@ impl Store {
         })
     }
 
+    pub fn distinct_hosts(&self) -> Result<Vec<String>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT url FROM bookmarks")
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let urls: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| CoreError::Storage(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect();
+        let mut hosts = std::collections::BTreeSet::new();
+        for url in urls {
+            if let Ok(host) = crate::favicon::host_of(&url) {
+                hosts.insert(host);
+            }
+        }
+        Ok(hosts.into_iter().collect())
+    }
+
     pub fn delete_bookmark(&mut self, uuid: &Uuid) -> Result<bool, CoreError> {
         let existing = self.get(uuid)?;
         let Some(b) = existing else {
@@ -1578,6 +1597,18 @@ mod tests {
         assert_eq!(st.short_id_gaps, 1);
         crate::check::quarantine_bookmark(&mut s, &a.uuid).unwrap();
         assert_eq!(s.maintenance_status().unwrap().quarantine, 1);
+    }
+
+    #[test]
+    fn distinct_hosts_dedupes_and_sorts() {
+        let mut s = mem_store();
+        s.add_bookmark(sample("https://Example.com/a")).unwrap();
+        s.add_bookmark(sample("https://example.com/b")).unwrap();
+        s.add_bookmark(sample("https://other.org/")).unwrap();
+        assert_eq!(
+            s.distinct_hosts().unwrap(),
+            vec!["example.com", "other.org"]
+        );
     }
 
     #[test]
