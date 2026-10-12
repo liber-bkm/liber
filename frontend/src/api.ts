@@ -499,6 +499,25 @@ export function deleteProfile(name: string): Promise<{ result: string; name: str
   return request("/api/v2/profiles/delete", { method: "POST", body: JSON.stringify({ name }) });
 }
 
+export interface SavedSearch {
+  name: string;
+  query: string;
+  scope: string;
+  sort: string;
+}
+
+export function fetchSearches(): Promise<{ searches: SavedSearch[] }> {
+  return request("/api/v2/searches");
+}
+
+export function addSearch(input: { name: string; query?: string; scope?: string; sort?: string }): Promise<{ result: string; search: SavedSearch }> {
+  return request("/api/v2/searches", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function deleteSearch(name: string): Promise<{ result: string; name: string }> {
+  return request("/api/v2/searches/delete", { method: "POST", body: JSON.stringify({ name }) });
+}
+
 export function syncCommit(push = false): Promise<{ output: string; error?: string }> {
   return request("/api/v2/sync/commit", { method: "POST", body: JSON.stringify({ push }) });
 }

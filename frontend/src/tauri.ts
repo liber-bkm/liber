@@ -13,13 +13,16 @@ import type {
   ReindexReport,
   RestoreResult,
   Rule,
+  SavedSearch,
   Settings,
   Suggestion,
   TagCount,
   UpdateInput,
 } from "./api";
 import {
-  addBookmark as restAdd,  addRule as restAddRule,
+  addBookmark as restAdd,
+  addRule as restAddRule,
+  addSearch as restAddSearch,
   ApiError,
   getRemoteBase,
   useRemote,
@@ -33,6 +36,7 @@ import {
   deleteBookmark as restDelete,
   deleteFolder as restDeleteFolder,
   deleteProfile as restDeleteProfile,
+  deleteSearch as restDeleteSearch,
   deleteNotes as restDeleteNotes,
   deleteRule as restDeleteRule,
   deleteTag as restDeleteTag,
@@ -45,6 +49,7 @@ import {
   fetchNotes as restNotes,
   fetchProfiles as restProfiles,
   fetchRules as restRules,
+  fetchSearches as restSearches,
   fetchSettings as restSettings,
   fetchTags as restTags,
   importLibrary as restImport,
@@ -410,6 +415,26 @@ export async function switchProfile(name: string): Promise<{ result: string; act
 export async function deleteProfile(name: string): Promise<{ result: string; name: string }> {
   if (!isTauri() || useRemote()) return restDeleteProfile(name);
   return invokeCmd("delete_profile", { name });
+}
+
+export async function fetchSearches(): Promise<{ searches: SavedSearch[] }> {
+  if (!isTauri() || useRemote()) return restSearches();
+  return invokeCmd("list_searches");
+}
+
+export async function addSearch(input: { name: string; query?: string; scope?: string; sort?: string }): Promise<{ result: string; search: SavedSearch }> {
+  if (!isTauri() || useRemote()) return restAddSearch(input);
+  return invokeCmd("add_search", {
+    name: input.name,
+    query: input.query ?? null,
+    scope: input.scope ?? null,
+    sort: input.sort ?? null,
+  });
+}
+
+export async function deleteSearch(name: string): Promise<{ result: string; name: string }> {
+  if (!isTauri() || useRemote()) return restDeleteSearch(name);
+  return invokeCmd("delete_search", { name });
 }
 
 export async function syncCommit(push = false): Promise<{ output: string; error?: string }> {
