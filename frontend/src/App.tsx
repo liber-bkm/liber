@@ -17,6 +17,22 @@ import "./index.css";
 
 const qc = new QueryClient();
 
+export function parseAddQuery(search: string): { url: string; title: string; tags: string; folder: string } | null {
+  try {
+    const params = new URLSearchParams(search);
+    const add = params.get("add");
+    if (!add) return null;
+    return {
+      url: add,
+      title: params.get("title") ?? "",
+      tags: params.get("tags") ?? "",
+      folder: params.get("folder") ?? "",
+    };
+  } catch {
+    return null;
+  }
+}
+
 function Shell() {
   const [view, setView] = useState<View>("library");
   const [folder, setFolder] = useState<string | null>(null);
@@ -26,6 +42,16 @@ function Shell() {
   const [palette, setPalette] = useState(false);
   const [version, setVersion] = useState(0);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareTitle, setShareTitle] = useState("");
+  const [shareTags, setShareTags] = useState("");
+  const [shareFolder, setShareFolder] = useState("");
+
+  function clearShare() {
+    setShareUrl(null);
+    setShareTitle("");
+    setShareTags("");
+    setShareFolder("");
+  }
 
   useEffect(() => {
     let off: (() => void) | undefined;
@@ -35,6 +61,19 @@ function Shell() {
         setAdding(true);
       });
     })();
+    try {
+      const parsed = parseAddQuery(window.location.search);
+      if (parsed) {
+        setShareUrl(parsed.url);
+        setShareTitle(parsed.title);
+        setShareTags(parsed.tags);
+        setShareFolder(parsed.folder);
+        setAdding(true);
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    } catch {
+      /* leave dialog closed on malformed query */
+    }
     return () => off?.();
   }, []);
 
@@ -89,7 +128,7 @@ function Shell() {
       } else if (s.adding) {
         suppressPush.current = true;
         setAdding(false);
-        setShareUrl(null);
+        clearShare();
       } else if (s.openUuid) {
         suppressPush.current = true;
         setOpenUuid(null);
@@ -147,15 +186,18 @@ function Shell() {
       )}
       {adding && (
         <AddDialog
-          key={shareUrl ?? "add"}
+          key={`${shareUrl ?? "add"}|${shareTitle}|${shareTags}|${shareFolder}`}
           initialUrl={shareUrl ?? ""}
+          initialTitle={shareTitle}
+          initialTags={shareTags}
+          initialFolder={shareFolder}
           onClose={() => {
             setAdding(false);
-            setShareUrl(null);
+            clearShare();
           }}
           onAdded={(b) => {
             setAdding(false);
-            setShareUrl(null);
+            clearShare();
             setOpenUuid(b.uuid);
             setVersion((v) => v + 1);
           }}
@@ -176,7 +218,8 @@ function LoggedIn() {
 
   if (authed === null) return null;
   if (!authed && window.location.pathname !== "/login") {
-    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+    const next = window.location.pathname + window.location.search;
+    window.location.href = `/login?next=${encodeURIComponent(next)}`;
     return null;
   }
   return <Shell />;
