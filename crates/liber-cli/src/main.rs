@@ -48,6 +48,7 @@ enum Cmd {
     Config(ConfigArgs),
     Pick(PickArgs),
     Profile(ProfileArgs),
+    Searches(SearchesArgs),
     Serve(ServeArgs),
     Discover(DiscoverArgs),
     Completion(CompletionArgs),
@@ -337,6 +338,32 @@ enum ProfileCmd {
     List,
     Switch { name: String },
     Delete { name: String },
+}
+
+#[derive(clap::Args)]
+struct SearchesArgs {
+    #[command(subcommand)]
+    cmd: Option<SearchesCmd>,
+}
+
+#[derive(Subcommand)]
+enum SearchesCmd {
+    List,
+    Add {
+        name: String,
+        #[arg(long)]
+        query: Option<String>,
+        #[arg(long)]
+        scope: Option<String>,
+        #[arg(long)]
+        sort: Option<String>,
+    },
+    Delete {
+        name: String,
+    },
+    Run {
+        name: String,
+    },
 }
 
 #[derive(clap::Args)]
@@ -1595,6 +1622,67 @@ fn run_profile(cmd: Option<ProfileCmd>) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn run_searches(cmd: Option<SearchesCmd>, full: bool) -> anyhow::Result<()> {
+    use liber_core::config::{add_saved_search, delete_saved_search};
+    let (mut cfg, path) = liber_core::config::load_config()?;
+    match cmd {
+        None | Some(SearchesCmd::List) => {
+            if cfg.saved_searches.is_empty() {
+                println!("(no saved searches)");
+            } else {
+                println!("Saved searches:");
+                for s in &cfg.saved_searches {
+                    println!(
+                        "  {} | query {:?} scope {:?} sort {:?}",
+                        s.name, s.query, s.scope, s.sort
+                    );
+                }
+            }
+        }
+        Some(SearchesCmd::Add {
+            name,
+            query,
+            scope,
+            sort,
+        }) => {
+            add_saved_search(
+                &mut cfg,
+                name,
+                query.unwrap_or_default(),
+                scope.unwrap_or_default(),
+                sort.unwrap_or_default(),
+            )
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            liber_core::config::save_config_to(&path, &cfg)?;
+            println!("Saved search.");
+        }
+        Some(SearchesCmd::Delete { name }) => {
+            let deleted =
+                delete_saved_search(&mut cfg, &name).map_err(|e| anyhow::anyhow!("{e}"))?;
+            liber_core::config::save_config_to(&path, &cfg)?;
+            println!("Deleted saved search {deleted:?}.");
+        }
+        Some(SearchesCmd::Run { name }) => {
+            let preset = cfg
+                .saved_searches
+                .iter()
+                .find(|s| s.name.to_lowercase() == name.trim().to_lowercase())
+                .ok_or_else(|| anyhow::anyhow!("no saved search {name:?}"))?;
+            let opt = |s: &str| (!s.trim().is_empty()).then(|| s.to_string());
+            run_list(
+                ListArgs {
+                    query: opt(&preset.query),
+                    sort: opt(&preset.sort),
+                    deep: false,
+                    r#in: opt(&preset.scope),
+                },
+                full,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn run_completion(shell: &str) -> anyhow::Result<()> {
     use clap::CommandFactory;
     use clap_complete::{generate, shells};
@@ -1801,6 +1889,7 @@ fn main() -> anyhow::Result<()> {
             Cmd::Discover(a) => run_discover(a.timeout),
             Cmd::History(_) => run_history(cli.uuid),
             Cmd::Profile(a) => run_profile(a.cmd),
+            Cmd::Searches(a) => run_searches(a.cmd, cli.uuid),
             Cmd::Completion(a) => run_completion(&a.shell),
         },
     }
@@ -1894,6 +1983,44 @@ mod tests {
         match cli.cmd {
             Some(Cmd::Init(_)) => {}
             _ => panic!("expected init subcommand"),
+        }
+    }
+
+    #[test]
+    fn saved_searches_parse() {
+        let cli = Cli::try_parse_from([
+            "liber", "searches", "add", "rust", "--query", "tag:rust", "--sort", "newest",
+        ])
+        .unwrap();
+        match cli.cmd {
+            Some(Cmd::Searches(a)) => match a.cmd {
+                Some(SearchesCmd::Add {
+                    name,
+                    query,
+                    scope,
+                    sort,
+                }) => {
+                    assert_eq!(name, "rust");
+                    assert_eq!(query.as_deref(), Some("tag:rust"));
+                    assert_eq!(scope, None);
+                    assert_eq!(sort.as_deref(), Some("newest"));
+                }
+                _ => panic!("expected searches add"),
+            },
+            _ => panic!("expected searches subcommand"),
+        }
+        let cli = Cli::try_parse_from(["liber", "searches", "run", "rust"]).unwrap();
+        match cli.cmd {
+            Some(Cmd::Searches(a)) => match a.cmd {
+                Some(SearchesCmd::Run { name }) => assert_eq!(name, "rust"),
+                _ => panic!("expected searches run"),
+            },
+            _ => panic!("expected searches subcommand"),
+        }
+        let cli = Cli::try_parse_from(["liber", "searches"]).unwrap();
+        match cli.cmd {
+            Some(Cmd::Searches(a)) => assert!(a.cmd.is_none()),
+            _ => panic!("expected searches subcommand"),
         }
     }
 
