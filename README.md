@@ -13,21 +13,8 @@ A local first bookmark manager that stores bookmarks as browsable plain HTML fil
 - [Install](#install)
 - [Build from source](#build-from-source)
 - [Usage](#usage)
-- [Addressing bookmarks and search syntax](#addressing-bookmarks-and-search-syntax)
-- [Command line guide](#command-line-guide)
-- [CLI reference](#cli-reference)
-- [Terminal UI guide](#terminal-ui-guide)
-- [Web UI guide](#web-ui-guide)
-- [Desktop app](#desktop-app)
-- [Android app](#android-app)
 - [Self hosting](#self-hosting)
 - [Configuration](#configuration)
-- [Sync without loss](#sync-without-loss)
-- [Storage layout](#storage-layout)
-- [Troubleshooting](#troubleshooting)
-- [Building from source](#building-from-source)
-- [Architecture](#architecture)
-- [Contributing](#contributing)
 - [License](#license)
 
 ## Features
@@ -50,8 +37,7 @@ A local first bookmark manager that stores bookmarks as browsable plain HTML fil
 - Self hosting and sync friendly
 - Merge conflict resolution with third party sync (Drive, NextCloud, Syncthing)
 - Profile for independant collections
-- One-click capture without an extension via a bookmarklet (see
-  [Web UI guide](#web-ui-guide)
+- One-click capture without an extension via a bookmarklet
 
 ## Install
 
