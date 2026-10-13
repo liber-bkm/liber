@@ -11,7 +11,8 @@ A local first bookmark manager that stores bookmarks as browsable plain HTML fil
 
 - [Features](#features)
 - [Install](#install)
-- [Quickstart](#quickstart)
+- [Build from source](#build-from-source)
+- [Usage](#usage)
 - [Addressing bookmarks and search syntax](#addressing-bookmarks-and-search-syntax)
 - [Command line guide](#command-line-guide)
 - [CLI reference](#cli-reference)
@@ -44,7 +45,7 @@ A local first bookmark manager that stores bookmarks as browsable plain HTML fil
 - Duplicate detection
 - Available for mac, windows, linux and android
 - Check for stale, or changed URLS
-- Import and export bookmarks
+- Import and export bookmarksA
 - rules to automatically classify bookmarks into specific tags or folders
 - Self hosting and sync friendly
 - Merge conflict resolution with third party sync (Drive, NextCloud, Syncthing)
@@ -183,6 +184,7 @@ liber profile -h # create, list, switch and delete profiles
 
 ```
 
+For full CLI reference visit [cli page](https://liber-bkm.github.io/reference/cli/)
 
 ### Addressing bookmarks and search syntax
 
@@ -263,32 +265,7 @@ liber serve --addr 127.0.0.1:8080
 liber-serve --addr 0.0.0.0:8080 --auth-token <token>   # server only
 ```
 
-`liber-serve` is the same server without CLI baggage; flags are
-`--addr`, `--auth-token`, `--static-dir`, `--qr`, `--no-mdns`.
-Serving order is always explicit `--static-dir`, then the embedded
-bundle, then an API-only notice. Dev builds stay API-only unless
-`--static-dir` points at a built UI.
-
-**Pairing phones and tablets.** `serve --qr` prints a terminal QR of
-the LAN URL next to the address lines; the server also advertises
-`liber-<device-id>` over mDNS (`_liber._tcp.local.`, TXT carries
-device id and API version) for its whole lifetime unless `--no-mdns`.
-`liber discover` on another machine lists servers. The QR encodes the
-URL only, never the token: scanning opens the login page, where the
-token still gates entry. Browsers cannot browse mDNS, so the Settings
-remote fields plus login page are the pairing endpoint there.
-
-**Auth: one token model.** `--auth-token` or `LIBER_AUTH_TOKEN`;
-empty means open. Browsers get an HMAC signed cookie after the login
-form (POSTs additionally check Origin/Referer against Host, so a
-foreign page cannot drive your browser session). API clients send
-`Authorization: Bearer` with the *derived* bearer
-`HMAC-SHA256(token, "liber-bearer-v1")` in hex (constant-time
-compare); the web UI and Android remote mode derive it for you with
-SubtleCrypto, and `sync push/pull` derive it from `--token` or
-`LIBER_AUTH_TOKEN`. A 401 answers with the token hint instead of a
-bare status. `auth_token` is CLI and env only and can never be set
-over the API: a bearer that could mint itself is no auth at all.
+Visit [Self Hosting](https://liber-bkm.github.io/config/self-hosting) for more details 
 
 ## Configuration
 
@@ -321,31 +298,6 @@ The file is written `0600` (owner only) since it can hold local paths.
 | `singlefile_cmd`, `singlefile_browser_path`, `monolith_cmd` | External archiver commands | bundled PATH entries under Nix |
 | `auth_token` | CLI/env only, never returned or set over the API | empty (open) |
 
-
-## Sync without loss
-
-Devices share the base dir over any folder sync plus explicit bundle
-exchange (`sync export` on A, `sync import` on B, or `sync push` /
-`sync pull` directly against a `liber-serve` URL with derived-bearer
-auth). Exchange files are JSON bundles; `--since` filters by oplog
-sequence for incremental moves, and per-peer cursors remain a later
-slice, so whole bundles are the norm. Newer `updated_at`
-wins scalars, tags and attachments union, tombstones lose to newer
-edits, replay is idempotent so bundles flow freely both ways, and the
-originator marks its own entries applied so echoes never replay.
-`sync commit [--message T] [--push]` snapshots with git (never inits
-a repo; nothing-to-commit reports in the body), `sync prune`
-(default 90 days) trims the log.
-
-Short numeric ids stay local-only: every import closes gaps and folds
-collisions into dense `1..N` in creation order, so converged devices
-agree on the mapping. Anything
-automation cannot place safely lands in `unindexed/` for review. It is
-never deleted by automation; data loss is treated as the unforgivable
-bug class. Notes save/remove and archive add/remove ride the bundle
-as artifact ops with tolerant replay; history bumps and check stamps
-skip the log by design, like attach/detach file bytes (metadata
-converges, bytes follow via folder sync).
 
 ## License
 
