@@ -273,10 +273,12 @@ liber add <url1> <url2> ... [-t tags] [-f folder] [--markdown] [--archive]
 
 Single add fetches the page title when `--title` is missing and falls
 back to the URL on failure. Duplicates print the existing entry and
-ask before continuing. `-i/--interactive` prompts for title,
-description, tags, folder, markdown notes, then loops an attachments
+ask before continuing. `-i/--interactive` prompts for everything in
+order, starting with the URL itself (so `liber add -i` with no URL
+works): duplicate pre-check, title, description, tags, folder,
+markdown notes, archived copy, then loops an attachments
 menu (`rm <num|name>` detaches, empty finishes); it needs a terminal
-and refuses pipes. Bulk add shares tags/folder/archive across all
+and refuses pipes. An empty URL answer cancels. Bulk add shares tags/folder/archive across all
 URLs and prints `Added X, skipped Y duplicates, failed Z of N`.
 
 **list [QUERY]** Search and list, newest first by default.
@@ -439,9 +441,10 @@ backend cycle (`auto`, `builtin`, `browser`, `single-file`,
 `Esc` discards.
 
 **Interactive add (`add -i`).** A prompt loop reusing the same line
-helpers: duplicate pre-check first, then title (fetched page title as
-default), description, space-separated tags, folder, a markdown-notes
-confirm, then the normal create plus archive plus attach path, then an
+helpers: URL first (empty cancels), duplicate pre-check, title
+(fetched page title as default), description, space-separated tags,
+folder, a markdown-notes confirm plus an archived-copy confirm, then
+the normal create plus archive plus attach path, then an
 attachments menu loop. Flag values seed the prompt defaults. Refuses
 to run without a terminal instead of blocking on dead stdin.
 

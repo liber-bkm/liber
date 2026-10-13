@@ -500,9 +500,21 @@ enum AddOutcome {
     SkippedDuplicate,
 }
 
-fn run_add(a: AddArgs, full: bool) -> anyhow::Result<()> {
+fn run_add(mut a: AddArgs, full: bool) -> anyhow::Result<()> {
     if a.url.is_empty() {
-        return Err(anyhow::anyhow!("add needs at least one URL"));
+        if !a.interactive {
+            return Err(anyhow::anyhow!("add needs at least one URL"));
+        }
+        use std::io::IsTerminal;
+        if !std::io::stdin().is_terminal() {
+            return Err(anyhow::anyhow!("add --interactive needs a terminal"));
+        }
+        let url = prompt_line("URL");
+        if url.trim().is_empty() {
+            println!("Cancelled.");
+            return Ok(());
+        }
+        a.url = vec![url];
     }
     if a.url.len() > 1 {
         if a.interactive {
@@ -620,6 +632,11 @@ fn add_one(
     } else {
         a.markdown
     };
+    let archive = if interactive {
+        a.archive || confirm("Save archived copy?")
+    } else {
+        a.archive
+    };
     let opts = liber_core::create::CreateOptions {
         title,
         description,
@@ -661,7 +678,7 @@ fn add_one(
                     store.cfg.markdown_dir().join(rel).display()
                 );
             }
-            if a.archive {
+            if archive {
                 match liber_core::archive::archive_bookmark(&mut *store, &b.uuid, None) {
                     Ok(warnings) => {
                         for w in warnings {
@@ -1997,6 +2014,14 @@ mod tests {
             .unwrap();
         match cli.cmd {
             Some(Cmd::Add(a)) => assert_eq!(a.url.len(), 2),
+            _ => panic!("expected add subcommand"),
+        }
+        let cli = Cli::try_parse_from(["liber", "add", "-i"]).unwrap();
+        match cli.cmd {
+            Some(Cmd::Add(a)) => {
+                assert!(a.interactive);
+                assert!(a.url.is_empty());
+            }
             _ => panic!("expected add subcommand"),
         }
     }
