@@ -13,7 +13,7 @@ describe("SavedSearches sidebar", () => {
           ok: true,
           status: 200,
           text: async () =>
-            JSON.stringify({ searches: [{ name: "rust", query: "tag:rust", scope: "", sort: "newest" }] }),
+            JSON.stringify({ searches: [{ name: "rust", query: "tag:rust", scope: "", sort: "newest", deep: true }] }),
         } as Response;
       }
       return { ok: true, status: 200, text: async () => JSON.stringify({}) } as Response;
@@ -29,6 +29,7 @@ describe("SavedSearches sidebar", () => {
 
     const row = await screen.findByText("rust");
     expect(row).toBeInTheDocument();
+    expect(screen.getByText("deep")).toBeInTheDocument();
     fireEvent.click(row);
     expect(applied).toEqual(["rust"]);
   });

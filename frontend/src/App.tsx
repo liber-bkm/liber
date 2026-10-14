@@ -43,8 +43,8 @@ function Shell() {
   const [version, setVersion] = useState(0);
   const [preset, setPreset] = useState<SearchPreset | null>(null);
 
-  function applySearch(s: { query: string; scope: string; sort: string }) {
-    setPreset({ q: s.query, scope: s.scope, sort: s.sort, nonce: Date.now() });
+  function applySearch(s: { query: string; scope: string; sort: string; deep?: boolean }) {
+    setPreset({ q: s.query, scope: s.scope, sort: s.sort, deep: s.deep ?? false, nonce: Date.now() });
     setView("library");
     setFolder(null);
     setTag(null);

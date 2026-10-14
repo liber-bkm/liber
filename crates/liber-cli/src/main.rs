@@ -49,6 +49,7 @@ enum Cmd {
     Pick(PickArgs),
     Profile(ProfileArgs),
     Searches(SearchesArgs),
+    Status(StatusArgs),
     Serve(ServeArgs),
     Discover(DiscoverArgs),
     Completion(CompletionArgs),
@@ -357,6 +358,8 @@ enum SearchesCmd {
         scope: Option<String>,
         #[arg(long)]
         sort: Option<String>,
+        #[arg(long)]
+        deep: bool,
     },
     Delete {
         name: String,
@@ -364,6 +367,34 @@ enum SearchesCmd {
     Run {
         name: String,
     },
+}
+
+#[derive(clap::Args)]
+struct StatusArgs {}
+
+fn run_status() -> anyhow::Result<()> {
+    let (cfg, store) = load_store()?;
+    let st = store.maintenance_status()?;
+    let active = cfg.active_profile.clone().unwrap_or("default".to_string());
+    println!(
+        "Device {} on profile {}.",
+        cfg.effective_device_id(),
+        active
+    );
+    println!(
+        "{} bookmarks, {} oplog entries, {} quarantined, {} short-id gaps.",
+        st.bookmarks, st.oplog_entries, st.quarantine, st.short_id_gaps
+    );
+    if st.quarantine > 0 {
+        println!("Review the quarantine folder for dead links.");
+    }
+    if st.short_id_gaps > 0 {
+        println!("Run reindex --prune --compact-ids to close id gaps.");
+    }
+    if st.quarantine == 0 && st.short_id_gaps == 0 {
+        println!("Library looks healthy.");
+    }
+    Ok(())
 }
 
 #[derive(clap::Args)]
@@ -1719,8 +1750,12 @@ fn run_searches(cmd: Option<SearchesCmd>, full: bool) -> anyhow::Result<()> {
                 println!("Saved searches:");
                 for s in &cfg.saved_searches {
                     println!(
-                        "  {} | query {:?} scope {:?} sort {:?}",
-                        s.name, s.query, s.scope, s.sort
+                        "  {} | query {:?} scope {:?} sort {:?}{}",
+                        s.name,
+                        s.query,
+                        s.scope,
+                        s.sort,
+                        if s.deep { " deep" } else { "" },
                     );
                 }
             }
@@ -1730,6 +1765,7 @@ fn run_searches(cmd: Option<SearchesCmd>, full: bool) -> anyhow::Result<()> {
             query,
             scope,
             sort,
+            deep,
         }) => {
             add_saved_search(
                 &mut cfg,
@@ -1737,6 +1773,7 @@ fn run_searches(cmd: Option<SearchesCmd>, full: bool) -> anyhow::Result<()> {
                 query.unwrap_or_default(),
                 scope.unwrap_or_default(),
                 sort.unwrap_or_default(),
+                deep,
             )
             .map_err(|e| anyhow::anyhow!("{e}"))?;
             liber_core::config::save_config_to(&path, &cfg)?;
@@ -1759,7 +1796,7 @@ fn run_searches(cmd: Option<SearchesCmd>, full: bool) -> anyhow::Result<()> {
                 ListArgs {
                     query: opt(&preset.query),
                     sort: opt(&preset.sort),
-                    deep: false,
+                    deep: preset.deep,
                     r#in: opt(&preset.scope),
                 },
                 full,
@@ -1976,6 +2013,7 @@ fn main() -> anyhow::Result<()> {
             Cmd::History(_) => run_history(cli.uuid),
             Cmd::Profile(a) => run_profile(a.cmd),
             Cmd::Searches(a) => run_searches(a.cmd, cli.uuid),
+            Cmd::Status(_) => run_status(),
             Cmd::Completion(a) => run_completion(&a.shell),
         },
     }
@@ -2089,7 +2127,7 @@ mod tests {
     #[test]
     fn saved_searches_parse() {
         let cli = Cli::try_parse_from([
-            "liber", "searches", "add", "rust", "--query", "tag:rust", "--sort", "newest",
+            "liber", "searches", "add", "rust", "--query", "tag:rust", "--sort", "newest", "--deep",
         ])
         .unwrap();
         match cli.cmd {
@@ -2099,11 +2137,13 @@ mod tests {
                     query,
                     scope,
                     sort,
+                    deep,
                 }) => {
                     assert_eq!(name, "rust");
                     assert_eq!(query.as_deref(), Some("tag:rust"));
                     assert_eq!(scope, None);
                     assert_eq!(sort.as_deref(), Some("newest"));
+                    assert!(deep);
                 }
                 _ => panic!("expected searches add"),
             },
@@ -2121,6 +2161,11 @@ mod tests {
         match cli.cmd {
             Some(Cmd::Searches(a)) => assert!(a.cmd.is_none()),
             _ => panic!("expected searches subcommand"),
+        }
+        let cli = Cli::try_parse_from(["liber", "status"]).unwrap();
+        match cli.cmd {
+            Some(Cmd::Status(_)) => {}
+            _ => panic!("expected status subcommand"),
         }
     }
 

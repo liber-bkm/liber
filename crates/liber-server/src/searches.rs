@@ -63,12 +63,14 @@ pub struct AddSearchBody {
     pub scope: String,
     #[serde(default)]
     pub sort: String,
+    #[serde(default)]
+    pub deep: bool,
 }
 
 #[utoipa::path(
     post,
     path = "/api/v2/searches",
-    request_body(content = Object, description = "Preset as {name, query?, scope?, sort?}"),
+    request_body(content = Object, description = "Preset as {name, query?, scope?, sort?, deep?}"),
     responses(
         (status = 200, description = "Saved preset", body = Object),
         (status = 400, description = "Invalid name, scope, or sort", body = crate::api::ErrorBody),
@@ -86,6 +88,7 @@ pub async fn add_search(
         input.query,
         input.scope,
         input.sort,
+        input.deep,
     )
     .map_err(core_err)?;
     persist(&cfg, &state)?;
@@ -192,6 +195,20 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(v["search"]["name"], "rust");
         assert_eq!(v["search"]["query"], "tag:rust");
+        assert_eq!(v["search"]["deep"], false);
+
+        let (status, v) = body_json(
+            app.clone()
+                .oneshot(post_json(
+                    "/api/v2/searches",
+                    serde_json::json!({"name": "deepread", "query": "rust", "deep": true}),
+                ))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["search"]["deep"], true);
 
         let (status, _) = body_json(
             app.clone()
@@ -230,7 +247,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(v["searches"].as_array().unwrap().len(), 1);
+        assert_eq!(v["searches"].as_array().unwrap().len(), 2);
 
         let (status, v) = body_json(
             app.clone()

@@ -508,13 +508,14 @@ export interface SavedSearch {
   query: string;
   scope: string;
   sort: string;
+  deep: boolean;
 }
 
 export function fetchSearches(): Promise<{ searches: SavedSearch[] }> {
   return request("/api/v2/searches");
 }
 
-export function addSearch(input: { name: string; query?: string; scope?: string; sort?: string }): Promise<{ result: string; search: SavedSearch }> {
+export function addSearch(input: { name: string; query?: string; scope?: string; sort?: string; deep?: boolean }): Promise<{ result: string; search: SavedSearch }> {
   return request("/api/v2/searches", { method: "POST", body: JSON.stringify(input) });
 }
 

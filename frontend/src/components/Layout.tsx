@@ -152,10 +152,11 @@ export function SavedSearches({ onApply }: { onApply: (s: SavedSearch) => void }
         <div key={s.name} className="group flex items-center gap-1 pr-1">
           <button
             onClick={() => onApply(s)}
-            title={[s.query, s.scope && `in ${s.scope}`, s.sort].filter(Boolean).join(" ") || "empty search"}
+            title={[s.query, s.scope && `in ${s.scope}`, s.sort, s.deep ? "deep" : ""].filter(Boolean).join(" ") || "empty search"}
             className="flex min-w-0 flex-1 items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
             <span className="truncate">{s.name}</span>
+            {s.deep && <span className="shrink-0 text-[10px] text-neutral-400">deep</span>}
           </button>
           <button
             onClick={() => { if (window.confirm(`Delete saved search ${s.name}?`)) del.mutate(s.name); }}

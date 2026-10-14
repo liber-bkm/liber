@@ -28,6 +28,7 @@ export interface SearchPreset {
   q: string;
   scope: string;
   sort: string;
+  deep: boolean;
   nonce: number;
 }
 
@@ -57,10 +58,11 @@ export function Library({
     setQ(preset.q);
     setScope(preset.scope);
     setSort(preset.sort);
+    setDeep(preset.deep);
   }, [preset]);
 
   const savePreset = useMutation({
-    mutationFn: (name: string) => addSearch({ name, query: debounced, scope, sort }),
+    mutationFn: (name: string) => addSearch({ name, query: debounced, scope, sort, deep: deep || undefined }),
     onSuccess: () => {
       setSaveError("");
       qc.invalidateQueries({ queryKey: ["searches"] });
@@ -68,7 +70,7 @@ export function Library({
     onError: (e: Error) => setSaveError(e.message),
   });
 
-  const canSave = debounced.trim() !== "" || scope !== "" || (sort !== "" && sort !== "newest");
+  const canSave = debounced.trim() !== "" || scope !== "" || (sort !== "" && sort !== "newest") || deep;
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebounced(q), 250);

@@ -124,4 +124,37 @@ describe("Library virtualization", () => {
     expect(expanded.getAttribute("class")).not.toContain("line-clamp-2");
     expect(opened).toEqual([]);
   });
+
+  it("applies deep from a saved preset", async () => {
+    window.scrollTo = () => {};
+    window.scrollBy = () => {};
+    const items = [bookmark(0)];
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({ total: items.length, page: 1, per_page: 500, bookmarks: items }),
+      } as Response;
+    });
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <Library
+          folder={null}
+          tag={null}
+          onOpen={() => {}}
+          preset={{ q: "rust", scope: "", sort: "newest", deep: true, nonce: 7 }}
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(container.innerHTML).toContain("Item 0");
+    });
+    const boxes = [...container.querySelectorAll('input[type="checkbox"]')];
+    const deepBox = boxes.find((b) => b.parentElement?.textContent?.includes("Deep")) as HTMLInputElement | undefined;
+    expect(deepBox?.checked).toBe(true);
+  });
 });

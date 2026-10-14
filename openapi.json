@@ -1734,7 +1734,7 @@
         ],
         "operationId": "add_search",
         "requestBody": {
-          "description": "Preset as {name, query?, scope?, sort?}",
+          "description": "Preset as {name, query?, scope?, sort?, deep?}",
           "content": {
             "application/json": {
               "schema": {

@@ -422,13 +422,14 @@ export async function fetchSearches(): Promise<{ searches: SavedSearch[] }> {
   return invokeCmd("list_searches");
 }
 
-export async function addSearch(input: { name: string; query?: string; scope?: string; sort?: string }): Promise<{ result: string; search: SavedSearch }> {
+export async function addSearch(input: { name: string; query?: string; scope?: string; sort?: string; deep?: boolean }): Promise<{ result: string; search: SavedSearch }> {
   if (!isTauri() || useRemote()) return restAddSearch(input);
   return invokeCmd("add_search", {
     name: input.name,
     query: input.query ?? null,
     scope: input.scope ?? null,
     sort: input.sort ?? null,
+    deep: input.deep ?? null,
   });
 }
 

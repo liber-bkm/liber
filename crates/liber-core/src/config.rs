@@ -116,6 +116,8 @@ pub struct SavedSearch {
     pub scope: String,
     #[serde(default)]
     pub sort: String,
+    #[serde(default)]
+    pub deep: bool,
 }
 
 pub const SAVED_SEARCH_NAME_MAX: usize = 64;
@@ -145,6 +147,7 @@ pub fn add_saved_search(
     query: String,
     scope: String,
     sort: String,
+    deep: bool,
 ) -> Result<SavedSearch, CoreError> {
     validate_saved_search(&name, &scope, &sort)?;
     cfg.saved_searches
@@ -154,6 +157,7 @@ pub fn add_saved_search(
         query: query.trim().to_string(),
         scope: scope.trim().to_string(),
         sort: sort.trim().to_string(),
+        deep,
     };
     cfg.saved_searches.push(entry.clone());
     cfg.saved_searches.sort_by_key(|a| a.name.to_lowercase());
@@ -361,20 +365,23 @@ mod tests {
     #[test]
     fn saved_search_add_upsert_delete() {
         let mut cfg = default_config();
-        add_saved_search(
+        let rust = add_saved_search(
             &mut cfg,
             "Rust".to_string(),
             "tag:rust".to_string(),
             String::new(),
             "newest".to_string(),
+            true,
         )
         .unwrap();
+        assert!(rust.deep);
         add_saved_search(
             &mut cfg,
             "blogs".to_string(),
             String::new(),
             "url".to_string(),
             String::new(),
+            false,
         )
         .unwrap();
         assert_eq!(cfg.saved_searches.len(), 2);
@@ -385,12 +392,24 @@ mod tests {
             "tag:rust lang".to_string(),
             String::new(),
             String::new(),
+            false,
         )
         .unwrap();
         assert_eq!(cfg.saved_searches.len(), 2);
         assert_eq!(cfg.saved_searches[1].query, "tag:rust lang");
+        assert!(!cfg.saved_searches[1].deep);
         assert_eq!(delete_saved_search(&mut cfg, "RUST").unwrap(), "rust");
         assert_eq!(cfg.saved_searches.len(), 1);
         assert!(delete_saved_search(&mut cfg, "missing").is_err());
+    }
+
+    #[test]
+    fn saved_search_old_configs_default_shallow() {
+        let cfg: Config = serde_json::from_str(
+            r#"{"base_dir": "/tmp/x", "saved_searches": [{"name": "old", "query": "rust"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.saved_searches.len(), 1);
+        assert!(!cfg.saved_searches[0].deep);
     }
 }
