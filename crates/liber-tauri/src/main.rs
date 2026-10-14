@@ -1387,6 +1387,37 @@ fn sync_commit(
 }
 
 #[tauri::command]
+fn sync_export(
+    state: State<'_, AppState>,
+    since: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let store = open_store(&state)?;
+    let entries = liber_core::sync::export_bundle(&store, since).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({"entries": entries, "count": entries.len()}))
+}
+
+#[tauri::command]
+fn sync_import(state: State<'_, AppState>, content: String) -> Result<serde_json::Value, String> {
+    let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
+    let mut store = open_store(&state)?;
+    let entries: Vec<liber_core::model::OpLogEntry> =
+        serde_json::from_str(&content).map_err(|e| format!("bad bundle: {e}"))?;
+    let rep = liber_core::sync::replay_entries(&mut store, &entries).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "merged": rep.merged,
+        "inserted": rep.inserted,
+        "deduped": rep.deduped,
+        "deleted": rep.deleted,
+        "rules": rep.rules,
+        "renumbered": rep.renumbered,
+        "short_ids_assigned": rep.short_ids_assigned,
+        "short_ids_compacted": rep.short_ids_compacted,
+        "artifacts": rep.artifacts,
+        "skipped": rep.skipped,
+    }))
+}
+
+#[tauri::command]
 async fn fetch_favicon(
     state: State<'_, AppState>,
     host: String,
@@ -1520,6 +1551,8 @@ pub(crate) fn main() {
             list_searches,
             add_search,
             delete_search,
+            sync_export,
+            sync_import,
             sync_commit,
         ])
         .run(tauri::generate_context!())

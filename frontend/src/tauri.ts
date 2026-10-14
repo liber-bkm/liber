@@ -9,6 +9,7 @@ import type {
   FaviconRefreshReport,
   FolderCount,
   ListParams,
+  MergeReport,
   ProfileInfo,
   ReindexReport,
   RestoreResult,
@@ -16,6 +17,7 @@ import type {
   SavedSearch,
   Settings,
   Suggestion,
+  SyncExport,
   TagCount,
   UpdateInput,
 } from "./api";
@@ -65,6 +67,8 @@ import {
   setSetting as restSetSetting,
   switchProfile as restSwitchProfile,
   syncCommit as restSyncCommit,
+  syncExport as restSyncExport,
+  syncImport as restSyncImport,
   updateBookmark as restUpdate,
   uploadAttachment as restUpload,
 } from "./api";
@@ -441,6 +445,16 @@ export async function deleteSearch(name: string): Promise<{ result: string; name
 export async function syncCommit(push = false): Promise<{ output: string; error?: string }> {
   if (!isTauri() || useRemote()) return restSyncCommit(push);
   return invokeCmd("sync_commit", { push });
+}
+
+export async function syncExport(since?: number): Promise<SyncExport> {
+  if (!isTauri() || useRemote()) return restSyncExport(since);
+  return invokeCmd("sync_export", { since: since ?? null });
+}
+
+export async function syncImport(entries: unknown[]): Promise<MergeReport> {
+  if (!isTauri() || useRemote()) return restSyncImport(entries);
+  return invokeCmd("sync_import", { content: JSON.stringify(entries) });
 }
 
 export async function bulkOp(

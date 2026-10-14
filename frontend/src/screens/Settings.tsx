@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RefreshCw, Upload } from "lucide-react";
-import { backupLibraryContent, backupUrl, deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, refreshFavicons, restoreBackup, runReindex, setRemote, setSetting, switchProfile, syncCommit, useRemote } from "../tauri";
+import { backupLibraryContent, backupUrl, deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, refreshFavicons, restoreBackup, runReindex, setRemote, setSetting, switchProfile, syncCommit, syncExport, syncImport, useRemote } from "../tauri";
 import { appVersion } from "../api";
 import { Badge, Button, Field, Input, Spinner } from "../components/ui";
 
@@ -35,6 +35,7 @@ export function SettingsPage() {
   const [armedRestore, setArmedRestore] = useState(false);
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [syncPush, setSyncPush] = useState(false);
+  const [bundleFile, setBundleFile] = useState<File | null>(null);
   const [refreshCached, setRefreshCached] = useState(false);
   const [lastSnapshot, setLastSnapshot] = useState<{ output: string; time: string } | null>(readLastSnapshot);
   const qc = useQueryClient();
@@ -142,6 +143,42 @@ export function SettingsPage() {
     onSuccess: (r) => {
       const failed = r.failed.length ? `, failed: ${r.failed.join(", ")}` : "";
       setNotice(`Icons: ${r.hosts} hosts, ${r.fetched} fetched, ${r.cached} already cached${failed}. Reload the library to see new icons.`);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const doExportBundle = useMutation({
+    mutationFn: () => syncExport(),
+    onSuccess: (r) => {
+      const blob = new Blob([JSON.stringify(r.entries)], { type: "application/json" });
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `liber-sync-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(href), 5000);
+      setNotice(`Exported ${r.count} oplog entries.`);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const doImportBundle = useMutation({
+    mutationFn: async () => {
+      if (!bundleFile) throw new Error("choose a bundle file first");
+      const text = await bundleFile.text();
+      let entries: unknown[];
+      try {
+        entries = JSON.parse(text) as unknown[];
+      } catch {
+        throw new Error("not a sync bundle file");
+      }
+      if (!Array.isArray(entries)) throw new Error("not a sync bundle file");
+      return syncImport(entries);
+    },
+    onSuccess: (r) => {
+      setNotice(`Merged bundle: ${r.inserted} inserted, ${r.merged} merged, ${r.deduped} deduped, ${r.deleted} deleted, ${r.rules} rules, ${r.skipped} skipped.`);
+      setBundleFile(null);
+      qc.invalidateQueries();
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -349,6 +386,33 @@ export function SettingsPage() {
         <div>
           <Button variant="outline" onClick={() => { setError(""); setNotice(""); doSnapshot.mutate(); }} disabled={doSnapshot.isPending}>
             {doSnapshot.isPending ? "Snapshotting..." : "Snapshot now"}
+          </Button>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-sm font-semibold">Sync exchange</h2>
+        <p className="text-xs text-neutral-500">
+          Move changes between devices as a bundle file: export here, carry the file over, import it there. In remote mode this exchanges with the server library.
+        </p>
+        <div>
+          <Button variant="outline" onClick={() => { setError(""); setNotice(""); doExportBundle.mutate(); }} disabled={doExportBundle.isPending}>
+            <Download className="h-4 w-4" /> {doExportBundle.isPending ? "Exporting..." : "Export bundle"}
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="file"
+            accept=".json,application/json"
+            onChange={(e) => { setBundleFile(e.target.files?.[0] ?? null); }}
+            className="text-xs"
+          />
+          <Button
+            variant="outline"
+            onClick={() => { setError(""); setNotice(""); doImportBundle.mutate(); }}
+            disabled={doImportBundle.isPending || !bundleFile}
+          >
+            <Upload className="h-4 w-4" /> {doImportBundle.isPending ? "Importing..." : "Import bundle"}
           </Button>
         </div>
       </section>

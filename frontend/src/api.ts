@@ -527,6 +527,32 @@ export function syncCommit(push = false): Promise<{ output: string; error?: stri
   return request("/api/v2/sync/commit", { method: "POST", body: JSON.stringify({ push }) });
 }
 
+export interface SyncExport {
+  entries: unknown[];
+  count: number;
+}
+
+export interface MergeReport {
+  merged: number;
+  inserted: number;
+  deduped: number;
+  deleted: number;
+  rules: number;
+  renumbered: number;
+  short_ids_assigned: number;
+  short_ids_compacted: number;
+  artifacts: number;
+  skipped: number;
+}
+
+export function syncExport(since?: number): Promise<SyncExport> {
+  return request("/api/v2/sync/export", { method: "POST", body: JSON.stringify({ since: since ?? null }) });
+}
+
+export function syncImport(entries: unknown[]): Promise<MergeReport> {
+  return request("/api/v2/sync/import", { method: "POST", body: JSON.stringify({ entries }) });
+}
+
 export interface FaviconRefreshReport {
   hosts: number;
   fetched: number;
