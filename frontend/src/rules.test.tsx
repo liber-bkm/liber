@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RulesPage } from "./screens/Rules";
@@ -39,5 +39,16 @@ describe("RulesPage learn flow", () => {
       const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
       expect(calls.some((c) => String(c[0]).endsWith("/api/v2/rules/learn") && (c[1] as RequestInit)?.method === "POST")).toBe(true);
     });
+  });
+
+  it("wraps the header on narrow screens", async () => {
+    const { container } = renderRules();
+    const view = within(container);
+    await waitFor(() => {
+      expect(view.getByText("Automation rules")).toBeInTheDocument();
+    });
+    const header = view.getByText("Automation rules").parentElement;
+    expect(header?.className).toContain("flex-wrap");
+    expect(view.getByText("New rule")).toBeInTheDocument();
   });
 });

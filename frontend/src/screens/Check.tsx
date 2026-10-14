@@ -82,13 +82,14 @@ export function CheckPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold">Link check</h1>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="mr-auto shrink-0 text-lg font-semibold">Link check</h1>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
           <Input
             value={stale}
             placeholder="Stale, e.g. 7d"
             onChange={(e) => setStale(e.target.value)}
+            className="min-w-28 max-w-44 flex-1"
           />
           <Input
             value={workers}
@@ -96,6 +97,7 @@ export function CheckPage() {
             title="Parallel check concurrency (default 12)"
             inputMode="numeric"
             onChange={(e) => setWorkers(e.target.value)}
+            className="min-w-20 max-w-32 flex-1"
           />
           <Button onClick={() => { setError(""); run.mutate(); }} disabled={run.isPending}>
             <Play className="h-4 w-4" /> {run.isPending ? "Checking..." : report ? "Check again" : "Run check"}

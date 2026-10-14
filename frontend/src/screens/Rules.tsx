@@ -84,9 +84,9 @@ export function RulesPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Automation rules</h1>
-        <div className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="mr-auto text-lg font-semibold">Automation rules</h1>
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={() => apply.mutate(undefined)}>
             <Play className="h-4 w-4" /> Apply all
           </Button>

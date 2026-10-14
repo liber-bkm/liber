@@ -125,8 +125,7 @@ describe("Library virtualization", () => {
     expect(opened).toEqual([]);
   });
 
-  it("welcomes an empty library with setup actions", async () => {
-    window.scrollTo = () => {};
+  it("welcomes an empty library with setup actions", async () => {    window.scrollTo = () => {};
     window.scrollBy = () => {};
     globalThis.fetch = vi.fn(async () => {
       return {

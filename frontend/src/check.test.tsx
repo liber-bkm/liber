@@ -75,6 +75,7 @@ describe("CheckPage run-apply flow", () => {
 
     const workers = container.querySelector('input[placeholder="Workers"]');
     if (!workers) throw new Error("workers input missing");
+    expect(workers.parentElement?.className).toContain("flex-wrap");
     fireEvent.change(workers, { target: { value: "4" } });
     fireEvent.click(screen.getByText("Run check"));
 

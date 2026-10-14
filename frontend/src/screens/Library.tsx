@@ -117,12 +117,13 @@ export function Library({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-0 grow basis-52">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
           <Input
             value={q}
-            placeholder="Search bookmarks... (title:foo tag:bar)"
+            placeholder="Search bookmarks..."
+            title="Search, supports field:value prefixes like title:foo tag:bar"
             className="pl-9"
             onChange={(e) => setQ(e.target.value)}
           />
