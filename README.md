@@ -273,8 +273,6 @@ Visit [Self Hosting](https://liber-bkm.github.io/config/self-hosting) for more d
 
 ## Configuration
 
-**Locations.** The config file resolves to `LIBER_CONFIG` when set,
-else the platform config dir:
 
 | Platform | Config file | Default library base |
 |---|---|---|
@@ -283,12 +281,6 @@ else the platform config dir:
 | Windows | `%APPDATA%\liber-rs\config.json` | `%LOCALAPPDATA%\liber-rs` |
 | Android | app private storage `config.json` | app private storage `library/` |
 
-`LIBER_BASE_DIR` overrides the base dir without touching the file.
-The file is written `0600` (owner only) since it can hold local paths.
-`liber config list` prints the live config as JSON.
-
-**Settable keys** (`liber config set <key> <value>`, Settings form, or
-`PUT /api/v2/settings {key, value}` under one shared allowlist):
 
 | Key | Meaning | Default |
 |---|---|---|
