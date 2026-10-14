@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Pencil, Trash2, Upload, X } from "lucide-react";
 import { displayId, domainOf, getArchiveView, setArchiveView, shortUuid, ApiError, type Bookmark } from "../api";
-import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, fetchArchive, fetchBookmark, fetchFolders, fetchNotes, fetchTags, isTauri, openArchiveExternal, openAttachmentExternal, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment } from "../tauri";
+import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, fetchArchive, fetchBookmark, fetchFolders, fetchNotes, fetchTags, isTauri, openArchiveExternal, openAttachmentExternal, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment, useRemote } from "../tauri";
 import { Badge, Button, Field, Input, Modal, Spinner } from "./ui";
 
 function useTaxonomyNames() {
@@ -46,7 +46,7 @@ function TagSuggest({ value, names, onPick }: { value: string; names: string[]; 
   );
 }
 
-type Tab = "details" | "notes" | "archive";
+type Tab = "details" | "notes" | "archive" | "attachments";
 
 export function DetailDrawer({ uuid, onClose, onChanged }: { uuid: string; onClose: () => void; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
@@ -98,7 +98,7 @@ export function DetailDrawer({ uuid, onClose, onChanged }: { uuid: string; onClo
         {detail.isLoading && <Spinner />}
         {detail.data && (
           <div className="flex gap-1 border-b border-neutral-200 pb-2 dark:border-neutral-800">
-            {(["details", "notes", "archive"] as Tab[]).map((t) => (
+            {(["details", "notes", "archive", "attachments"] as Tab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -121,6 +121,7 @@ export function DetailDrawer({ uuid, onClose, onChanged }: { uuid: string; onClo
         )}
         {detail.data && tab === "notes" && <NotesTab uuid={uuid} hasNotes={detail.data.has_markdown} />}
         {detail.data && tab === "archive" && <ArchiveTab bookmark={detail.data} />}
+        {detail.data && tab === "attachments" && <AttachmentsTab bookmark={detail.data} onChanged={invalidate} />}
         {openError && <p className="text-sm text-red-600">{openError}</p>}
         {detail.data && !editing && (
           <div className="flex flex-wrap gap-2">
@@ -237,7 +238,7 @@ function View({ bookmark: b, onChanged }: { bookmark: Bookmark; onChanged: () =>
 
 function AttachmentLink({ uuid, name }: { uuid: string; name: string }) {
   const [error, setError] = useState("");
-  if (!isTauri()) {
+  if (!isTauri() || useRemote()) {
     return (
       <a
         href={attachmentUrl(uuid, name)}
@@ -265,6 +266,89 @@ function AttachmentLink({ uuid, name }: { uuid: string; name: string }) {
       {error && <p className="text-xs text-red-600">{error}</p>}
     </>
   );
+}
+
+function AttachmentManager({ uuid, attachments, onChanged }: { uuid: string; attachments: { name: string }[]; onChanged: () => void }) {
+  const qc = useQueryClient();
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function uploadFiles(files: File[]) {
+    setError("");
+    setBusy(true);
+    try {
+      for (const f of files) {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        let bin = "";
+        const CHUNK = 8192;
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+        }
+        await uploadAttachment(uuid, f.name, `data:application/octet-stream;base64,${btoa(bin)}`);
+      }
+      await qc.invalidateQueries({ queryKey: ["bookmark", uuid] });
+      qc.invalidateQueries({ queryKey: ["bookmarks"] });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "upload failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(name: string) {
+    setError("");
+    setBusy(true);
+    try {
+      await deleteAttachment(uuid, name);
+      await qc.invalidateQueries({ queryKey: ["bookmark", uuid] });
+      qc.invalidateQueries({ queryKey: ["bookmarks"] });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "remove failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <label className="cursor-pointer text-sm text-accent-600 hover:underline">
+        {busy ? "Working..." : "Upload files"}
+        <input
+          type="file"
+          multiple
+          className="hidden"
+          disabled={busy}
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            if (files.length > 0) void uploadFiles(files);
+          }}
+        />
+      </label>
+      {attachments.length === 0 && <p className="text-sm text-neutral-400">No attachments yet.</p>}
+      {attachments.map((a) => (
+        <div key={a.name} className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <AttachmentLink uuid={uuid} name={a.name} />
+          </div>
+          <button
+            onClick={() => void remove(a.name)}
+            disabled={busy}
+            className="shrink-0 rounded-lg px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-900/20"
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AttachmentsTab({ bookmark: b, onChanged }: { bookmark: Bookmark; onChanged: () => void }) {
+  return <AttachmentManager uuid={b.uuid} attachments={b.attachments ?? []} onChanged={onChanged} />;
 }
 
 function NotesTab({ uuid, hasNotes }: { uuid: string; hasNotes: boolean }) {
@@ -515,22 +599,14 @@ function ArtifactSection({ bookmark: b }: { bookmark: Bookmark }) {
           </>
         )}
       </div>
-      {(b.attachments ?? []).length > 0 && (
-        <div className="flex flex-col gap-1 text-sm">
-          {b.attachments!.map((a) => (
-            <div key={a.name} className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate">{a.name}</span>
-              <button
-                onClick={() => run(() => deleteAttachment(b.uuid, a.name))}
-                disabled={busy}
-                className="rounded-lg px-2 py-0.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="flex flex-col gap-1 text-sm">
+        <span className="w-20 text-neutral-500">Files</span>
+        <AttachmentManager
+          uuid={b.uuid}
+          attachments={b.attachments ?? []}
+          onChanged={() => void refresh()}
+        />
+      </div>
     </div>
   );
 }
