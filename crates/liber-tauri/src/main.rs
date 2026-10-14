@@ -710,6 +710,7 @@ fn add_search(
     query: Option<String>,
     scope: Option<String>,
     sort: Option<String>,
+    deep: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let _guard = state.write_mu.lock().map_err(|e| e.to_string())?;
     let mut cfg = state.cfg.lock().map_err(|e| e.to_string())?.clone();
@@ -719,6 +720,7 @@ fn add_search(
         query.unwrap_or_default(),
         scope.unwrap_or_default(),
         sort.unwrap_or_default(),
+        deep.unwrap_or(false),
     )
     .map_err(|e| e.to_string())?;
     liber_core::config::save_config_to(&state.config_path, &cfg).map_err(|e| e.to_string())?;
