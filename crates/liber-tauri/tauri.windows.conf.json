@@ -1,0 +1,9 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "bundle": {
+        "resources": {
+            "../../target/release/liber.exe": "liber.exe",
+            "../../target/release/liber-serve.exe": "liber-serve.exe"
+        }
+    }
+}

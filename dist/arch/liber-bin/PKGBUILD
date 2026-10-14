@@ -14,7 +14,7 @@ provides=('liber')
 conflicts=('liber')
 _release="https://github.com/liber-bkm/liber/releases/download/v$pkgver"
 _raw="https://raw.githubusercontent.com/liber-bkm/liber/v$pkgver"
-source=("$_release/liber-$pkgver-linux-x86_64.tar.gz"
+source=("$_release/liber-linux-x86_64.tar.gz"
         "$_raw/dist/arch/liber.desktop"
         "$_raw/crates/liber-tauri/icons/32x32.png"
         "$_raw/crates/liber-tauri/icons/128x128.png")

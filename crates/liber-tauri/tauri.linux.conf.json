@@ -1,0 +1,19 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "bundle": {
+        "linux": {
+            "deb": {
+                "files": {
+                    "/usr/bin/liber": "../../target/release/liber",
+                    "/usr/bin/liber-serve": "../../target/release/liber-serve"
+                }
+            },
+            "rpm": {
+                "files": {
+                    "/usr/bin/liber": "../../target/release/liber",
+                    "/usr/bin/liber-serve": "../../target/release/liber-serve"
+                }
+            }
+        }
+    }
+}
