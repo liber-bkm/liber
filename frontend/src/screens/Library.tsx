@@ -4,7 +4,7 @@ import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownWideNarrow, BookmarkPlus, LayoutGrid, Search, Table2 } from "lucide-react";
 import { ageOf, displayId, domainOf, type Bookmark } from "../api";
 import { addSearch, faviconHost, faviconUrl, fetchFaviconContent, isTauri, listBookmarks } from "../tauri";
-import { Badge, Empty, Input, Spinner } from "../components/ui";
+import { Badge, Button, Empty, Input, Spinner } from "../components/ui";
 import { BulkBar } from "../components/BulkBar";
 
 const SORTS = [
@@ -37,11 +37,15 @@ export function Library({
   tag,
   onOpen,
   preset,
+  onAdd,
+  onGoSettings,
 }: {
   folder: string | null;
   tag: string | null;
   onOpen: (b: Bookmark) => void;
   preset?: SearchPreset | null;
+  onAdd?: () => void;
+  onGoSettings?: () => void;
 }) {
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -104,6 +108,12 @@ export function Library({
       }),
   });
   const bookmarks = query.data?.bookmarks ?? [];
+  const isFreshLibrary =
+    query.data != null &&
+    query.data.total === 0 &&
+    debounced.trim() === "" &&
+    folder == null &&
+    tag == null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -188,8 +198,29 @@ export function Library({
           <Spinner />
         </div>
       )}
-      {query.data && query.data.bookmarks.length === 0 && (
+      {query.data && query.data.bookmarks.length === 0 && !isFreshLibrary && (
         <Empty title="No bookmarks found" hint="Try a different search or add a new bookmark." />
+      )}
+      {isFreshLibrary && (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-neutral-200 bg-white px-6 py-12 text-center dark:border-neutral-800 dark:bg-neutral-900">
+          <p className="text-base font-semibold">Welcome to liber</p>
+          <p className="max-w-sm text-sm text-neutral-500">
+            Your library is empty. Add your first bookmark, import from your browser, or pick how pages are archived.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            {onAdd && (
+              <Button onClick={onAdd}>Add your first bookmark</Button>
+            )}
+            {onGoSettings && (
+              <Button variant="outline" onClick={onGoSettings}>
+                Import or settings
+              </Button>
+            )}
+          </div>
+          <p className="max-w-sm text-xs text-neutral-400">
+            Tip: capture from any browser with the bookmarklet, and set the archive backend under Settings.
+          </p>
+        </div>
       )}
       {bookmarks.length > 0 && !table && (
         <CardGrid bookmarks={bookmarks} selected={selected} onToggle={toggle} onOpen={onOpen} />

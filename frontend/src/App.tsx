@@ -171,6 +171,8 @@ function Shell() {
           tag={tag}
           onOpen={(b: Bookmark) => setOpenUuid(b.uuid)}
           preset={preset}
+          onAdd={() => setAdding(true)}
+          onGoSettings={() => setView("settings")}
         />
       )}
       {view === "history" && <HistoryPage onOpen={(b: Bookmark) => setOpenUuid(b.uuid)} />}

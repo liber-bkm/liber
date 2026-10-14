@@ -125,6 +125,41 @@ describe("Library virtualization", () => {
     expect(opened).toEqual([]);
   });
 
+  it("welcomes an empty library with setup actions", async () => {
+    window.scrollTo = () => {};
+    window.scrollBy = () => {};
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ total: 0, page: 1, per_page: 500, bookmarks: [] }),
+      } as Response;
+    });
+
+    const added: string[] = [];
+    let wentSettings = 0;
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <Library
+          folder={null}
+          tag={null}
+          onOpen={() => {}}
+          onAdd={() => added.push("add")}
+          onGoSettings={() => { wentSettings += 1; }}
+        />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Welcome to liber")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("Add your first bookmark"));
+    fireEvent.click(screen.getByText("Import or settings"));
+    expect(added).toEqual(["add"]);
+    expect(wentSettings).toBe(1);
+  });
+
   it("applies deep from a saved preset", async () => {
     window.scrollTo = () => {};
     window.scrollBy = () => {};
