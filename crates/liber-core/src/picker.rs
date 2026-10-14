@@ -57,7 +57,6 @@ pub fn resolve_plain_pick(shown: &[Bookmark], line: &str) -> Option<Uuid> {
         if n >= 1 && n <= shown.len() {
             return Some(shown[n - 1].uuid);
         }
-        return None;
     }
     let tokens = match crate::idspec::parse_id_spec(line) {
         Ok(t) => t,
@@ -125,14 +124,39 @@ mod tests {
 
     #[test]
     fn plain_pick_numbers_and_prefixes() {
-        let s = seeded();
-        let shown = search_targets(&s, "rust").unwrap();
-        assert_eq!(shown.len(), 2);
+        fn fixed_bookmark(uuid: &str, title: &str) -> Bookmark {
+            Bookmark {
+                uuid: uuid.parse().unwrap(),
+                short_id: None,
+                url: format!("https://example.com/{title}"),
+                title: title.to_string(),
+                description: String::new(),
+                tags: Vec::new(),
+                folder: String::new(),
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+                html_file: String::new(),
+                markdown_file: None,
+                archive_file: None,
+                attachments: Vec::new(),
+                open_count: 0,
+                last_opened_at: None,
+                last_checked_at: None,
+                check_status: None,
+                applied_rules: Vec::new(),
+            }
+        }
+        let shown = vec![
+            fixed_bookmark("12345678-1234-1234-1234-1234567890ab", "digits"),
+            fixed_bookmark("abcdef01-1234-1234-1234-1234567890ab", "hex"),
+            fixed_bookmark("fedcba98-1234-1234-1234-1234567890ab", "other"),
+        ];
         assert_eq!(resolve_plain_pick(&shown, "1"), Some(shown[0].uuid));
+        assert_eq!(resolve_plain_pick(&shown, "3"), Some(shown[2].uuid));
         assert_eq!(resolve_plain_pick(&shown, "0"), None);
         assert_eq!(resolve_plain_pick(&shown, "9"), None);
-        let prefix = shown[1].uuid.to_string()[..8].to_string();
-        assert_eq!(resolve_plain_pick(&shown, &prefix), Some(shown[1].uuid));
+        assert_eq!(resolve_plain_pick(&shown, "12345678"), Some(shown[0].uuid));
+        assert_eq!(resolve_plain_pick(&shown, "abcdef01"), Some(shown[1].uuid));
         assert_eq!(resolve_plain_pick(&shown, "xyz"), None);
     }
 }
