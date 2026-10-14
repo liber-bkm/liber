@@ -9,13 +9,23 @@ export function CheckPage() {
   const [report, setReport] = useState<{ checked: number; ok: number; rows: CheckRow[] } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [stale, setStale] = useState("");
+  const [workers, setWorkers] = useState("");
+
+  function workerCount(): number | undefined {
+    const n = Number.parseInt(workers.trim(), 10);
+    return Number.isInteger(n) && n > 0 ? n : undefined;
+  }
   const [retitleAll, setRetitleAll] = useState(false);
   const [armedDelete, setArmedDelete] = useState(false);
   const [error, setError] = useState("");
   const qc = useQueryClient();
 
   const run = useMutation({
-    mutationFn: () => checkRun(undefined, stale.trim() ? { stale: stale.trim() } : undefined),
+    mutationFn: () =>
+      checkRun(undefined, {
+        ...(stale.trim() ? { stale: stale.trim() } : {}),
+        ...(workerCount() != null ? { workers: workerCount() as number } : {}),
+      }),
     onSuccess: (r) => {
       setReport(r);
       setSelected(new Set());
@@ -79,6 +89,13 @@ export function CheckPage() {
             value={stale}
             placeholder="Stale, e.g. 7d"
             onChange={(e) => setStale(e.target.value)}
+          />
+          <Input
+            value={workers}
+            placeholder="Workers"
+            title="Parallel check concurrency (default 12)"
+            inputMode="numeric"
+            onChange={(e) => setWorkers(e.target.value)}
           />
           <Button onClick={() => { setError(""); run.mutate(); }} disabled={run.isPending}>
             <Play className="h-4 w-4" /> {run.isPending ? "Checking..." : report ? "Check again" : "Run check"}

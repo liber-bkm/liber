@@ -135,6 +135,30 @@ describe("DetailDrawer attachments tab", () => {
     expect(link.closest("a")?.getAttribute("href")).toContain("/api/v2/bookmarks/d-0001/attachments/a.pdf");
   });
 
+  it("hides desktop Save-As on web", async () => {
+    const item = drawerBookmark([{ name: "a.pdf" }]);
+    globalThis.fetch = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify(item),
+      } as Response;
+    });
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <DetailDrawer uuid="d-0001" onClose={() => {}} onChanged={() => {}} />
+      </QueryClientProvider>
+    );
+    const view = within(container);
+
+    fireEvent.click(await view.findByText("attachments"));
+    await view.findByText("a.pdf");
+    expect(view.queryByText("Save")).toBeNull();
+    expect(view.getByText("Remove")).toBeInTheDocument();
+  });
+
   it("uploads from the edit form", async () => {
     let uploaded: { name: string }[] = [];
     const calls: string[] = [];

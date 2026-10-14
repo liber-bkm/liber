@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Pencil, Trash2, Upload, X } from "lucide-react";
 import { displayId, domainOf, getArchiveView, setArchiveView, shortUuid, ApiError, type Bookmark } from "../api";
-import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, fetchArchive, fetchBookmark, fetchFolders, fetchNotes, fetchTags, isTauri, openArchiveExternal, openAttachmentExternal, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment, useRemote } from "../tauri";
+import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, downloadAttachment, fetchArchive, fetchBookmark, fetchFolders, fetchNotes, fetchTags, isTauri, openArchiveExternal, openAttachmentExternal, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment, useRemote } from "../tauri";
 import { Badge, Button, Field, Input, Modal, Spinner } from "./ui";
 
 function useTaxonomyNames() {
@@ -311,6 +311,28 @@ function AttachmentManager({ uuid, attachments, onChanged }: { uuid: string; att
     }
   }
 
+  async function saveAs(name: string) {
+    setError("");
+    setBusy(true);
+    try {
+      const data = await downloadAttachment(uuid, name);
+      const bin = atob(data.content);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const blob = new Blob([bytes], { type: data.mime });
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = data.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(href), 5000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "download failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-2">
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -334,6 +356,15 @@ function AttachmentManager({ uuid, attachments, onChanged }: { uuid: string; att
           <div className="min-w-0 flex-1">
             <AttachmentLink uuid={uuid} name={a.name} />
           </div>
+          {isTauri() && !useRemote() && (
+            <button
+              onClick={() => void saveAs(a.name)}
+              disabled={busy}
+              className="shrink-0 rounded-lg px-2 py-0.5 text-xs text-neutral-500 hover:bg-neutral-100 disabled:opacity-50 dark:hover:bg-neutral-800"
+            >
+              Save
+            </button>
+          )}
           <button
             onClick={() => void remove(a.name)}
             disabled={busy}
