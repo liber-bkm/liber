@@ -2,6 +2,12 @@
 
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
 
+
+<img width="800" height="450" alt="liber-cli-preview" src="https://github.com/user-attachments/assets/8caa9bb8-2cfe-4017-add2-10661faeedec" />
+
+<img width="800" height="450" alt="liber-gui-preview" src="https://github.com/user-attachments/assets/3805d092-26a4-4ec2-8e85-d7a259d26eaf" />
+
+
 A local first bookmark manager that stores bookmarks as browsable plain HTML files with powerful search, tags, folders, and options to archive webpages for offline reading, create notes, and add file attachments for extra relevance. It classifies bookmarks automatically into tags and folders with automation rules. Use it on the command line (full CLI plus a terminal UI), in a browser (modern web UI), or as a native app (desktop and Android).
 
 >[!TIP]
