@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RefreshCw, Upload } from "lucide-react";
 import { backupLibraryContent, backupUrl, deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, refreshFavicons, restoreBackup, runReindex, setRemote, setSetting, switchProfile, syncCommit, syncExport, syncImport, useRemote } from "../tauri";
 import { appVersion } from "../api";
+import { useDensity } from "../theme";
 import { Badge, Button, Field, Input, Spinner } from "../components/ui";
 
 const BACKENDS = ["auto", "builtin", "browser", "single-file", "monolith"];
@@ -36,6 +37,7 @@ export function SettingsPage() {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [syncPush, setSyncPush] = useState(false);
   const [bundleFile, setBundleFile] = useState<File | null>(null);
+  const { density, setDensity } = useDensity();
   const [refreshCached, setRefreshCached] = useState(false);
   const [lastSnapshot, setLastSnapshot] = useState<{ output: string; time: string } | null>(readLastSnapshot);
   const qc = useQueryClient();
@@ -195,7 +197,7 @@ export function SettingsPage() {
       {notice && <p className="text-sm text-green-700 dark:text-green-400">{notice}</p>}
       {settings.isLoading && <Spinner />}
 
-      <section className="flex flex-col gap-2 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-2 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Library status</h2>
         {maintenance != null ? (
           <>
@@ -222,7 +224,26 @@ export function SettingsPage() {
         )}
       </section>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-sm font-semibold">Appearance</h2>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-neutral-500">Density</span>
+          {(["comfortable", "compact"] as const).map((d) => (
+            <button
+              key={d}
+              onClick={() => setDensity(d)}
+              className={`rounded-lg px-2.5 py-1 capitalize ${density === d ? "bg-accent-50 font-medium text-accent-700 dark:bg-accent-700/20 dark:text-accent-100" : "text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-neutral-500">
+          Compact tightens list and card spacing. Saved on this device only.
+        </p>
+      </section>
+
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Site icons</h2>
         <p className="text-xs text-neutral-500">
           Fetches icons for hosts missing one. Cached icons are kept unless re-fetch is checked.
@@ -238,7 +259,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Archive backend</h2>
         <Field label="Backend">
           <select
@@ -264,7 +285,7 @@ export function SettingsPage() {
         </Field>
       </section>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Tools</h2>
         <Field label="Browser command (open in browser)">
           <SettingInput settingKey="browser_cmd" value={get("browser_cmd")} onSave={(v) => save.mutate({ key: "browser_cmd", value: v })} />
@@ -277,7 +298,7 @@ export function SettingsPage() {
         </Field>
       </section>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Library paths</h2>
         <p className="text-xs text-neutral-500">
           Saving a path switches to it immediately. Move your files first, then run reindex so orphans are adopted.
@@ -299,7 +320,7 @@ export function SettingsPage() {
         </Field>
       </section>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Remote server</h2>
         <p className="text-xs text-neutral-500">
           Talk to a liber-serve on your network instead of the local library. Empty URL means local mode.
@@ -331,7 +352,7 @@ export function SettingsPage() {
         )}
       </section>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Profiles</h2>
         <p className="text-xs text-neutral-500">
           Separate libraries under one config. Switching takes effect immediately; deleting only untracks, files stay on disk.
@@ -374,7 +395,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Sync snapshot</h2>
         <p className="text-xs text-neutral-500">
           Commits the library directory with git. In remote mode this commits the server library.
@@ -390,7 +411,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Sync exchange</h2>
         <p className="text-xs text-neutral-500">
           Move changes between devices as a bundle file: export here, carry the file over, import it there. In remote mode this exchanges with the server library.
@@ -417,7 +438,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Maintenance</h2>
         <p className="text-xs text-neutral-500">Counts live in Library status above; reindex acts on them.</p>
         <label className="flex items-center gap-2 text-sm">
@@ -435,7 +456,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">Import / export</h2>
         <div>
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">Netscape bookmark file</p>
@@ -565,7 +586,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="flex flex-col gap-2 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <section className="lib-section flex flex-col gap-2 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="text-sm font-semibold">About</h2>
         <p className="text-xs text-neutral-500">
           liber app v{String(settings.data?.version ?? "…")} · frontend v{appVersion()}
