@@ -28,6 +28,7 @@ pub async fn get_settings(
         .maintenance_status()
         .map_err(err)?;
     Ok(Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
         "base_dir": cfg.base_dir.to_string_lossy(),
         "html_dir": cfg.html_dir,
         "markdown_dir": cfg.markdown_dir,
@@ -167,6 +168,7 @@ mod tests {
         let (status, v) = get_json(app.clone()).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(v["archive_backend"], "builtin");
+        assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(v["maintenance_status"]["bookmarks"], 0);
         assert_eq!(v["maintenance_status"]["oplog_entries"], 0);
         std::env::remove_var("LIBER_CONFIG");

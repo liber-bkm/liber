@@ -472,6 +472,10 @@ export function restoreBackup(content: string, confirm: boolean): Promise<Restor
 
 export type Settings = Record<string, string | null>;
 
+export function appVersion(): string {
+  return __APP_VERSION__;
+}
+
 export function fetchSettings(): Promise<Settings> {
   return request("/api/v2/settings");
 }

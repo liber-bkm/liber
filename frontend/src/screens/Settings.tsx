@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, RefreshCw, Upload } from "lucide-react";
 import { backupLibraryContent, backupUrl, deleteProfile, exportBookmarksContent, exportBookmarksUrl, exportSite, fetchProfiles, fetchSettings, getRemoteBase, importLibrary, isTauri, refreshFavicons, restoreBackup, runReindex, setRemote, setSetting, switchProfile, syncCommit, useRemote } from "../tauri";
+import { appVersion } from "../api";
 import { Badge, Button, Field, Input, Spinner } from "../components/ui";
 
 const BACKENDS = ["auto", "builtin", "browser", "single-file", "monolith"];
@@ -498,6 +499,27 @@ export function SettingsPage() {
             </p>
           )}
         </div>
+      </section>
+
+      <section className="flex flex-col gap-2 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="text-sm font-semibold">About</h2>
+        <p className="text-xs text-neutral-500">
+          liber app v{String(settings.data?.version ?? "…")} · frontend v{appVersion()}
+          {settings.data?.version != null && settings.data.version !== appVersion() && (
+            <> · versions differ (remote server ahead or behind)</>
+          )}
+        </p>
+        <p className="text-xs text-neutral-500">
+          Help and documentation:{" "}
+          <a
+            href="https://liber-bkm.github.io"
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent-700 underline dark:text-accent-100"
+          >
+            liber-bkm.github.io
+          </a>
+        </p>
       </section>
     </div>
   );

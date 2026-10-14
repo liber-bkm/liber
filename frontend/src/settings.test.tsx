@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsPage } from "./screens/Settings";
 import "@testing-library/jest-dom/vitest";
@@ -101,5 +101,48 @@ describe("Settings library status", () => {
       expect(String(call!.init?.body)).toContain("refresh_cached");
     });
     expect((await screen.findAllByText(/2 hosts, 1 fetched, 1 already cached/)).length).toBeGreaterThan(0);
+  });
+
+  it("shows app plus frontend versions with docs link", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      const path = String(url);
+      if (path.endsWith("/api/v2/settings")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              version: "9.9.9",
+              device_id: "dev1",
+              active_profile: "default",
+              archive_backend: "auto",
+              maintenance_status: { bookmarks: 0, oplog_entries: 0, quarantine: 0, short_id_gaps: 0 },
+            }),
+        } as Response;
+      }
+      if (path.endsWith("/api/v2/profiles")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ active: "default", profiles: [] }),
+        } as Response;
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({}) } as Response;
+    });
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+    const view = within(container);
+
+    expect((await screen.findAllByText("About")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/app v9\.9\.9/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/frontend v/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/versions differ/)).length).toBeGreaterThan(0);
+    const docs = view.getByText("liber-bkm.github.io");
+    expect(docs.closest("a")?.getAttribute("href")).toBe("https://liber-bkm.github.io");
   });
 });

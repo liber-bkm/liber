@@ -630,6 +630,7 @@ fn fetch_settings(state: State<'_, AppState>) -> Result<serde_json::Value, Strin
         .maintenance_status()
         .map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
         "base_dir": cfg.base_dir.to_string_lossy(),
         "html_dir": cfg.html_dir,
         "markdown_dir": cfg.markdown_dir,
