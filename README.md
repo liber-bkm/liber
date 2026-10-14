@@ -47,7 +47,10 @@ Liber has no dependencies, however it allows using third party backends for arch
 
 ### Appimage 
 
-You can download the appimage for `x86_64` devices from [here](https://github.com/liber-bkm/liber/releases/download/v0.11.1/liber_0.11.1_amd64.AppImage) and for`arm64` devcies from [here](https://github.com/liber-bkm/liber/releases/download/v0.11.1/liber_0.11.1_aarch64.AppImage)
+You can download the appimage for `x86_64` devices from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-x86_64.AppImage) and for`arm64` devcies from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-aarch64.AppImage)
+
+>[!NOTE]
+>The Appimage package only contains desktop version. To install cli or full package either use tarball or use your distro specific package
 
 ### Archlinux
 
@@ -80,27 +83,36 @@ And install the package either using `environment.systemPackages` or using home-
 
 Download and install the `.deb` package:
 
-- For x86_64 devices [Download](https://github.com/liber-bkm/liber/releases/download/v0.11.1/liber_0.11.1_amd64.deb)
-- For arm64 devices [Download](https://github.com/liber-bkm/liber/releases/download/v0.11.1/liber_0.11.1_arm64.deb)
+- For x86_64 devices [Download](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-x86_64.deb)
+- For arm64 devices [Download](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-aarch64.deb)
 
 ### RPM based distros (Fedora, OpenSUSE, ... )
 
 Download and install the `.rpm` package:
 
-- For x86_64 devices [Download](https://github.com/liber-bkm/liber/releases/download/v0.11.1/liber-0.11.1-1.x86_64.rpm)
-- For arm64 devices [Download](https://github.com/liber-bkm/liber/releases/download/v0.11.1/liber-0.11.1-1.aarch64.rpm)
+- For x86_64 devices [Download](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-x86_64.rpm)
+- For arm64 devices [Download](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-aarch64.rpm)
 
 ### MacOS
 
 Download for MacOS (works for both intel and Apple Silicon)
 
-- Download the app installer from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-darwin.dmg)
-- Download tarball from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-darwin.tar.gz)
+- Download the app installer from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-desktop-darwin.dmg)
+
+  The app installer only installs the desktop app. To install the cli version as well proceed with the following step.
+  
+- Download tarball from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-cli-darwin.tar.gz)
+
+    ```sh
+    tar xzf liber-cli-darwin.tar.gz
+    cd liber-*
+    mv liber-* ~/.local/bin
+    ```
 
 ### Windows 
 
 - Download windows installer from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-setup-x64.exe)
-- Portable version can be downloaded from [here](https://github.com/liber-bkm/liber/releases/download/v0.11.1/liber-windows-x86_64.zip)
+- Portable version can be downloaded from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-windows-x86_64.zip)
 
 ### Android 
 

@@ -63,15 +63,25 @@ jobs:
       - run: corepack enable
       - run: cd frontend && pnpm install --frozen-lockfile && pnpm build
       - run: EMBED_UI=1 cargo build --release -p liber-cli -p liber-server
-      - run: cd crates/liber-tauri && ../../frontend/node_modules/.bin/tauri build
+      - run: cd crates/liber-tauri && ../../frontend/node_modules/.bin/tauri build --config tauri.linux.conf.json
       - name: stage tarball
         run: |
           v="${VERSION#v}"
           mkdir -p "release/liber-$v"
           cp target/release/liber target/release/liber-serve target/release/liber-tauri "release/liber-$v/"
-          cp target/release/bundle/deb/*.deb release/ 2>/dev/null || true
-          cp target/release/bundle/rpm/*.rpm release/ 2>/dev/null || true
-          cp target/release/bundle/appimage/*.AppImage release/ 2>/dev/null || true
+          shopt -s nullglob
+          debs=(target/release/bundle/deb/*.deb)
+          [ ${#debs[@]} -eq 1 ] || { echo "expected exactly one deb, found ${#debs[@]}"; exit 1; }
+          rpms=(target/release/bundle/rpm/*.rpm)
+          [ ${#rpms[@]} -eq 1 ] || { echo "expected exactly one rpm, found ${#rpms[@]}"; exit 1; }
+          apps=(target/release/bundle/appimage/*.AppImage)
+          [ ${#apps[@]} -eq 1 ] || { echo "expected exactly one AppImage, found ${#apps[@]}"; exit 1; }
+          cp "${debs[0]}" "release/liber-linux-${{ matrix.arch }}.deb"
+          cp "${rpms[0]}" "release/liber-linux-${{ matrix.arch }}.rpm"
+          cp "${apps[0]}" "release/liber-linux-${{ matrix.arch }}.AppImage"
+          for f in target/release/bundle/deb/*.sig; do cp "$f" "release/liber-linux-${{ matrix.arch }}.deb.sig"; done
+          for f in target/release/bundle/rpm/*.sig; do cp "$f" "release/liber-linux-${{ matrix.arch }}.rpm.sig"; done
+          for f in target/release/bundle/appimage/*.AppImage.sig; do cp "$f" "release/liber-linux-${{ matrix.arch }}.AppImage.sig"; done
           (cd release && tar -czf "liber-linux-${{ matrix.arch }}.tar.gz" "liber-$v")
       - uses: actions/upload-artifact@v4
         with:
@@ -93,7 +103,7 @@ jobs:
       - run: choco install nsis -y
       - run: cd frontend; pnpm install --frozen-lockfile; pnpm build
       - run: $env:EMBED_UI = "1"; cargo build --release -p liber-cli -p liber-server
-      - run: cd crates/liber-tauri; ../../frontend/node_modules/.bin/tauri build --bundles nsis
+      - run: cd crates/liber-tauri; ../../frontend/node_modules/.bin/tauri build --bundles nsis --config tauri.windows.conf.json
       - name: stage zip
         shell: pwsh
         run: |
@@ -137,8 +147,8 @@ jobs:
           lipo -create target/aarch64-apple-darwin/release/liber-serve target/x86_64-apple-darwin/release/liber-serve -output release/liber-$v/liber-serve
           dmg=(target/universal-apple-darwin/release/bundle/dmg/*.dmg)
           [ ${#dmg[@]} -eq 1 ] || { echo "expected exactly one dmg, found ${#dmg[@]}"; exit 1; }
-          mv "${dmg[0]}" "release/liber-darwin.dmg"
-          (cd release && tar -czf liber-darwin.tar.gz liber-$v)
+          mv "${dmg[0]}" "release/liber-desktop-darwin.dmg"
+          (cd release && tar -czf liber-cli-darwin.tar.gz liber-$v)
       - uses: actions/upload-artifact@v4
         with:
           name: macos-universal
