@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsPage } from "./screens/Settings";
+import { DensityProvider } from "./theme";
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi } from "vitest";
 
@@ -216,5 +217,55 @@ describe("Settings library status", () => {
       expect(JSON.parse(String(call!.init?.body))).toEqual({ entries: [{ op: "upsert" }] });
     });
     expect((await screen.findAllByText(/1 inserted/)).length).toBeGreaterThan(0);
+  });
+
+  it("switches density from Appearance", async () => {
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      const path = String(url);
+      if (path.endsWith("/api/v2/settings")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              version: "0.11.3",
+              device_id: "dev1",
+              active_profile: "default",
+              archive_backend: "auto",
+              maintenance_status: { bookmarks: 0, oplog_entries: 0, quarantine: 0, short_id_gaps: 0 },
+            }),
+        } as Response;
+      }
+      if (path.endsWith("/api/v2/profiles")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ active: "default", profiles: [] }),
+        } as Response;
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({}) } as Response;
+    });
+    localStorage.setItem("liber-density", "comfortable");
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <DensityProvider>
+          <SettingsPage />
+        </DensityProvider>
+      </QueryClientProvider>
+    );
+    const view = within(container);
+
+    expect((await screen.findAllByText("Appearance")).length).toBeGreaterThan(0);
+    fireEvent.click(view.getByText("compact"));
+    await waitFor(() => {
+      expect(document.documentElement.dataset.density).toBe("compact");
+    });
+    expect(localStorage.getItem("liber-density")).toBe("compact");
+    fireEvent.click(view.getByText("comfortable"));
+    await waitFor(() => {
+      expect(document.documentElement.dataset.density).toBe("comfortable");
+    });
   });
 });

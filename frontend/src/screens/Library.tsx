@@ -373,7 +373,7 @@ function StatusDot({ b }: { b: Bookmark }) {  if (!b.check_status || b.check_sta
 function Card({ bookmark: b, selected, onToggle, onOpen }: { bookmark: Bookmark; selected: boolean; onToggle: () => void; onOpen: () => void }) {
   return (
     <div
-      className={`relative flex flex-col gap-2 rounded-2xl border bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md dark:bg-neutral-900 ${selected ? "border-accent-500" : "border-neutral-200 dark:border-neutral-800"}`}
+      className={`lib-card relative flex flex-col gap-2 rounded-2xl border bg-white p-4 text-left shadow-sm transition-shadow hover:shadow-md dark:bg-neutral-900 ${selected ? "border-accent-500" : "border-neutral-200 dark:border-neutral-800"}`}
     >
       <input
         type="checkbox"
@@ -429,7 +429,7 @@ function RowList({ bookmarks, selected, onToggle, onOpen }: { bookmarks: Bookmar
               data-index={vi.index}
               ref={virtualizer.measureElement}
               style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vi.start}px)` }}
-              className={`flex w-full items-center gap-3 border-b border-neutral-100 bg-white px-4 py-2 text-left text-sm last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:bg-neutral-800/50 ${selected.has(b.uuid) ? "bg-accent-50 dark:bg-accent-700/10" : ""}`}
+              className={`lib-row flex w-full items-center gap-3 border-b border-neutral-100 bg-white px-4 py-2 text-left text-sm last:border-0 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:bg-neutral-800/50 ${selected.has(b.uuid) ? "bg-accent-50 dark:bg-accent-700/10" : ""}`}
             >
               <input type="checkbox" checked={selected.has(b.uuid)} onChange={() => onToggle(b.uuid)} className="h-4 w-4 shrink-0 accent-[#2549a8]" title="Select" />
               <button onClick={() => onOpen(b)} className="flex min-w-0 flex-1 items-center gap-3 text-left">

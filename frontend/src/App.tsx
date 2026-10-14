@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ThemeProvider } from "./theme";
+import { DensityProvider, ThemeProvider } from "./theme";
 import { Layout, type View } from "./components/Layout";
 import { Library, type SearchPreset } from "./screens/Library";
 import { Login } from "./screens/Login";
@@ -242,7 +242,9 @@ export default function App() {
   return (
     <QueryClientProvider client={qc}>
       <ThemeProvider>
-        <LoggedIn />
+        <DensityProvider>
+          <LoggedIn />
+        </DensityProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

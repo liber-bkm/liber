@@ -38,3 +38,28 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 export function useTheme() {
   return useContext(Ctx);
 }
+
+type Density = "comfortable" | "compact";
+
+const DensityCtx = createContext<{ density: Density; setDensity: (d: Density) => void }>({
+  density: "comfortable",
+  setDensity: () => {},
+});
+
+export function DensityProvider({ children }: { children: React.ReactNode }) {
+  const [density, setDensity] = useState<Density>(() =>
+    localStorage.getItem("liber-density") === "compact" ? "compact" : "comfortable"
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.density = density;
+    localStorage.setItem("liber-density", density);
+  }, [density]);
+
+  const set = useCallback((d: Density) => setDensity(d), []);
+  return <DensityCtx.Provider value={{ density, setDensity: set }}>{children}</DensityCtx.Provider>;
+}
+
+export function useDensity() {
+  return useContext(DensityCtx);
+}
