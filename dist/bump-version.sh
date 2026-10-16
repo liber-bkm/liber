@@ -3,7 +3,8 @@
 #
 #   bash dist/bump-version.sh X.Y.Z [--code N]
 #
-# Edits Cargo.toml, tauri.conf.json, frontend/package.json, and
+# Edits Cargo.toml, tauri.conf.json, frontend/package.json,
+# extension/manifest.json, and
 # android-version.properties (auto-incremented unless --code is given),
 # then runs local/check-release.sh to verify. Edits files only: it never
 # commits or tags. Requires GNU sed.
@@ -45,11 +46,12 @@ case "$CODE" in '' | *[!0-9]*) fail "--code must be an integer, got '$CODE'" ;; 
 sed -i "s/^version = \".*\"$/version = \"$VERSION\"/" Cargo.toml
 sed -i "s/^\(\s*\"version\": \"\).*\(\".*\)$/\1$VERSION\2/" crates/liber-tauri/tauri.conf.json
 sed -i "s/^\(\s*\"version\": \"\).*\(\".*\)$/\1$VERSION\2/" frontend/package.json
+sed -i "s/^\(\s*\"version\": \"\).*\(\".*\)$/\1$VERSION\2/" extension/manifest.json
 sed -i "s/^tauri\.android\.versionCode=.*/tauri.android.versionCode=$CODE/" crates/liber-tauri/android-version.properties
 
-python3 -c "import json; json.load(open('crates/liber-tauri/tauri.conf.json')); json.load(open('frontend/package.json')); print('bump-version: JSON valid')"
+python3 -c "import json; json.load(open('crates/liber-tauri/tauri.conf.json')); json.load(open('frontend/package.json')); json.load(open('extension/manifest.json')); print('bump-version: JSON valid')"
 grep -n "^version = \"$VERSION\"$" Cargo.toml | head -n 1
-grep -n "\"version\": \"$VERSION\"" crates/liber-tauri/tauri.conf.json frontend/package.json
+grep -n "\"version\": \"$VERSION\"" crates/liber-tauri/tauri.conf.json frontend/package.json extension/manifest.json
 grep -n "^tauri.android.versionCode=$CODE\$" crates/liber-tauri/android-version.properties
 
 bash local/check-release.sh "$VERSION"
