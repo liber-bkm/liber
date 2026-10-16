@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { width: 320px; margin: 0; padding: 12px; font: 13px system-ui, sans-serif; color: #222; }
+      label { display: block; margin: 8px 0 2px; font-size: 11px; text-transform: uppercase; color: #666; }
+      input[type="text"], textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; }
+      .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 12px; }
+      .error { color: #b00020; margin-top: 8px; white-space: pre-wrap; }
+      .ok { color: #1a7f37; margin-top: 8px; }
+      .warn { color: #8a5a00; margin-top: 8px; }
+      button { margin-top: 10px; padding: 7px 12px; border-radius: 6px; border: 1px solid #ccc; background: #2549a8; color: #fff; cursor: pointer; }
+      button[disabled] { opacity: 0.5; }
+      button.ghost { background: #fff; color: #2549a8; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="form">
+      <label for="url">URL</label>
+      <input id="url" type="text" />
+      <label for="title">Title (optional)</label>
+      <input id="title" type="text" />
+      <label for="tags">Tags</label>
+      <input id="tags" type="text" list="tag-list" placeholder="space separated" />
+      <datalist id="tag-list"></datalist>
+      <label for="folder">Folder</label>
+      <input id="folder" type="text" list="folder-list" />
+      <datalist id="folder-list"></datalist>
+      <div class="row"><input id="markdown" type="checkbox" /> <label for="markdown" style="margin:0">Start with notes</label></div>
+      <div class="row"><input id="archive" type="checkbox" /> <label for="archive" style="margin:0">Save archived copy (slower)</label></div>
+      <label for="files">Attachments</label>
+      <input id="files" type="file" multiple />
+      <div><button id="save">Save bookmark</button></div>
+      <div id="error" class="error"></div>
+      <div id="warnings" class="warn"></div>
+    </div>
+    <div id="done" class="hidden">
+      <p id="done-text" class="ok"></p>
+      <div id="done-warnings" class="warn"></div>
+      <div><button id="open-library" class="ghost">Open library</button></div>
+    </div>
+    <div id="duplicate" class="hidden">
+      <p id="dup-text"></p>
+      <div>
+        <button id="add-anyway">Add anyway</button>
+        <button id="open-existing" class="ghost">Open existing</button>
+      </div>
+    </div>
+    <script src="liber.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

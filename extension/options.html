@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { max-width: 480px; margin: 24px; font: 13px system-ui, sans-serif; color: #222; }
+      label { display: block; margin: 12px 0 2px; font-size: 11px; text-transform: uppercase; color: #666; }
+      input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 6px; }
+      .error { color: #b00020; margin-top: 8px; }
+      .ok { color: #1a7f37; margin-top: 8px; }
+      button { margin-top: 12px; padding: 7px 12px; border-radius: 6px; border: 1px solid #ccc; background: #2549a8; color: #fff; cursor: pointer; }
+      p.hint { color: #666; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>liber options</h1>
+    <p class="hint">
+      The extension talks to a running liber server on your machine or
+      network. Start one with <code>liber serve</code>, then enter its
+      address below.
+    </p>
+    <label for="baseUrl">Server URL</label>
+    <input id="baseUrl" type="text" placeholder="http://127.0.0.1:8080" />
+    <label for="token">Auth token (when the server requires one)</label>
+    <input id="token" type="password" placeholder="token from the server" />
+    <p class="hint">
+      The token stays in this browser only and is never synced. The
+      server derives its own check from it; the raw token is sent
+      nowhere except inside that derivation.
+    </p>
+    <div>
+      <button id="save">Save</button>
+      <button id="test" type="button">Test connection</button>
+    </div>
+    <div id="error" class="error"></div>
+    <div id="ok" class="ok"></div>
+    <script src="liber.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>
