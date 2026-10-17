@@ -262,6 +262,15 @@ the dialog. Token-gated servers reuse the login cookie, so log in
 once first. The query form is shared with the Android deep link, so
 `/?add=` links work everywhere the UI runs.
 
+### Browser Extension
+
+Install it load-unpacked from the `extension/` folder (store
+listings are manual for now), open its Options, and enter the server
+URL plus token. The Test button verifies the connection. Both stay
+in the browser only and are never synced. The extension needs a
+running `liber serve`; it cannot start the server itself.
+
+
 ## Self hosting
 
 ```sh
