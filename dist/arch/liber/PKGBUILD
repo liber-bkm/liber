@@ -2,7 +2,7 @@
 # From-source build of liber. Compiles on the user's machine; for the
 # prebuilt-binaries variant, see ../liber-bin/.
 pkgname=liber
-pkgver=0.1.0
+pkgver=0.11.4
 pkgrel=1
 pkgdesc='Professional grade local first bookmark manager'
 arch=('x86_64')
@@ -15,7 +15,7 @@ provides=('liber-bin')
 conflicts=('liber-bin')
 source=("https://github.com/liber-bkm/liber/archive/refs/tags/v$pkgver.tar.gz")
 # Sums are refreshed per release by ../bump-pkgbuild.sh. Do not ship SKIP.
-sha256sums=('SKIP')
+sha256sums=('30a90c4d1b9198e8a7c21a41d0bb97b6f2dfd45c9528d420627a5c3aea800e02')
 
 build() {
   cd "$srcdir/liber-$pkgver"

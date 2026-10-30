@@ -38,7 +38,8 @@ jobs:
           tag = os.environ['VERSION'].lstrip('v');
           cargo = re.search(r'^version = \"([^\"]+)\"', open('Cargo.toml').read(), re.M).group(1);
           conf = json.load(open('crates/liber-tauri/tauri.conf.json'))['version'];
-          assert (cargo, conf) == (tag, tag), f'tag {tag} vs cargo {cargo} vs conf {conf}'"
+          ext = json.load(open('extension/manifest.json'))['version'];
+          assert (cargo, conf, ext) == (tag, tag, tag), f'tag {tag} vs cargo {cargo} vs conf {conf} vs extension {ext}'"
 
   linux:
     needs: version-check

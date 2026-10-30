@@ -1,4 +1,4 @@
-#!/run/current-system/sw/bin/sh
+#!/usr/bin/env sh
 # bump-version.sh - bump every liber version string in one command.
 #
 #   bash dist/bump-version.sh X.Y.Z [--code N]
@@ -7,7 +7,7 @@
 # extension/manifest.json, and
 # android-version.properties (auto-incremented unless --code is given),
 # then runs local/check-release.sh to verify. Edits files only: it never
-# commits or tags. Requires GNU sed.
+# commits or tags. Requires sed and python3; works with GNU and BSD sed.
 set -eu
 
 fail() {
@@ -36,6 +36,23 @@ esac
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
+# Portable in-place edit: GNU sed -i and BSD sed -i differ, so write a
+# temp file and copy it back to keep the original permissions.
+sed_inplace() {
+  file=$1
+  expr=$2
+  tmp=$(mktemp "${TMPDIR:-/tmp}/liber-bump.XXXXXX") || fail "mktemp failed"
+  if ! sed "$expr" "$file" >"$tmp"; then
+    rm -f "$tmp"
+    fail "sed failed for $file"
+  fi
+  if ! cat "$tmp" >"$file"; then
+    rm -f "$tmp"
+    fail "write failed for $file"
+  fi
+  rm -f "$tmp"
+}
+
 if [ -z "$CODE" ]; then
   CUR=$(grep -E '^tauri\.android\.versionCode=' crates/liber-tauri/android-version.properties | cut -d= -f2 | tr -d ' ' || true)
   case "$CUR" in '' | *[!0-9]*) fail "cannot auto-increment: no numeric versionCode line" ;; esac
@@ -43,11 +60,11 @@ if [ -z "$CODE" ]; then
 fi
 case "$CODE" in '' | *[!0-9]*) fail "--code must be an integer, got '$CODE'" ;; esac
 
-sed -i "s/^version = \".*\"$/version = \"$VERSION\"/" Cargo.toml
-sed -i "s/^\(\s*\"version\": \"\).*\(\".*\)$/\1$VERSION\2/" crates/liber-tauri/tauri.conf.json
-sed -i "s/^\(\s*\"version\": \"\).*\(\".*\)$/\1$VERSION\2/" frontend/package.json
-sed -i "s/^\(\s*\"version\": \"\).*\(\".*\)$/\1$VERSION\2/" extension/manifest.json
-sed -i "s/^tauri\.android\.versionCode=.*/tauri.android.versionCode=$CODE/" crates/liber-tauri/android-version.properties
+sed_inplace Cargo.toml "s/^version = \".*\"$/version = \"$VERSION\"/"
+sed_inplace crates/liber-tauri/tauri.conf.json "s/^\([[:space:]]*\"version\": \"\).*\(\".*\)$/\1$VERSION\2/"
+sed_inplace frontend/package.json "s/^\([[:space:]]*\"version\": \"\).*\(\".*\)$/\1$VERSION\2/"
+sed_inplace extension/manifest.json "s/^\([[:space:]]*\"version\": \"\).*\(\".*\)$/\1$VERSION\2/"
+sed_inplace crates/liber-tauri/android-version.properties "s/^tauri\.android\.versionCode=.*/tauri.android.versionCode=$CODE/"
 
 python3 -c "import json; json.load(open('crates/liber-tauri/tauri.conf.json')); json.load(open('frontend/package.json')); json.load(open('extension/manifest.json')); print('bump-version: JSON valid')"
 grep -n "^version = \"$VERSION\"$" Cargo.toml | head -n 1

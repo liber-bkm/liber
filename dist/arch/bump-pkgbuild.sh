@@ -23,7 +23,10 @@ icon128_sum="$(sha_of_url "$raw/crates/liber-tauri/icons/128x128.png")"
 srctar_sum="$(sha_of_url "https://github.com/liber-bkm/liber/archive/refs/tags/v$ver.tar.gz")"
 
 set_version_and_sums() {
-  python3 - "$1" "$2" "$3" "$4" "$5" <<'EOF'
+  path="$1"
+  ver="$2"
+  shift 2
+  python3 - "$path" "$ver" "$@" <<'EOF'
 import re, sys
 path, ver, sums = sys.argv[1], sys.argv[2], sys.argv[3:]
 text = open(path).read()

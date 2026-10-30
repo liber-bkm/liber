@@ -11,7 +11,7 @@
 A local first bookmark manager that stores bookmarks as browsable plain HTML files with powerful search, tags, folders, and options to archive webpages for offline reading, create notes, and add file attachments for extra relevance. It classifies bookmarks automatically into tags and folders with automation rules. Use it on the command line (full CLI plus a terminal UI), in a browser (modern web UI), or as a native app (desktop and Android).
 
 >[!TIP]
->This Readme is simple and conscise, for detailed guide and documentation visit [liber-bkm.github.io](https://liber-bkm.github.io)
+>This Readme is simple and concise, for detailed guide and documentation visit [liber-bkm.github.io](https://liber-bkm.github.io)
 
 ## Table of contents
 
@@ -25,7 +25,7 @@ A local first bookmark manager that stores bookmarks as browsable plain HTML fil
 
 ## Features
 
-- Plain app aganostic HTML bookmarks 
+- Plain app agnostic HTML bookmarks
 - Automatic fetch titles and descriptions 
 - Web page archives, notes, and file attachments
 - Third party archive backend support. [single-file](https://github.com/gildas-lormeau/single-file-cli) and [monolith](https://github.com/y2z/monolith)
@@ -37,12 +37,12 @@ A local first bookmark manager that stores bookmarks as browsable plain HTML fil
 - Bulk actions support, add multiple bookmarks, edit tags and folders at once
 - Duplicate detection
 - Available for mac, windows, linux and android
-- Check for stale, or changed URLS
-- Import and export bookmarksA
+- Check for stale or changed URLs
+- Import and export bookmarks
 - rules to automatically classify bookmarks into specific tags or folders
 - Self hosting and sync friendly
 - Merge conflict resolution with third party sync (Drive, NextCloud, Syncthing)
-- Profile for independant collections
+- Profile for independent collections
 - One-click capture without an extension via a bookmarklet
 
 ## Install
@@ -51,12 +51,12 @@ A local first bookmark manager that stores bookmarks as browsable plain HTML fil
 
 Liber has no dependencies, however it allows using third party backends for archiving webpages [single-file](https://github.com/gildas-lormeau/single-file-cli) or [monolith](https://github.com/y2z/monolith). This allows including javascript content within the archived pages, liber by default disables javascript from the archived pages. Optionally `git` is required for users who want to sync using git.
 
-### Appimage 
+### AppImage
 
-You can download the appimage for `x86_64` devices from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-x86_64.AppImage) and for`arm64` devcies from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-aarch64.AppImage)
+You can download the AppImage for `x86_64` devices from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-x86_64.AppImage) and for `arm64` devices from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-aarch64.AppImage)
 
 >[!NOTE]
->The Appimage package only contains desktop version. To install cli or full package either use tarball or use your distro specific package
+>The AppImage package only contains the desktop app. To install the CLI or the full package, use the tarball or your distro-specific package.
 
 ### Archlinux
 
@@ -81,7 +81,7 @@ And install the package either using `environment.systemPackages` or using home-
 ``` nix
 {inputs, pkgs, ... }:
 {
-    environment.systemPackages = [ inputs.liber.packages.${pkgs.stdenv.hostPlatform.system}.bundle ]; # you can relapce .bundle with .default or .desktop if you want cli or desktop versions only 
+    environment.systemPackages = [ inputs.liber.packages.${pkgs.stdenv.hostPlatform.system}.bundle ]; # replace .bundle with .default or .desktop for cli or desktop only
 }
 ```
 
@@ -99,9 +99,9 @@ Download and install the `.rpm` package:
 - For x86_64 devices [Download](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-x86_64.rpm)
 - For arm64 devices [Download](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-aarch64.rpm)
 
-### MacOS
+### macOS
 
-Download for MacOS (works for both intel and Apple Silicon)
+Download for macOS (works for both Intel and Apple Silicon)
 
 - Download the app installer from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-desktop-darwin.dmg)
 
@@ -117,16 +117,16 @@ Download for MacOS (works for both intel and Apple Silicon)
 
 ### Windows 
 
-- Download windows installer from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-setup-x64.exe)
+- Download the Windows installer from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-setup-x64.exe)
 - Portable version can be downloaded from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-windows-x86_64.zip)
 
 ### Android 
 
-You can download the unviersal apk, that works on almost all devices, from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-app-universal.apk)
+You can download the universal APK, which works on almost all devices, from [here](https://github.com/liber-bkm/liber/releases/latest/download/liber-app-universal.apk)
 
 ### Linux Tarballs 
 
-If your distro specific package is not available you can either install the appimage or use the [linux tarball](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-x86_64.tar.gz). To install binaries from tarball simply extract the download and place the in you path.
+If your distro-specific package is not available you can either install the AppImage or use the [Linux tarball](https://github.com/liber-bkm/liber/releases/latest/download/liber-linux-x86_64.tar.gz). To install binaries from a tarball, extract the download and place them in your path.
 
 ``` sh
 # Download and extract
@@ -137,50 +137,73 @@ cd liber-*
 mv liber* /usr/local/bin # to install them system wide or use ~/.local/bin to install them per user
 ```
 
-## Build from source 
+## Build from source
 
-To build liber from source, you'd need rust/cargo, nodejs and pnpm. Or if you have `nix` installed you can simply use `nix develop .#default` and all the build tools will be available in nix shell 
- 
-To build CLI app without server support
+You need stable Rust via rustup, Node 22, and pnpm. On Arch Linux:
 
-``` sh
-rustup target add <rust cpu architecture> # you can check with rustup target list 
-rustup toolchain install stable 
-cargo build --release -p liber-cli
+```sh
+sudo pacman -S --needed base-devel rustup nodejs-lts-jod pnpm pkgconf
+rustup toolchain install stable
 ```
 
-To build CLI app with server support 
+Build the CLI and server without the embedded web UI:
 
-``` sh
-cd frontend && pnpm install && pnpm build && cd ..
-EMBED_UI=1 cargo build --release -p liber-cli 
+```sh
+cargo build --release -p liber-cli -p liber-server
+# target/release/liber and target/release/liber-serve
 ```
 
-To build desktop app (provided you have already built the web front end using pnpm)
+Build the frontend and embed it in both binaries:
 
-``` sh
-cd crates/liber-tauri && ../../frontend/node_modules/.bin/tauri build 
+```sh
+cd frontend && pnpm install --frozen-lockfile && pnpm build && cd ..
+EMBED_UI=1 cargo build --release -p liber-cli -p liber-server
 ```
 
+Without `EMBED_UI=1` the binaries serve the API only. Pass
+`--static-dir frontend/dist` to serve a built bundle from disk.
+
+Build the desktop app (the frontend must be built first):
+
+```sh
+cd crates/liber-tauri
+../../frontend/node_modules/.bin/tauri build --config tauri.linux.conf.json
+```
+
+The Linux overlay bundles `liber` and `liber-serve` beside the desktop
+app in the `.deb` and `.rpm`. Desktop builds need the webkit stack
+(`webkit2gtk-4.1`, `gtk3`, `libsoup3`, `libappindicator-gtk3`,
+`librsvg`, `libxdo`, `patchelf`, `pkgconf`).
+
+Android builds need JDK 17, Android SDK 36, build-tools 36.0.0, and
+NDK 29.0.14206865. Add the Android Rust targets, then run
+`tauri android build` from `crates/liber-tauri`:
+
+```sh
+rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+cd crates/liber-tauri
+../../frontend/node_modules/.bin/tauri android init   # first time only
+../../frontend/node_modules/.bin/tauri android build
+```
 
 ## Usage
 
 >You can find the detailed guide and usage on documentation site [liber-bkm.github.io](https://liber-bkm.github.io)
 
-At start run `liber init` to setup defaults. Using GUI is pretty straightforward. A quick glance at cli usage:
+At start run `liber init` to set up defaults. Using the GUI is pretty straightforward. A quick glance at CLI usage:
 
 ``` sh
-liiber serve # Serve the webUI for GUI usage
-liber add <url> # add bookmark, you can add multiple urls separated by <space>
+liber serve # Serve the web UI for GUI usage
+liber add <url> # add a bookmark; multiple URLs can be space separated
 liber add -h # all options for add command
 liber add -i # an interact prompt that allows you to add url, tags, folder and so on 
 liber list # list bookmarks 
 liber list --in <field> # list in specific field i.e tags folder
 liber pick # Interactively search 
-liber edit <id> # Edit speicif id or ranges of them 
+liber edit <id> # Edit a specific id or ranges of them
 liber reindex # Recalculate bookmark ids 
 liber tags -h # options to edit, list and rename tags 
-liber auto -h # otions to automatically classify bookmarks 
+liber auto -h # options to automatically classify bookmarks
 liber check # check link health
 liber attachments <id> # list attachments of that bookmark 
 liber archive <id> # add archive of that bookmark 

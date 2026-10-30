@@ -37,5 +37,6 @@ jobs:
           python3 -c "import json,re;
           cargo = re.search(r'^version = \"([^\"]+)\"', open('Cargo.toml').read(), re.M).group(1);
           conf = json.load(open('crates/liber-tauri/tauri.conf.json'))['version'];
-          assert cargo == conf, f'{cargo} != {conf}';
+          ext = json.load(open('extension/manifest.json'))['version'];
+          assert cargo == conf == ext, f'{cargo} != {conf} != {ext}';
           print(f'versions match: {cargo}')"

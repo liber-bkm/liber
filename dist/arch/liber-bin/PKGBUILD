@@ -22,7 +22,7 @@ source=("$_release/liber-linux-x86_64.tar.gz"
 sha256sums=('4b8f3bc3649b354d0399e4597c5d1a066d06b55eb4246b662b03ad41c30d05ae'
             'f2f8065ba8128de3a67082f9f0bd9b807bae4a6f2d3116f092ec544463cf226d'
             '4b4f6f57dfed9f437e212e9fe4d2a146f145598753b9eeeccf234eefd447bf08'
-            'SKIP')
+            'b27f54356915368c3cf8ae9c916991b5f14bedd8a37108fd847bbc7c68f036a9')
 
 package() {
   cd "$srcdir/liber-$pkgver"

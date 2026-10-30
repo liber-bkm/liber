@@ -24,12 +24,43 @@
           in
           "${base}+g${rev}";
 
-        rustToolchain = with pkgs; [
+        rustToolchain = p: with p; [
           cargo
           rustc
           clippy
           rustfmt
           rust-analyzer
+        ];
+
+        cargoTools = p: with p; [
+          cargo-nextest
+          cargo-audit
+          cargo-zigbuild
+          cargo-xwin
+          cargo-ndk
+          cargo-tauri
+        ];
+
+        nodeTools = p: with p; [
+          nodejs_22
+          pnpm
+        ];
+
+        runtimeTools = p: with p; [
+          cmake
+          curl
+          git
+          gnumake
+          jq
+          monolith
+          perl
+          python3
+          ripgrep
+          single-file-cli
+          sqlite
+          unzip
+          which
+          zip
         ];
 
         # Scoped package set for Android tooling. The SDK is proprietary, so
@@ -93,7 +124,7 @@
           '';
         };
 
-        linuxTauriDeps = with pkgs; [
+        linuxTauriDeps = p: with p; [
           pkg-config
           openssl
           dbus
@@ -105,6 +136,84 @@
           libappindicator-gtk3
           patchelf
         ];
+
+        # One FHS shell for Linux, cross, and Android work. The Nix Rust
+        # toolchain is deliberately absent: nixpkgs rustup installs
+        # cargo/rustc shims in /usr/bin, so adding the Nix cargo/rustc
+        # would shadow the rustup toolchain that owns the extra targets.
+        fullFhsEnv = pkgsAndroid.buildFHSEnv {
+          name = "liber-rs-full-env";
+          extraOutputsToInstall = [ "dev" ];
+          targetPkgs =
+            p:
+            cargoTools p
+            ++ nodeTools p
+            ++ runtimeTools p
+            ++ linuxTauriDeps p
+            ++ (with p; [
+              rust-analyzer
+              rustup
+              zig
+              llvmPackages.clang
+              llvmPackages.bintools
+              ninja
+              pkgsCross.mingwW64.stdenv.cc
+              jdk17
+              gradle
+              androidSdk.androidsdk
+              androidSdk.platform-tools
+              stdenv.cc
+              stdenv.cc.cc.lib
+              glibc
+              zlib
+            ]);
+          runScript = pkgs.writeShellScript "enter-liber-rs-full-env" ''
+            export ANDROID_HOME="${androidSdk.androidsdk}/libexec/android-sdk"
+            export ANDROID_SDK_ROOT="$ANDROID_HOME"
+            export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk-bundle"
+            export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
+            export NDK_HOME="$ANDROID_NDK_ROOT"
+            export JAVA_HOME="${pkgsAndroid.jdk17}/lib/openjdk"
+            export RUSTUP_HOME="$HOME/.rustup-liber"
+
+            export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/tools/bin:$HOME/.local/bin:$HOME/.nix-profile/bin:/run/current-system/sw/bin:$PATH"
+
+            if ! rustup run stable cargo --version >/dev/null 2>&1; then
+              rustup toolchain install stable --profile minimal >/dev/null 2>&1 \
+                || echo "liber full: rustup setup failed; run rustup manually if needed"
+            fi
+
+            rustup component add --toolchain stable \
+              rustfmt clippy rust-src llvm-tools-preview \
+              >/dev/null 2>&1 || true
+
+            rustup target add --toolchain stable \
+              aarch64-linux-android \
+              armv7-linux-androideabi \
+              i686-linux-android \
+              x86_64-linux-android \
+              x86_64-pc-windows-gnu \
+              x86_64-pc-windows-msvc \
+              aarch64-apple-darwin \
+              x86_64-apple-darwin \
+              >/dev/null 2>&1 || true
+
+            if rustup which cargo >/dev/null 2>&1; then
+              export PATH="$(dirname "$(rustup which cargo)"):$PATH"
+            else
+              echo "liber full: rustup cargo unavailable; run: rustup toolchain install stable"
+            fi
+
+            echo "liber-rs full dev shell (Linux, cross, and Android FHS)"
+            echo "Android SDK: $ANDROID_HOME"
+            echo "Rust targets: rustup target list --installed"
+
+            if [ "$#" -gt 0 ]; then
+              exec "$@"
+            fi
+            exec bash
+          '';
+        };
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
@@ -172,7 +281,7 @@
           inherit version;
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
-          buildInputs = linuxTauriDeps;
+          buildInputs = linuxTauriDeps pkgs;
           nativeBuildInputs = [
             pkgs.pkg-config
             pkgs.wrapGAppsHook3
@@ -280,7 +389,7 @@
         # rustup: `rustup toolchain install stable --target <triple>`.
         devShells.default = pkgs.mkShell {
           buildInputs =
-            rustToolchain
+            rustToolchain pkgs
             ++ (with pkgs; [
               cargo-nextest
               cargo-audit
@@ -299,7 +408,7 @@
               single-file-cli
               monolith
             ])
-            ++ linuxTauriDeps;
+            ++ linuxTauriDeps pkgs;
           shellHook = ''
             export RUSTUP_HOME="$HOME/.rustup-liber"
             echo "liber-rs dev shell (Linux test-only)"
@@ -313,7 +422,7 @@
         # Cross-compile helper shell (Windows/macOS toolchains from Linux).
         devShells.cross = pkgs.mkShell {
           buildInputs =
-            rustToolchain
+            rustToolchain pkgs
             ++ (with pkgs; [
               zig
               cargo-zigbuild
@@ -366,6 +475,15 @@
           '';
         };
 
+        packages.full-env = fullFhsEnv;
+
+        devShells.full = pkgs.mkShell {
+          buildInputs = [ fullFhsEnv ];
+          shellHook = ''
+            exec ${fullFhsEnv}/bin/liber-rs-full-env
+          '';
+        };
+
         apps.default = flake-utils.lib.mkApp {
           drv = self.packages.${system}.default;
           exePath = "/bin/liber";
@@ -377,6 +495,10 @@
         apps.liber-desktop = flake-utils.lib.mkApp {
           drv = self.packages.${system}.liber-desktop;
           exePath = "/bin/liber-tauri";
+        };
+        apps.full = flake-utils.lib.mkApp {
+          drv = fullFhsEnv;
+          exePath = "/bin/liber-rs-full-env";
         };
       }
     );
