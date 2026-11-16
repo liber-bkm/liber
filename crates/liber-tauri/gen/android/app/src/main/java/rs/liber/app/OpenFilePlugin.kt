@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
+import android.webkit.WebView
 import androidx.activity.result.ActivityResult
 import androidx.core.content.FileProvider
 import app.tauri.annotation.ActivityCallback
@@ -23,6 +24,38 @@ class OpenFileArgs {
 
 @TauriPlugin
 class OpenFilePlugin(private val activity: Activity) : Plugin(activity) {
+  companion object {
+    private const val EVENT_SHARED_LINK = "shared_link"
+
+    @Volatile
+    private var pendingShare: SharedLink? = null
+  }
+
+  override fun load(webView: WebView) {
+    captureInitialShare()
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    val link = ShareParser.fromIntent(intent) ?: return
+    // Consume the share intent so activity recreation does not replay it.
+    activity.intent = Intent(Intent.ACTION_MAIN)
+    if (hasListener(EVENT_SHARED_LINK)) {
+      pendingShare = null
+      triggerObject(EVENT_SHARED_LINK, link)
+    } else {
+      pendingShare = link
+    }
+  }
+
+  @Command
+  fun takeShared(invoke: Invoke) {
+    captureInitialShare()
+    val link = pendingShare
+    pendingShare = null
+    if (link == null) invoke.resolve() else invoke.resolveObject(link)
+  }
+
   @Command
   fun open(invoke: Invoke) {
     try {
@@ -95,6 +128,14 @@ class OpenFilePlugin(private val activity: Activity) : Plugin(activity) {
     } catch (ex: Exception) {
       invoke.reject(ex.message ?: "save failed")
     }
+  }
+
+  private fun captureInitialShare() {
+    if (pendingShare != null) return
+    val link = ShareParser.fromIntent(activity.intent) ?: return
+    pendingShare = link
+    // Consume the launch intent so activity recreation does not replay it.
+    activity.intent = Intent(Intent.ACTION_MAIN)
   }
 
   private fun existingFile(path: String): File {
