@@ -5,7 +5,7 @@ import { Layout, type View } from "./components/Layout";
 import { Library, type SearchPreset } from "./screens/Library";
 import { Login } from "./screens/Login";
 import { AddDialog, DetailDrawer } from "./components/Detail";
-import { isTauri, subscribeSharedUrls } from "./tauri";
+import { isTauri, subscribeSharedLinks, type SharedLink } from "./tauri";
 import { FoldersPage, TagsPage } from "./screens/Taxonomy";
 import { RulesPage } from "./screens/Rules";
 import { CheckPage } from "./screens/Check";
@@ -17,7 +17,7 @@ import "./index.css";
 
 const qc = new QueryClient();
 
-export function parseAddQuery(search: string): { url: string; title: string; tags: string; folder: string } | null {
+export function parseAddQuery(search: string): { url: string; title: string; description: string; tags: string; folder: string } | null {
   try {
     const params = new URLSearchParams(search);
     const add = params.get("add");
@@ -25,6 +25,7 @@ export function parseAddQuery(search: string): { url: string; title: string; tag
     return {
       url: add,
       title: params.get("title") ?? "",
+      description: params.get("description") ?? "",
       tags: params.get("tags") ?? "",
       folder: params.get("folder") ?? "",
     };
@@ -51,29 +52,38 @@ function Shell() {
   }
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareTitle, setShareTitle] = useState("");
+  const [shareDescription, setShareDescription] = useState("");
   const [shareTags, setShareTags] = useState("");
   const [shareFolder, setShareFolder] = useState("");
 
   function clearShare() {
     setShareUrl(null);
     setShareTitle("");
+    setShareDescription("");
     setShareTags("");
     setShareFolder("");
+  }
+
+  function applyShared(link: SharedLink) {
+    setShareUrl(link.url || null);
+    setShareTitle(link.title);
+    setShareDescription(link.description);
+    setShareTags(link.tags);
+    setShareFolder(link.folder);
+    setAdding(true);
   }
 
   useEffect(() => {
     let off: (() => void) | undefined;
     (async () => {
-      off = await subscribeSharedUrls((u) => {
-        setShareUrl(u);
-        setAdding(true);
-      });
+      off = await subscribeSharedLinks(applyShared);
     })();
     try {
       const parsed = parseAddQuery(window.location.search);
       if (parsed) {
         setShareUrl(parsed.url);
         setShareTitle(parsed.title);
+        setShareDescription(parsed.description);
         setShareTags(parsed.tags);
         setShareFolder(parsed.folder);
         setAdding(true);
@@ -198,9 +208,10 @@ function Shell() {
       )}
       {adding && (
         <AddDialog
-          key={`${shareUrl ?? "add"}|${shareTitle}|${shareTags}|${shareFolder}`}
+          key={`${shareUrl ?? "add"}|${shareTitle}|${shareDescription}|${shareTags}|${shareFolder}`}
           initialUrl={shareUrl ?? ""}
           initialTitle={shareTitle}
+          initialDescription={shareDescription}
           initialTags={shareTags}
           initialFolder={shareFolder}
           onClose={() => {

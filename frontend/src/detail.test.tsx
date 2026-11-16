@@ -1,8 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AddDialog, DetailDrawer } from "./components/Detail";
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+afterEach(cleanup);
 
 function mockTaxonomy() {
   globalThis.fetch = vi.fn(async (url: unknown) => {
@@ -40,13 +42,64 @@ describe("AddDialog taxonomy autocomplete", () => {
     });
 
     const boxes = screen.getAllByRole("textbox");
-    const tagsInput = boxes[2] as HTMLInputElement;
+    const tagsInput = boxes[3] as HTMLInputElement;
     fireEvent.change(tagsInput, { target: { value: "ru" } });
 
     const suggest = await screen.findByText("rust");
     expect(suggest).toBeInTheDocument();
     fireEvent.click(suggest);
     expect(tagsInput.value).toContain("rust");
+  });
+
+  it("prefills shared link details and sends the description", async () => {
+    let body: { url?: string; title?: string; description?: string } = {};
+    globalThis.fetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const path = String(url);
+      if (path.endsWith("/api/v2/tags")) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ tags: [] }) } as Response;
+      }
+      if (path.endsWith("/api/v2/folders")) {
+        return { ok: true, status: 200, text: async () => JSON.stringify({ folders: [] }) } as Response;
+      }
+      if (path.endsWith("/api/v2/bookmarks") && init?.method === "POST") {
+        body = JSON.parse(String(init.body)) as typeof body;
+        return {
+          ok: true,
+          status: 201,
+          text: async () =>
+            JSON.stringify({
+              uuid: "shared-1",
+              url: body.url,
+              title: body.title,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              has_markdown: false,
+              has_archive: false,
+            }),
+        } as Response;
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({}) } as Response;
+    });
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <AddDialog
+          onClose={() => {}}
+          onAdded={() => {}}
+          initialUrl="https://example.com/shared"
+          initialTitle="Shared page"
+          initialDescription="Shared notes"
+        />
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByDisplayValue("Shared notes")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Save bookmark"));
+
+    await waitFor(() => expect(body.url).toBe("https://example.com/shared"));
+    expect(body.title).toBe("Shared page");
+    expect(body.description).toBe("Shared notes");
   });
 
   it("saves several URLs with a per-URL report", async () => {

@@ -188,7 +188,7 @@ export function Library({
 
       {(folder || tag) && (
         <div className="flex items-center gap-2 text-sm text-neutral-500">
-          {folder && <Badge tone="accent">{folder}</Badge>}
+          {folder && <Badge tone="accent">{folder === "/" ? "Unfiled" : folder}</Badge>}
           {tag && <Badge tone="accent">#{tag}</Badge>}
           {query.data && <span>{query.data.total} result{query.data.total === 1 ? "" : "s"}</span>}
         </div>

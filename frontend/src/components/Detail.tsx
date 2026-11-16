@@ -1,17 +1,31 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Pencil, Trash2, Upload, X } from "lucide-react";
 import { displayId, domainOf, getArchiveView, setArchiveView, shortUuid, ApiError, type Bookmark } from "../api";
 import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, downloadAttachment, fetchArchive, fetchBookmark, fetchFolders, fetchNotes, fetchTags, isAndroid, isTauri, openArchiveExternal, openAttachmentExternal, openBookmark, openExternal, saveAttachmentNative, saveNotes, shareAttachment, updateBookmark, uploadAttachment, useRemote } from "../tauri";
+import { buildPathTree, flattenPathTree } from "../tree";
 import { Badge, Button, Field, Input, Modal, Spinner } from "./ui";
 
 function useTaxonomyNames() {
   const tags = useQuery({ queryKey: ["tags"], queryFn: fetchTags, staleTime: 60_000 });
   const folders = useQuery({ queryKey: ["folders"], queryFn: fetchFolders, staleTime: 60_000 });
-  return {
-    tagNames: (tags.data?.tags ?? []).map((t) => t.name),
-    folderNames: (folders.data?.folders ?? []).map((f) => f.name),
-  };
+  const tagItems = tags.data?.tags;
+  const folderItems = folders.data?.folders;
+  const tagNames = useMemo(
+    () =>
+      flattenPathTree(buildPathTree(tagItems ?? [], { caseInsensitive: true })).map(
+        (node) => node.path
+      ),
+    [tagItems]
+  );
+  const folderNames = useMemo(
+    () =>
+      flattenPathTree(buildPathTree(folderItems ?? []))
+        .map((node) => node.path)
+        .filter((path) => path !== "/"),
+    [folderItems]
+  );
+  return { tagNames, folderNames };
 }
 
 function lastToken(value: string): string {
@@ -564,6 +578,7 @@ function EditForm({ bookmark: b, onDone }: { bookmark: Bookmark; onDone: () => v
       <Field label="Tags (space separated)">
         <Input value={tags} onChange={(e) => setTags(e.target.value)} />
         <TagSuggest value={tags} names={tagNames} onPick={setTags} />
+        <p className="mt-1 text-xs text-neutral-400">Use / for sub-tags, e.g. dev/rust</p>
       </Field>
       <Field label="Folder">
         <Input value={folder} onChange={(e) => setFolder(e.target.value)} list="liber-folder-edit" />
@@ -673,9 +688,10 @@ export function parseAddUrls(text: string): string[] {
 
 type MultiResult = { url: string; status: "added" | "duplicate" | "failed"; detail: string };
 
-export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = "", initialTags = "", initialFolder = "" }: { onClose: () => void; onAdded: (b: Bookmark) => void; initialUrl?: string; initialTitle?: string; initialTags?: string; initialFolder?: string }) {
+export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = "", initialDescription = "", initialTags = "", initialFolder = "" }: { onClose: () => void; onAdded: (b: Bookmark) => void; initialUrl?: string; initialTitle?: string; initialDescription?: string; initialTags?: string; initialFolder?: string }) {
   const [url, setUrl] = useState(initialUrl);
   const [title, setTitle] = useState(initialTitle);
+  const [description, setDescription] = useState(initialDescription);
   const [tags, setTags] = useState(initialTags);
   const [folder, setFolder] = useState(initialFolder);
   const [markdown, setMarkdown] = useState(false);
@@ -708,6 +724,7 @@ export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = ""
       const b = await addBookmark({
         url,
         title: title || undefined,
+        description: description || undefined,
         tags: tags.split(/[\s,]+/).filter(Boolean),
         folder: folder || undefined,
         markdown,
@@ -817,10 +834,21 @@ export function AddDialog({ onClose, onAdded, initialUrl = "", initialTitle = ""
               <Input value={title} onChange={(e) => setTitle(e.target.value)} />
             </Field>
           )}
+          {!isMulti && (
+            <Field label="Description (optional)">
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-accent-500 focus:ring-1 focus:ring-accent-500 dark:border-neutral-700 dark:bg-neutral-900"
+              />
+            </Field>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Tags">
               <Input value={tags} onChange={(e) => setTags(e.target.value)} />
               <TagSuggest value={tags} names={tagNames} onPick={setTags} />
+              <p className="mt-1 text-xs text-neutral-400">Use / for sub-tags, e.g. dev/rust</p>
             </Field>
             <Field label="Folder">
               <Input value={folder} onChange={(e) => setFolder(e.target.value)} list="liber-folder-add" />

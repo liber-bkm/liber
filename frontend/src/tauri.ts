@@ -271,24 +271,100 @@ export async function openBookmark(uuid: string): Promise<{ url: string }> {
   return invokeCmd<{ url: string }>("open_bookmark", { id: uuid });
 }
 
-export async function subscribeSharedUrls(
-  cb: (url: string) => void
+export interface SharedLink {
+  url: string;
+  title: string;
+  description: string;
+  tags: string;
+  folder: string;
+}
+
+interface SharedPayload {
+  url?: string | null;
+  title?: string | null;
+  description?: string | null;
+  text?: string | null;
+}
+
+function sharedLinkFromUrl(raw: string): SharedLink | null {
+  try {
+    const parsed = new URL(raw);
+    const url = parsed.searchParams.get("url") ?? "";
+    if (!url) return null;
+    return {
+      url,
+      title: parsed.searchParams.get("title") ?? "",
+      description: parsed.searchParams.get("description") ?? "",
+      tags: parsed.searchParams.get("tags") ?? "",
+      folder: parsed.searchParams.get("folder") ?? "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function sharedLinkFromPayload(raw: unknown): SharedLink | null {
+  if (typeof raw === "string") return sharedLinkFromUrl(raw);
+  if (!raw || typeof raw !== "object") return null;
+  const payload = raw as SharedPayload;
+  const url = (payload.url ?? "").trim();
+  const text = (payload.text ?? "").trim();
+  const title = (payload.title ?? "").trim();
+  const leftover = (payload.description ?? "").trim();
+  if (!url && !leftover && !text && !title) return null;
+  return {
+    url,
+    title,
+    description: leftover || (url ? "" : text),
+    tags: "",
+    folder: "",
+  };
+}
+
+export async function subscribeSharedLinks(
+  cb: (link: SharedLink) => void
 ): Promise<(() => void) | undefined> {
   if (!isTauri()) return undefined;
-  const { invoke } = await import("@tauri-apps/api/core");
+  const { addPluginListener, invoke } = await import("@tauri-apps/api/core");
   const { listen } = await import("@tauri-apps/api/event");
-  const emit = (urls: unknown) => {
-    const list = Array.isArray(urls) ? urls : [urls];
-    for (const raw of list) {
-      if (typeof raw !== "string") continue;
-      try {
-        const shared = new URL(raw).searchParams.get("url");
-        if (shared) cb(shared);
-      } catch {
-        continue;
-      }
+
+  let lastSignature = "";
+  let lastAt = 0;
+  const emit = (raw: unknown) => {
+    const list = Array.isArray(raw) ? raw : [raw];
+    for (const item of list) {
+      const link = sharedLinkFromPayload(item);
+      if (!link) continue;
+      const signature = JSON.stringify(link);
+      const now = Date.now();
+      if (signature === lastSignature && now - lastAt < 1500) continue;
+      lastSignature = signature;
+      lastAt = now;
+      cb(link);
     }
   };
+
+  let listener: { unregister: () => Promise<void> } | undefined;
+  if (isAndroid()) {
+    try {
+      listener = await addPluginListener<SharedPayload>(
+        "liber-file-bridge",
+        "shared_link",
+        (payload) => emit(payload)
+      );
+    } catch {
+      /* older build without the Android bridge */
+    }
+    try {
+      const pending = await invoke<SharedPayload | null>(
+        "plugin:liber-file-bridge|take_shared"
+      );
+      if (pending) emit(pending);
+    } catch {
+      /* no pending share */
+    }
+  }
+
   try {
     const current = await invoke<string[] | null>("plugin:deep-link|get_current");
     if (current) emit(current);
@@ -298,7 +374,10 @@ export async function subscribeSharedUrls(
   const unlisten = await listen<string[]>("deep-link://new-url", (event) =>
     emit(event.payload)
   );
-  return unlisten;
+  return () => {
+    unlisten();
+    void listener?.unregister();
+  };
 }
 
 export async function openExternal(url: string): Promise<void> {
