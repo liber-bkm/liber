@@ -63,6 +63,14 @@ pub fn live_config(state: &AppState) -> liber_core::store::Config {
     state.cfg.read().unwrap().clone()
 }
 
+/// Serializes tests that mutate `LIBER_CONFIG`, since the process environment
+/// is shared by the parallel test threads.
+#[cfg(test)]
+pub(crate) async fn env_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    LOCK.lock().await
+}
+
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/v2/health", get(health))

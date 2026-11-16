@@ -1,6 +1,6 @@
 use crate::edit::{move_bookmark_files, rewrite_bookmark_files};
 use crate::model::{AppliedRule, AutoRule, Bookmark};
-use crate::slug::{dedupe_strings, sanitize_folder};
+use crate::slug::{normalize_tags, sanitize_folder};
 use crate::store::Store;
 use crate::CoreError;
 
@@ -73,7 +73,7 @@ pub fn resolve_for_new(
             used = true;
         }
         if !r.action_tags.is_empty() {
-            tags = dedupe_strings([tags, r.action_tags.clone()].concat());
+            tags = normalize_tags([tags, r.action_tags.clone()].concat());
             used = true;
         }
         if used {
@@ -129,7 +129,7 @@ fn apply_one(
     }
     if !rule.action_tags.is_empty() {
         let before = b.tags.len();
-        b.tags = dedupe_strings([b.tags.clone(), rule.action_tags.clone()].concat());
+        b.tags = normalize_tags([b.tags.clone(), rule.action_tags.clone()].concat());
         if b.tags.len() != before {
             changed = true;
         }
@@ -183,7 +183,7 @@ pub fn create_rule(
     let folder = folder
         .map(|f| sanitize_folder(&f))
         .filter(|f| !f.is_empty());
-    let tags = dedupe_strings(tags);
+    let tags = normalize_tags(tags);
     if folder.is_none() && tags.is_empty() {
         return Err(CoreError::Invalid(
             "a rule needs a folder and/or tags".to_string(),
@@ -226,7 +226,7 @@ pub fn edit_rule(
         };
     }
     if let Some(t) = tags {
-        rule.action_tags = dedupe_strings(t);
+        rule.action_tags = normalize_tags(t);
     }
     store.update_rule(&rule)?;
     let mut changed = Vec::new();

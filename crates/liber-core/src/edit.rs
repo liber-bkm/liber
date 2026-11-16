@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::model::Bookmark;
 use crate::render::{write_html_bookmark, write_markdown_bookmark};
-use crate::slug::{dedupe_strings, normalize_url, sanitize_folder};
+use crate::slug::{normalize_tags, normalize_url, sanitize_folder};
 use crate::store::Store;
 use crate::CoreError;
 
@@ -83,7 +83,7 @@ pub fn apply_edit(
         b.description = description;
     }
     if let Some(tags) = draft.tags {
-        b.tags = dedupe_strings(tags);
+        b.tags = normalize_tags(tags);
     }
 
     let mut folder_changed = false;

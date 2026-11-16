@@ -105,7 +105,12 @@ mod tests {
     use crate::{build_router, AppState};
     use liber_core::store::Config;
 
-    fn test_app() -> (axum::Router, tempfile::TempDir) {
+    async fn test_app() -> (
+        axum::Router,
+        tempfile::TempDir,
+        tokio::sync::MutexGuard<'static, ()>,
+    ) {
+        let env = crate::env_lock().await;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
         std::env::set_var("LIBER_CONFIG", &path);
@@ -115,7 +120,7 @@ mod tests {
             ..Default::default()
         };
         liber_core::config::save_config_to(&path, &cfg).unwrap();
-        (build_router(AppState::new(cfg, String::new())), dir)
+        (build_router(AppState::new(cfg, String::new())), dir, env)
     }
 
     fn put(key: &str, value: &str) -> Request<Body> {
@@ -157,7 +162,7 @@ mod tests {
 
     #[tokio::test]
     async fn settings_roundtrip() {
-        let (app, _dir) = test_app();
+        let (app, _dir, _env) = test_app().await;
         let (status, _) = get_json(app.clone()).await;
         assert_eq!(status, StatusCode::OK);
 
@@ -176,7 +181,7 @@ mod tests {
 
     #[tokio::test]
     async fn settings_widened_keys_validate() {
-        let (app, _dir) = test_app();
+        let (app, _dir, _env) = test_app().await;
         let (status, v) = put_json(app.clone(), "editor_cmd", "hx").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(v["ok"], true);

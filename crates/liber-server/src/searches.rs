@@ -135,7 +135,12 @@ mod tests {
     use crate::{build_router, AppState};
     use liber_core::store::Config;
 
-    fn test_app() -> (axum::Router, tempfile::TempDir) {
+    async fn test_app() -> (
+        axum::Router,
+        tempfile::TempDir,
+        tokio::sync::MutexGuard<'static, ()>,
+    ) {
+        let env = crate::env_lock().await;
         let dir = tempfile::tempdir().unwrap();
         let cfg = Config {
             base_dir: dir.path().to_path_buf(),
@@ -143,7 +148,7 @@ mod tests {
             ..Default::default()
         };
         std::env::set_var("LIBER_CONFIG", dir.path().join("config.json"));
-        (build_router(AppState::new(cfg, String::new())), dir)
+        (build_router(AppState::new(cfg, String::new())), dir, env)
     }
 
     fn post_json(uri: &str, v: serde_json::Value) -> Request<Body> {
@@ -165,7 +170,7 @@ mod tests {
 
     #[tokio::test]
     async fn searches_add_list_delete_flow() {
-        let (app, _dir) = test_app();
+        let (app, _dir, _env) = test_app().await;
 
         let (status, v) = body_json(
             app.clone()

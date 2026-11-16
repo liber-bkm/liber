@@ -160,6 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn profiles_switch_delete_flow() {
+        let _env = crate::env_lock().await;
         let (app, dir) = test_app();
         std::env::set_var("LIBER_CONFIG", dir.path().join("config.json"));
 

@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use crate::dedupe::normalize_for_dedupe;
 use crate::model::{Attachment, AutoRule, Bookmark, NewBookmark, OpLogEntry};
+use crate::slug::normalize_tags;
 use crate::CoreError;
 
 const SCHEMA: &str = "
@@ -355,7 +356,7 @@ impl Store {
             url: new.url,
             title: new.title,
             description: new.description,
-            tags: new.tags,
+            tags: normalize_tags(new.tags),
             folder: new.folder,
             created_at: now,
             updated_at: now,
@@ -434,6 +435,7 @@ impl Store {
     pub fn update_bookmark(&mut self, b: &Bookmark) -> Result<(), CoreError> {
         let mut stamped = b.clone();
         stamped.updated_at = Utc::now();
+        stamped.tags = normalize_tags(std::mem::take(&mut stamped.tags));
         let b = &stamped;
         let n = self
             .conn
@@ -473,6 +475,7 @@ impl Store {
 
     pub fn replace_bookmark_exact(&mut self, b: &Bookmark) -> Result<(), CoreError> {
         let mut owned = b.clone();
+        owned.tags = normalize_tags(std::mem::take(&mut owned.tags));
         let local: Option<Option<i64>> = self
             .conn
             .query_row(
@@ -784,15 +787,21 @@ pub struct BookmarkFilter {
 }
 
 impl Store {
-    fn like_pattern(q: &str) -> String {
-        let escaped: String = q
-            .chars()
+    fn escape_like(q: &str) -> String {
+        q.chars()
             .flat_map(|c| match c {
                 '%' | '_' | '\\' => vec!['\\', c],
                 c => vec![c],
             })
-            .collect();
-        format!("%{escaped}%")
+            .collect()
+    }
+
+    fn like_pattern(q: &str) -> String {
+        format!("%{}%", Self::escape_like(q))
+    }
+
+    fn subtree_pattern(q: &str) -> String {
+        format!("{}/%", Self::escape_like(q))
     }
 
     pub fn query_bookmarks(
@@ -810,12 +819,22 @@ impl Store {
             joins.push_str(" JOIN bookmark_tags t ON t.bookmark_uuid = b.uuid");
         }
         if let Some(folder) = &filter.folder {
-            conds.push("b.folder = ?".to_string());
-            args.push(folder.clone());
+            if folder == "/" {
+                // The folder counts endpoint reports bookmarks stored at the
+                // root with the sentinel "/".
+                conds.push("b.folder = ''".to_string());
+            } else {
+                conds.push("(b.folder = ? OR b.folder LIKE ? ESCAPE '\\')".to_string());
+                args.push(folder.clone());
+                args.push(Self::subtree_pattern(folder));
+            }
         }
         if let Some(tag) = &filter.tag {
-            conds.push("t.tag = ? COLLATE NOCASE".to_string());
+            conds.push(
+                "(t.tag = ? COLLATE NOCASE OR t.tag LIKE ? ESCAPE '\\' COLLATE NOCASE)".to_string(),
+            );
             args.push(tag.clone());
+            args.push(Self::subtree_pattern(tag));
         }
         if let Some(q) = &filter.query {
             for term in crate::search::parse_query_terms(q) {
@@ -1415,11 +1434,12 @@ mod tests {
                 .unwrap()
                 .into_iter()
                 .filter(|b| match &filter.folder {
-                    Some(f) => &b.folder == f,
+                    Some(f) if f == "/" => b.folder.is_empty(),
+                    Some(f) => crate::slug::path_in_subtree(&b.folder, f),
                     None => true,
                 })
                 .filter(|b| match &filter.tag {
-                    Some(t) => b.tags.iter().any(|x| x.eq_ignore_ascii_case(t)),
+                    Some(t) => b.tags.iter().any(|x| crate::slug::tag_in_subtree(x, t)),
                     None => true,
                 })
                 .filter(|b| match &filter.query {
@@ -1434,6 +1454,87 @@ mod tests {
             let want: Vec<String> = expected.iter().map(|b| b.uuid.to_string()).collect();
             assert_eq!(got, want, "page for {q:?}/{tag:?}/{folder:?}/{sort}");
         }
+    }
+
+    #[test]
+    fn filters_include_descendants_and_root() {
+        use crate::search::SortMode;
+        let mut s = mem_store();
+        let rows = [
+            ("https://example.com/a", "tech", vec!["dev"]),
+            ("https://example.com/b", "tech/rust", vec!["dev/rust"]),
+            ("https://example.com/c", "", vec!["other"]),
+            ("https://example.com/d", "technology", vec!["developer"]),
+        ];
+        for (url, folder, tags) in rows {
+            let mut nb = sample(url);
+            nb.folder = folder.to_string();
+            nb.tags = tags.into_iter().map(str::to_string).collect();
+            s.add_bookmark(nb).unwrap();
+        }
+
+        let query = |folder: Option<&str>, tag: Option<&str>| {
+            let filter = BookmarkFilter {
+                folder: folder.map(str::to_string),
+                tag: tag.map(str::to_string),
+                ..Default::default()
+            };
+            let (page, total) = s.query_bookmarks(&filter, SortMode::Oldest, 50, 0).unwrap();
+            let urls: Vec<String> = page.into_iter().map(|b| b.url).collect();
+            (urls, total)
+        };
+
+        let (urls, total) = query(Some("tech"), None);
+        assert_eq!(total, 2);
+        assert_eq!(
+            urls,
+            vec![
+                "https://example.com/a".to_string(),
+                "https://example.com/b".to_string()
+            ]
+        );
+
+        let (urls, total) = query(Some("/"), None);
+        assert_eq!(total, 1);
+        assert_eq!(urls, vec!["https://example.com/c".to_string()]);
+
+        let (urls, total) = query(None, Some("DEV"));
+        assert_eq!(total, 2);
+        assert_eq!(
+            urls,
+            vec![
+                "https://example.com/a".to_string(),
+                "https://example.com/b".to_string()
+            ]
+        );
+
+        let (urls, total) = query(None, Some("dev/rust"));
+        assert_eq!(total, 1);
+        assert_eq!(urls, vec!["https://example.com/b".to_string()]);
+
+        let (_, total) = query(None, Some("developer"));
+        assert_eq!(total, 1);
+    }
+
+    #[test]
+    fn store_normalizes_tag_paths() {
+        let mut s = mem_store();
+        let mut nb = sample("https://example.com/a");
+        nb.tags = vec![
+            " Dev ".to_string(),
+            "dev//rust".to_string(),
+            "DEV".to_string(),
+        ];
+        let b = s.add_bookmark(nb).unwrap();
+        assert_eq!(b.tags, vec!["Dev".to_string(), "dev/rust".to_string()]);
+
+        let mut edited = b.clone();
+        edited.tags = vec![" a / b ".to_string(), "a/b".to_string()];
+        s.update_bookmark(&edited).unwrap();
+        assert_eq!(
+            s.get(&b.uuid).unwrap().unwrap().tags,
+            vec!["a/b".to_string()]
+        );
     }
 
     #[test]

@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::dedupe::normalize_for_dedupe;
 use crate::model::{AutoRule, Bookmark};
-use crate::slug::dedupe_strings;
+use crate::slug::normalize_tags;
 use crate::store::Store;
 use crate::CoreError;
 
@@ -49,7 +49,7 @@ fn merge_fields(dst: &mut Bookmark, src: &Bookmark) {
     if src.created_at < dst.created_at {
         dst.created_at = src.created_at;
     }
-    dst.tags = dedupe_strings([dst.tags.clone(), src.tags.clone()].concat());
+    dst.tags = normalize_tags([dst.tags.clone(), src.tags.clone()].concat());
     if dst.html_file.is_empty() {
         dst.html_file = src.html_file.clone();
     }

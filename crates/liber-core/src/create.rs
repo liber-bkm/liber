@@ -62,7 +62,7 @@ fn extract_title(html: &str) -> String {
     title.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 use crate::render::{write_html_bookmark, write_markdown_bookmark};
-use crate::slug::{dedupe_strings, normalize_url, sanitize_folder, slug_or_fallback};
+use crate::slug::{normalize_tags, normalize_url, sanitize_folder, slug_or_fallback};
 use crate::store::Store;
 use crate::CoreError;
 
@@ -93,7 +93,7 @@ pub fn create_bookmark(
         return Err(CoreError::Duplicate(normalize_for_dedupe(&url)));
     }
     let folder = sanitize_folder(&opts.folder);
-    let tags = dedupe_strings(opts.tags);
+    let tags = normalize_tags(opts.tags);
     let title = opts
         .title
         .map(|t| t.trim().to_string())
