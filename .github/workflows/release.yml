@@ -124,7 +124,7 @@ jobs:
   macos:
     needs: version-check
     if: github.ref_type == 'tag'
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
