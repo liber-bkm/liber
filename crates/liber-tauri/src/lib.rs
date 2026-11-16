@@ -24,6 +24,11 @@ pub fn open_store(state: &AppState) -> Result<Store, String> {
     Store::open(cfg).map_err(|e| e.to_string())
 }
 
+pub mod temp_files;
+
+#[cfg(target_os = "android")]
+pub mod android_open;
+
 #[cfg(mobile)]
 extern crate self as liber_tauri;
 

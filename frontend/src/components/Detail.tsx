@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Pencil, Trash2, Upload, X } from "lucide-react";
 import { displayId, domainOf, getArchiveView, setArchiveView, shortUuid, ApiError, type Bookmark } from "../api";
-import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, downloadAttachment, fetchArchive, fetchBookmark, fetchFolders, fetchNotes, fetchTags, isTauri, openArchiveExternal, openAttachmentExternal, openBookmark, openExternal, saveNotes, updateBookmark, uploadAttachment, useRemote } from "../tauri";
+import { addBookmark, archiveUrl, attachmentUrl, createArchive, deleteArchive, deleteAttachment, deleteBookmark, deleteNotes, downloadAttachment, fetchArchive, fetchBookmark, fetchFolders, fetchNotes, fetchTags, isAndroid, isTauri, openArchiveExternal, openAttachmentExternal, openBookmark, openExternal, saveAttachmentNative, saveNotes, shareAttachment, updateBookmark, uploadAttachment, useRemote } from "../tauri";
 import { Badge, Button, Field, Input, Modal, Spinner } from "./ui";
 
 function useTaxonomyNames() {
@@ -315,6 +315,10 @@ function AttachmentManager({ uuid, attachments, onChanged }: { uuid: string; att
     setError("");
     setBusy(true);
     try {
+      if (isAndroid()) {
+        await saveAttachmentNative(uuid, name);
+        return;
+      }
       const data = await downloadAttachment(uuid, name);
       const bin = atob(data.content);
       const bytes = new Uint8Array(bin.length);
@@ -328,6 +332,18 @@ function AttachmentManager({ uuid, attachments, onChanged }: { uuid: string; att
       setTimeout(() => URL.revokeObjectURL(href), 5000);
     } catch (e) {
       setError(e instanceof Error ? e.message : "download failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function share(name: string) {
+    setError("");
+    setBusy(true);
+    try {
+      await shareAttachment(uuid, name);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "share failed");
     } finally {
       setBusy(false);
     }
@@ -356,6 +372,15 @@ function AttachmentManager({ uuid, attachments, onChanged }: { uuid: string; att
           <div className="min-w-0 flex-1">
             <AttachmentLink uuid={uuid} name={a.name} />
           </div>
+          {isTauri() && !useRemote() && isAndroid() && (
+            <button
+              onClick={() => void share(a.name)}
+              disabled={busy}
+              className="shrink-0 rounded-lg px-2 py-0.5 text-xs text-neutral-500 hover:bg-neutral-100 disabled:opacity-50 dark:hover:bg-neutral-800"
+            >
+              Share
+            </button>
+          )}
           {isTauri() && !useRemote() && (
             <button
               onClick={() => void saveAs(a.name)}

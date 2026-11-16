@@ -172,10 +172,45 @@ pub fn mime_for(url: &str, header: Option<&str>) -> String {
         "otf" => "font/otf",
         "mp4" => "video/mp4",
         "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "mkv" => "video/x-matroska",
+        "avi" => "video/x-msvideo",
         "mp3" => "audio/mpeg",
-        "mp4a" => "audio/mp4",
+        "mp4a" | "m4a" => "audio/mp4",
         "ogg" => "audio/ogg",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "opus" => "audio/opus",
         "html" | "htm" => "text/html",
+        "pdf" => "application/pdf",
+        "txt" | "log" => "text/plain",
+        "md" | "markdown" => "text/markdown",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "csv" => "text/csv",
+        "yaml" | "yml" => "application/yaml",
+        "zip" => "application/zip",
+        "gz" | "gzip" => "application/gzip",
+        "tar" => "application/x-tar",
+        "7z" => "application/x-7z-compressed",
+        "rar" => "application/vnd.rar",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "odt" => "application/vnd.oasis.opendocument.text",
+        "ods" => "application/vnd.oasis.opendocument.spreadsheet",
+        "odp" => "application/vnd.oasis.opendocument.presentation",
+        "rtf" => "application/rtf",
+        "epub" => "application/epub+zip",
+        "mobi" => "application/x-mobipocket-ebook",
+        "apk" => "application/vnd.android.package-archive",
+        "wasm" => "application/wasm",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
+        "heic" => "image/heic",
         _ => "application/octet-stream",
     }
     .to_string()
@@ -1001,6 +1036,42 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static NEXT_PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn mime_for_covers_common_attachments() {
+        let cases = [
+            ("report.pdf", "application/pdf"),
+            ("notes.md", "text/markdown"),
+            ("data.json", "application/json"),
+            ("table.csv", "text/csv"),
+            ("bundle.zip", "application/zip"),
+            ("book.epub", "application/epub+zip"),
+            (
+                "letter.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+            (
+                "sheet.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            (
+                "slides.pptx",
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ),
+            ("clip.m4a", "audio/mp4"),
+            ("movie.mkv", "video/x-matroska"),
+            ("app.apk", "application/vnd.android.package-archive"),
+            ("photo.heic", "image/heic"),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(mime_for(name, None), expected, "{name}");
+        }
+        assert_eq!(
+            mime_for("download?name=x", Some("application/pdf; charset=binary")),
+            "application/pdf"
+        );
+        assert_eq!(mime_for("unknown.bin", None), "application/octet-stream");
+    }
 
     fn test_site() -> (String, std::thread::JoinHandle<()>) {
         let offset = NEXT_PORT_OFFSET.fetch_add(1, Ordering::SeqCst);

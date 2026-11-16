@@ -77,6 +77,10 @@ export function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
 
+export function isAndroid(): boolean {
+  return isTauri() && /Android/i.test(navigator.userAgent);
+}
+
 export { getRemoteBase, getRemoteToken, setRemote, useRemote } from "./api";
 
 async function invokeCmd<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -597,6 +601,22 @@ export async function openAttachmentExternal(
 ): Promise<{ opened: boolean }> {
   if (!isTauri()) throw new Error("openAttachmentExternal is Tauri-only");
   return invokeCmd("open_attachment_external", { id: uuid, name });
+}
+
+export async function shareAttachment(
+  uuid: string,
+  name: string
+): Promise<{ shared: boolean }> {
+  if (!isTauri()) throw new Error("shareAttachment is Tauri-only");
+  return invokeCmd("share_attachment", { id: uuid, name });
+}
+
+export async function saveAttachmentNative(
+  uuid: string,
+  name: string
+): Promise<{ saved: boolean }> {
+  if (!isTauri()) throw new Error("saveAttachmentNative is Tauri-only");
+  return invokeCmd("save_attachment", { id: uuid, name });
 }
 
 export async function importLibrary(

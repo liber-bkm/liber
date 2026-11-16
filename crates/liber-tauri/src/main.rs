@@ -6,6 +6,7 @@ use liber_core::search::{order_results, resolve_sort_mode, SearchFields};
 use liber_core::store::{BookmarkFilter, Store};
 use liber_tauri::{open_store, AddResult, AppState, ListResponse, TauriBookmark};
 use tauri::{Manager, State};
+#[cfg(desktop)]
 use tauri_plugin_opener::OpenerExt;
 
 fn resolve_one(store: &Store, id: &str) -> Result<liber_core::model::Bookmark, String> {
@@ -1079,18 +1080,53 @@ fn fetch_archive(state: State<'_, AppState>, id: String) -> Result<serde_json::V
     Ok(serde_json::json!({"html": html}))
 }
 
-fn temp_open_path(file_name: &str) -> std::path::PathBuf {
-    let safe: String = file_name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    std::env::temp_dir().join(format!("liber-{safe}"))
+fn stage_attachment(
+    state: &AppState,
+    app: &tauri::AppHandle,
+    id: &str,
+    name: &str,
+) -> Result<(std::path::PathBuf, String, String), String> {
+    let store = open_store(state)?;
+    let target = resolve_one(&store, id)?;
+    let Some(at) = target
+        .attachments
+        .iter()
+        .find(|a| a.name.eq_ignore_ascii_case(name))
+    else {
+        return Err("no such attachment".to_string());
+    };
+    let data = std::fs::read(store.cfg.attachment_dir().join(&at.path))
+        .map_err(|_| "attachment file missing".to_string())?;
+    let path = liber_tauri::temp_files::staged_path(
+        app,
+        &format!("{}-attachment_{}", target.uuid, at.name),
+    )?;
+    std::fs::write(&path, data).map_err(|e| e.to_string())?;
+    let mime = liber_core::archive::mime_for(&at.name, None);
+    Ok((path, mime, at.name.clone()))
+}
+
+fn open_staged_file(
+    app: &tauri::AppHandle,
+    path: &std::path::Path,
+    mime: &str,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        liber_tauri::android_open::open(app, path, mime)
+    }
+    #[cfg(desktop)]
+    {
+        let _ = mime;
+        app.opener()
+            .open_path(path.to_string_lossy(), None::<String>)
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "ios")]
+    {
+        let _ = (app, path, mime);
+        Err("opening files outside the app is not supported on iOS yet".to_string())
+    }
 }
 
 #[tauri::command]
@@ -1106,11 +1142,10 @@ fn open_archive_external(
     };
     let html = std::fs::read_to_string(store.cfg.archive_dir().join(rel))
         .map_err(|_| "archive file missing".to_string())?;
-    let path = temp_open_path(&format!("archive-{}.html", target.uuid));
+    let path =
+        liber_tauri::temp_files::staged_path(&app, &format!("archive-{}.html", target.uuid))?;
     std::fs::write(&path, html).map_err(|e| e.to_string())?;
-    app.opener()
-        .open_path(path.to_string_lossy(), None::<String>)
-        .map_err(|e| e.to_string())?;
+    open_staged_file(&app, &path, "text/html")?;
     Ok(serde_json::json!({"opened": true}))
 }
 
@@ -1121,23 +1156,49 @@ fn open_attachment_external(
     id: String,
     name: String,
 ) -> Result<serde_json::Value, String> {
-    let store = open_store(&state)?;
-    let target = resolve_one(&store, &id)?;
-    let Some(at) = target
-        .attachments
-        .iter()
-        .find(|a| a.name.eq_ignore_ascii_case(&name))
-    else {
-        return Err("no such attachment".to_string());
-    };
-    let data = std::fs::read(store.cfg.attachment_dir().join(&at.path))
-        .map_err(|_| "attachment file missing".to_string())?;
-    let path = temp_open_path(&format!("{}-{}_{}", target.uuid, "attachment", at.name));
-    std::fs::write(&path, data).map_err(|e| e.to_string())?;
-    app.opener()
-        .open_path(path.to_string_lossy(), None::<String>)
-        .map_err(|e| e.to_string())?;
+    let (path, mime, _) = stage_attachment(state.inner(), &app, &id, &name)?;
+    open_staged_file(&app, &path, &mime)?;
     Ok(serde_json::json!({"opened": true}))
+}
+
+#[tauri::command]
+fn share_attachment(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    id: String,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let (path, mime, display) = stage_attachment(state.inner(), &app, &id, &name)?;
+        liber_tauri::android_open::share(&app, &path, &mime, &display)?;
+        Ok(serde_json::json!({"shared": true}))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (state, app, id, name);
+        Err("sharing attachments is only available on Android".to_string())
+    }
+}
+
+#[tauri::command]
+fn save_attachment(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    id: String,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let (path, mime, display) = stage_attachment(state.inner(), &app, &id, &name)?;
+        liber_tauri::android_open::save(&app, &path, &mime, &display)?;
+        Ok(serde_json::json!({"saved": true}))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (state, app, id, name);
+        Err("saving attachments natively is only available on Android".to_string())
+    }
 }
 
 #[tauri::command]
@@ -1491,13 +1552,17 @@ fn resolve_app_config(
 }
 
 pub(crate) fn main() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_deep_link::init());
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(liber_tauri::android_open::plugin());
+    builder
         .setup(|app| {
             let (cfg, path) = resolve_app_config(app.handle())
                 .map_err(|e| Box::<dyn std::error::Error>::from(format!("loading config: {e}")))?;
             app.manage(liber_tauri::AppState::new(cfg, path));
+            let _ = liber_tauri::temp_files::cleanup_stale(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1540,6 +1605,8 @@ pub(crate) fn main() {
             refresh_favicons,
             open_archive_external,
             open_attachment_external,
+            share_attachment,
+            save_attachment,
             import_library,
             export_bookmarks,
             backup_library,
