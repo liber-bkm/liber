@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "liber",
-    "version": "0.11.4",
+    "version": "0.11.5",
     "description": "One-click capture to your local-first liber library.",
     "action": {
         "default_title": "Save to liber",
